@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Hypersphere from "@/components/Hypersphere";
 
 export default function Home() {
