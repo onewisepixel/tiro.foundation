@@ -20,7 +20,7 @@ export default function Home() {
             className="px-4 py-2 w-full max-w-md rounded text-black mb-4"
           />
           <button className="bg-white text-black px-6 py-2 rounded hover:bg-gray-300 transition">
-            Notify Me
+            Notify Me Now!
           </button>
         </div>
       </main>
