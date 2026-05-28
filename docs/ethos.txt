@@ -1,0 +1,394 @@
+# TIRO Digital Presence & Memory Project — Living Product Spec (v0.1)
+
+> A north-star document for the web portal that hosts **The Memory Project**, designed to stay useful from **Phase 1** to **Phase 15**—even as technology evolves. This spec favors **universal modularity**, **future‑first UX**, **accessibility**, and a **custodial paradigm** of culture and memory.
+
+---
+
+## 0) Principles & Non‑Negotiables
+
+1. **Custodial by design**
+   TIRO is a neutral, trusted custodian for human memory. We bias for longevity, provenance, and consent, not virality.
+
+2. **Provider‑agnostic, universally modular**
+   Everything integrates via adapters: storage, search, auth, payments, analytics, LLMs, and messaging.
+
+3. **Privacy, dignity, consent**
+   Consent is explicit, traceable, and revocable. PII minimization, data sovereignty, and export are first‑class.
+
+4. **Accessible & inclusive**
+   WCAG 2.2 AA (min), screen‑reader parity, captions/transcripts, color‑contrast budgets, and motion‑safe defaults.
+
+5. **Performance budgets**
+   Core Web Vitals targets: LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1 on 4G mid‑tier phones worldwide.
+
+6. **Observability & auditability**
+   End‑to‑end versioning, immutable audit logs for consent & curation actions, transparent model cards for AI features.
+
+7. **Sovereign growth**
+   Translate before you market. Ship i18n frameworks from the start. Incentivize community translations.
+
+---
+
+## 1) High‑Level Goals
+
+* **Host site for The Memory Project**: collection, curation, discovery, and stewardship of memories.
+* **A clean, timeless brand** with a tactile, modern interface that never overwhelms the subject matter.
+* **A platform for collaborators** (students, researchers, elders, translators, archivists) to contribute safely.
+* **A canonical API** and SDKs so TIRO experiences can appear on web, mobile, kiosks, and partner sites.
+
+---
+
+## 1.1) Manifesto → Product Traceability
+
+| Manifesto principle | Product requirement(s) in this spec | Success signals |
+| --- | --- | --- |
+| Memory without continuity must be avoided | Versioned `Memory`/`Consent`/`Audit`; export + checksum manifests; content lifecycle with changelog | Export completeness checks pass; provenance present on published memories |
+| Intelligence must remain empathetic and human-centered | Human-in-the-loop review queues; model cards; sensitivity workflows; dual-control for sensitive material | Reviewer override rates tracked; sensitive-content incidents trend downward |
+| Stewardship over speed/virality | Custodial design principle; governance and ethics board; long-horizon archival connectors | Retention and consent compliance SLAs met; successful archival deposit drills |
+| Capability must be paired with responsibility | RBAC/ABAC, signed URLs, auditability, region-aware consent, transparency metrics | Access violations minimized; consent revocation honored within policy windows |
+| Progress should remain recognizably human | Accessibility baseline (WCAG 2.2 AA), language inclusion, respectful voice standards | A11y audits passing; translated critical flows available in target locales |
+
+---
+
+## 2) Sitemap (v0.1)
+
+**Public**
+
+* `/` — Home (purpose, featured memories, latest pathways, call‑to‑action)
+* `/memory-project` — Overview, how it works, ethics, submission guidelines
+* `/memories` — Explore (search, filters, map/timeline views)
+
+  * `/memories/:id` — Memory detail (media, transcript, provenance, consent, related)
+* `/pathways` — Curated narrative routes through memories
+
+  * `/pathways/:id`
+* `/nodes` — People, places, institutions (subjects, collectors, partners)
+
+  * `/nodes/:id`
+* `/about` — Mission, custodial paradigm, governance
+* `/news` — Updates, research, releases
+* `/support` — Donate/partner, transparency reports
+* `/legal` — Terms, Privacy, Consent policy
+
+**Account**
+
+* `/signin` | `/signup` — Passwordless/SSO
+* `/dashboard` — Contributor & Curator hub
+
+  * `/dashboard/submissions`
+  * `/dashboard/assignments` (tasks for students/volunteers)
+  * `/dashboard/consents` (statuses, renewals)
+  * `/dashboard/translations`
+  * `/dashboard/profile` (role, languages, affiliations)
+
+**Staff (secured)**
+
+* `/admin` — Collections, curation queue, redaction, consent registry, audits, feature flags
+
+---
+
+## 3) Core Feature Modules (Universal & Swappable)
+
+### 3.1 Identity & Roles
+
+* Passwordless email or passkeys; optional SSO (Google/Microsoft/Apple).
+* Roles: **Visitor**, **Contributor**, **Curator**, **Archivist**, **Translator**, **Partner**, **Staff**.
+* Fine‑grained policies via RBAC/ABAC (e.g., regional collections, sensitive content gates).
+
+### 3.2 Memory Ingestion
+
+* Guided multi‑step uploader (media → metadata → consent → review).
+* Accepts images, audio, video, text, PDFs. Auto‑transcode, checksums, virus scanning.
+* **Field sets**: title, summary, subject(s), location (geo), language(s), capture date, cultural context, content warnings, rights.
+* Offline‑friendly chunked uploads; resumable; background processing.
+
+### 3.3 Consent & Rights Registry
+
+* Consent types: Record, Use, Publish, Research, Derivative Works.
+* Capture signer identity, date, scope, jurisdiction, and withdrawal terms.
+* Versioned consents tied to Memory IDs; redaction upon revocation where required.
+
+### 3.4 Processing & Enrichment
+
+* Transcription (speech‑to‑text), translation memory, entity metadata (people/places/keywords).
+* Human‑in‑the‑loop verification queues; provenance chain maintained.
+
+### 3.5 Curation & Moderation
+
+* Queues for review, sensitivity flags, cultural protocols, redaction tools (blur, bleep, crop, transcript redaction).
+* Dual‑control approvals for sensitive materials.
+
+### 3.6 Discovery & Navigation
+
+* Universal **Search** (keyword, facets: language, region, era, medium, tags, consent).
+* **Pathways**: narrative playlists/maps; embeddable; exportable.
+* **Timelines** & **Geo‑maps** with clustering and offline tiles.
+
+### 3.7 Participation & Programs
+
+* Assignments for students/volunteers; checklists; mentor review; verification scores.
+* Translator workflows with memory‑based suggestions; glossary.
+
+### 3.8 Notifications & Messaging
+
+* In‑app and email digests. Event hooks (webhooks) for integrations.
+
+### 3.9 Analytics & Transparency
+
+* Collection metrics, contributor impact, translation throughput, consent statuses, uptime, and audits.
+
+### 3.10 Sustainability & Export
+
+* Open export (JSONL + media manifests + checksums). Cold storage strategies. External deposit (e.g., partner archives).
+
+---
+
+## 4) Data & Domain Model (v0.1)
+
+**Entities** (IDs are UUIDv7; all write operations are versioned):
+
+* `Memory` — core object (status: draft|review|published|restricted|withdrawn)
+  Fields: mediaRefs[], transcript, languages[], tags[], geo, era, rightsRefs[], related[]
+* `Consent` — linked to person(s) + memory; history/version chain
+* `Person` — subject or contributor; minimal PII; contact stored encrypted
+* `Node` — any entity: person, place, institution; typed with attributes
+* `Pathway` — ordered references + annotations
+* `Assignment` — task with rubric, submissions, mentor sign‑off
+* `Translation` — language, sourceRef, reviewerRef, quality score
+* `Audit` — append‑only trail of actions and justifications
+
+**Storage abstraction**
+Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate), search (OpenSearch/Algolia), and RDB (Postgres/PlanetScale). Media never stored in the DB.
+
+---
+
+## 5) Architecture Snapshot
+
+* **Frontend**: Next.js (App Router), React Server Components, Edge Runtime where possible.
+* **Design System**: tokens (color/typography/spacing/motion), component library, iconography set.
+* **Backend**: API Gateway → service layer (Node/TypeScript). Event bus (Kafka/PubSub/SNS). Workers for media/AI jobs.
+* **Adapters**: `@tiro/*-adapter` packages for auth, storage, search, payments, mail, llm, notifications.
+* **Infra**: IaC (Terraform). Multi‑region active‑active read; active‑passive write. CDN + signed URLs for media.
+* **Observability**: structured logs, traces, metrics; redaction at source.
+* **Secrets**: KMS‑backed; zero in repo.
+
+---
+
+## 6) Phased Delivery Plan (v0 → v5)
+
+**Phase 0 — Foundations (2–4 sprints)**
+
+* Repo scaffolding, CI/CD, IaC baseline, design tokens, auth (passwordless), RBAC, storage adapter, uploader MVP, audit log scaffolding.
+
+**Phase 1 — Memory MVP**
+
+* Public site, Memory ingestion + consent capture, transcript pipeline, basic search, Memory detail page, admin review queue.
+
+**Phase 2 — Programs & Curation**
+
+* Assignments, checklists, curation tools, redaction, sensitive flows, translations v1, Pathways v1.
+
+**Phase 3 — Discovery & Scale**
+
+* Faceted search, maps & timelines, performance budgets enforced, offline‑friendly uploads, transparency dashboard v1.
+
+**Phase 4 — Ecosystem & SDKs**
+
+* Public API (OAuth/apps), webhooks, SDKs, embeddable players, partner ingestion.
+
+**Phase 5 — Sustainability & Exports**
+
+* Open export, archival connectors, cold storage policies, grant/partner integrations.
+
+> Future: tokenized incentives, reputation systems, LLM assist for curation/transcription with model cards and human review.
+
+### 6.1) Explicit v1 Scope Boundaries (Execution Guardrails)
+
+**In scope for v1 (ship target):**
+
+* Public site (`/`, `/memory-project`, `/memories`, `/memories/:id`, `/about`, `/legal`).
+* Contributor sign-in (passwordless) and baseline roles (Visitor, Contributor, Curator, Staff).
+* Memory ingestion MVP: upload, metadata, consent capture, processing queue, basic moderation.
+* Transcript generation + human correction workflow.
+* Search v1: keyword + core facets (language, region, era, medium).
+* Admin review queue with publish/restrict states and immutable audit events.
+* Foundational accessibility/performance budgets and observability baseline.
+
+**Out of scope for v1 (defer):**
+
+* Advanced map/timeline exploration with offline tiles.
+* Partner OAuth app ecosystem, public SDKs, and webhooks at scale.
+* Full assignments/programs suite and translation memory optimization.
+* Tokenized incentives, reputation systems, and kiosk/interactive exhibits.
+* Multi-region active-active architecture beyond baseline reliability target.
+
+**v1 completion definition:**
+
+* A contributor can submit a memory with explicit consent, a curator can review/publish it, and a visitor can discover and cite it with visible provenance.
+
+---
+
+## 7) UX & Brand System
+
+**Personality**: quiet confidence, respectful, contemporary. The *memories* are the hero—UI recedes.
+
+**Design tokens** (example names—map to actual hex in brand repo):
+
+* Colors: `--tiro-ink`, `--tiro-paper`, `--tiro-gold`, `--tiro-stone`, `--tiro-accent` (motion‑safe alternates).
+* Type: Inter/Source Serif Pro (system fallbacks). Scale 1.125 modular.
+* Radius: 16–24px for large surfaces; micro‑radius 6–8px for inputs.
+* Motion: prefers‑reduced‑motion respected; durations 120–240ms; no parallax gates without opt‑in.
+* Components: Cards, MediaViewer, TranscriptPanel, ConsentBanner, PathwayRail, AssignmentBoard, TagChips, InlineGlossary.
+
+**Interaction patterns**
+
+* Multi‑step wizards with progress, autosave, and clear exit/resume.
+* Content‑first cards; hover reveals metadata; focus states always visible.
+* Map & timeline toggles: keyboard navigable, captioned.
+
+**Accessibility**
+
+* WCAG 2.2 AA baseline. `aria-live` for background processing. Color contrast ≥ 4.5:1.
+* Captions/transcripts mandatory for public audio/video.
+* All critical actions offer undo; destructive actions require reason logging.
+
+### 7.1) Product Copy Guardrails (UI + System Messaging)
+
+* Default tone: clear, calm, respectful, precise; never sensational.
+* Prefer stewardship language over growth language ("preserve", "review", "publish with consent").
+* Avoid anthropomorphizing AI/system behavior; describe concrete actions and limits.
+* Critical actions must explain consequence, reversibility, and next step in one concise block.
+* Error copy must admit failure plainly, provide immediate recovery actions, and preserve user dignity.
+* Consent and privacy copy must be explicit, plain-language, and localized before release.
+* Avoid urgency gimmicks and startup cliches in CTA labels; prefer archival/institutional framing.
+* For sensitive content notices: informative, non-graphic, and user-controlled (opt-in reveal where possible).
+
+---
+
+## 8) Example Use Cases & Flows
+
+1. **Student Field Collector**
+
+* Receives Assignment → uses uploader → captures consent (photo/signature) → submits → mentor review → publish/restrict.
+
+2. **Translator**
+
+* Picks task → assisted by translation memory → submits → reviewer approves → attribution shown on Memory.
+
+3. **Curator/Archivist**
+
+* Filters new items by region/era → redacts sensitive details → links related Nodes → assembles a Pathway.
+
+4. **Visitor/Researcher**
+
+* Lands on `/memory-project` → explores timeline → opens Memory → reads transcript → cites with permalink + checksum.
+
+5. **Partner Institution**
+
+* Uses API to sync collection metadata; pushes new items via signed ingest endpoints; receives webhooks on publish.
+
+---
+
+## 9) API Surface (v0.1 sketch)
+
+`POST /api/memories` (multipart) → 202 Accepted (jobId)
+`GET /api/memories/:id` → Memory + consent summary
+`POST /api/consents` → link to memory/person
+`GET /api/search?q=&facets=` → results + facets
+`POST /api/transcripts/:id` → submit/replace transcript
+`POST /api/pathways` → create/update pathway
+`POST /api/assignments` → create tasks; list & submit
+Webhook events: `memory.processed`, `memory.published`, `consent.revoked`, `translation.submitted`.
+
+Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
+
+---
+
+## 10) Security, Privacy, Governance
+
+* **Threat model**: PII leakage, unauthorized access, scraping, link‑sharing of restricted content, supply‑chain dependencies.
+* **Controls**: least‑privilege RBAC/ABAC; signed media URLs; regional data residency; encryption at rest/in transit; rate‑limits; WAF.
+* **Governance**: Ethics board for sensitive collections; regional stewards; takedown protocols; transparency & appeals.
+* **Compliance posture**: GDPR/CCPA basics; consent receipts; subject access & deletion; data retention schedules.
+
+---
+
+## 11) Observability & Quality
+
+* **SLOs**: uptime 99.9%, ingest pipeline P95 < 15m to publish, search P95 < 250ms.
+* **Logs/traces/metrics**: structured; PII redaction at source.
+* **QA**: accessibility audits, performance budgets, cross‑device testing (low‑end Android), red‑team for privacy.
+
+---
+
+## 12) Content Lifecycle
+
+* Draft → Review → Published/Restricted → Versioned updates → Withdrawn/Archived.
+* Every state change emits an audit event and a user‑facing changelog entry.
+
+---
+
+## 13) Internationalization (i18n)
+
+* ICU message format; `lang` routing; language‑aware search; RTL ready.
+* Community translation workflows; reward signals (non‑financial to start, future tokenization optional).
+
+---
+
+## 14) Performance & Offline Strategy
+
+* Image/video adaptive delivery; preconnect, priority hints; critical CSS; script budgets.
+* Uploader supports offline capture and later resume; background sync where supported.
+* Edge caching of public content; stale‑while‑revalidate.
+
+---
+
+## 15) Roadmap Notes (beyond v5)
+
+* **Reputation & Incentives**: non‑transferable badges; later, tokenized incentives with anti‑gaming heuristics and K‑factor throttles.
+* **LLM Assist**: summarization drafts, metadata suggestions, sensitive‑content heuristics with human sign‑off and documented limitations.
+* **Interactive Exhibits**: kiosk mode, partner microsites powered by the same APIs.
+
+---
+
+## 16) Open Questions (to iterate in v0.2)
+
+* Final brand palette & typography locks (map tokens to exact hex/weights).
+* Consent policy templates by region (library + expert review).
+* Initial storage/search providers to target (adapters already specified).
+* First three partner integrations (ingest/export).
+* Program rubrics for student assignments (validation & mentor ratios).
+
+---
+
+### Appendix A — Example Component Specs (abbrev.)
+
+**MemoryCard**
+
+* Props: `title`, `summary`, `thumbSrc`, `duration`, `language`, `era`, `flags[]`
+* States: loading, error, restricted (mask + request access flow)
+* A11y: full keyboard focus ring; enter/space to open; aria‑label includes language and duration
+
+**ConsentBanner**
+
+* Shows consent scope; link to revocation instructions; localized boilerplate; always visible on detail pages
+
+**TranscriptPanel**
+
+* Side‑by‑side with media; searchable; downloadable; caption export (WebVTT/SRT)
+
+**PathwayRail**
+
+* Horizontal/vertical; step annotations; shareable; embeddable script
+
+---
+
+### Appendix B — Brand & Content Voice (draft)
+
+* Voice: clear, warm, precise; avoid anthropologizing language; prefer subjects’ own words.
+* Microcopy: action‑oriented, respectful. Error copy admits fault and offers next steps.
+* Imagery: high‑contrast documentary style; motion only where it deepens understanding.
+
+---
+
+**This is a living document.** Propose edits inline; version as `/docs/specs/tiro-dxp-memory-v0.1.md`. Changelog entries accompany each merge.
