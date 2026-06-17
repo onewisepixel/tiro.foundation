@@ -20,7 +20,7 @@ export default function Home() {
           </p>
 
           <h1 className="mb-6 text-5xl font-semibold leading-tight tracking-tight text-[var(--tiro-text)] md:text-7xl">
-            The Tiro Foundation
+            The TIRO Foundation
           </h1>
 
           <p className="mb-12 max-w-xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
