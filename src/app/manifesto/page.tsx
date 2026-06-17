@@ -24,7 +24,7 @@ const pillars = [
 export default function ManifestoPage() {
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#0b0c10] text-white"
+      className="relative min-h-screen overflow-hidden bg-[var(--tiro-bg)] text-[var(--tiro-text)]"
       style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}
     >
       {/* Animated background orb */}
@@ -38,30 +38,30 @@ export default function ManifestoPage() {
       {/* ── Hero ── */}
       <section className="relative z-10 flex flex-col items-center justify-center px-6 pb-14 pt-32 text-center md:pb-16 md:pt-44">
         <p
-          className="mb-6 text-xs tracking-[0.3em] uppercase text-white/30"
+          className="mb-6 text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]"
           aria-label="Version"
         >
           Manifesto v0.1
         </p>
 
-        <h1 className="mb-6 text-5xl font-semibold leading-tight tracking-tight text-white md:text-7xl">
+        <h1 className="mb-6 text-5xl font-semibold leading-tight tracking-tight text-[var(--tiro-text)] md:text-7xl">
           The Tiro Foundation
         </h1>
 
-        <p className="max-w-xl text-base leading-relaxed text-white/55 md:text-lg">
+        <p className="max-w-xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
           An exploration into memory, systems, empathy, and human continuity.
         </p>
 
         {/* Thin divider */}
-        <div className="mt-12 h-px w-16 bg-white/15" />
+        <div className="mt-12 h-px w-16 bg-[var(--tiro-border)]" />
       </section>
 
       <section id="core-thesis" className="relative z-10 px-6 pb-12 md:pb-16">
-        <div className="mx-auto max-w-3xl rounded-xl border border-white/10 bg-white/[0.02] p-7 backdrop-blur-sm md:p-9">
-          <p className="mb-4 text-xs tracking-[0.3em] uppercase text-white/30">
+        <div className="mx-auto max-w-3xl rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
+          <p className="mb-4 text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]">
             Core Thesis
           </p>
-          <p className="text-sm leading-[1.9] text-white/55 md:text-base">
+          <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
             Exploration without empathy becomes extraction. Intelligence
             without memory becomes dangerous. Systems intended to shape the
             future must first understand the people, histories, and cultures
@@ -73,7 +73,7 @@ export default function ManifestoPage() {
       {/* ── Core Pillars ── */}
       <section id="core-pillars" className="relative z-10 px-6 pb-16 md:pb-24">
         <div className="mx-auto max-w-5xl">
-          <h2 className="mb-12 text-center text-xs tracking-[0.3em] uppercase text-white/30">
+          <h2 className="mb-12 text-center text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]">
             Core Pillars
           </h2>
 
@@ -81,14 +81,14 @@ export default function ManifestoPage() {
             {pillars.map(({ label, description }) => (
               <div
                 key={label}
-                className="group rounded-xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur-sm
+                className="group rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-8 backdrop-blur-sm
                            transition-all duration-500
-                           hover:border-white/20 hover:bg-white/[0.06] hover:shadow-[0_0_32px_rgba(120,100,255,0.07)]"
+                           hover:bg-[var(--tiro-surface-strong)] hover:shadow-[0_0_32px_rgba(120,100,255,0.07)]"
               >
-                <h3 className="mb-3 text-lg font-semibold tracking-wide text-white/90 transition-colors duration-300 group-hover:text-white">
+                <h3 className="mb-3 text-lg font-semibold tracking-wide text-[var(--tiro-text-soft)] transition-colors duration-300 group-hover:text-[var(--tiro-text)]">
                   {label}
                 </h3>
-                <p className="text-sm leading-relaxed text-white/55 transition-colors duration-300 group-hover:text-white/70">
+                <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)] transition-colors duration-300 group-hover:text-[var(--tiro-text-soft)]">
                   {description}
                 </p>
               </div>
@@ -100,10 +100,10 @@ export default function ManifestoPage() {
       {/* ── Founding Statement ── */}
       <section id="founding-statement" className="relative z-10 px-6 pb-28 md:pb-36">
         <div className="mx-auto max-w-xl">
-          <p className="mb-5 text-xs tracking-[0.3em] uppercase text-white/25">
+          <p className="mb-5 text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]">
             A Note on Origins
           </p>
-          <p className="text-sm leading-[1.85] text-white/55 md:text-base">
+          <p className="text-sm leading-[1.85] text-[var(--tiro-text-muted)] md:text-base">
             TIRO emerged from a belief that technological progress without
             cultural memory and human empathy becomes directionless. The
             Foundation exists to explore systems that preserve continuity

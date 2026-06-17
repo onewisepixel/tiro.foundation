@@ -18,7 +18,7 @@ const submissionGuidelines = [
 export default function MemoryProjectPage() {
   return (
     <main
-      className="relative min-h-screen overflow-hidden bg-[#0b0c10] pt-28 text-white md:pt-32"
+      className="relative min-h-screen overflow-hidden bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32"
       style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}
     >
       <div
@@ -30,13 +30,13 @@ export default function MemoryProjectPage() {
 
       <section className="relative z-10 px-6 pb-14 pt-8 md:pb-16 md:pt-12">
         <div className="mx-auto max-w-5xl">
-          <p className="mb-6 text-xs uppercase tracking-[0.3em] text-white/30">
+          <p className="mb-6 text-xs uppercase tracking-[0.3em] text-[var(--tiro-text-subtle)]">
             Memory Project v0.1
           </p>
-          <h1 className="mb-6 text-4xl font-semibold leading-tight tracking-tight text-white md:text-6xl">
+          <h1 className="mb-6 text-4xl font-semibold leading-tight tracking-tight text-[var(--tiro-text)] md:text-6xl">
             A Living Archive for Human Continuity
           </h1>
-          <p className="max-w-3xl text-base leading-relaxed text-white/55 md:text-lg">
+          <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
             The Memory Project is TIRO&apos;s long-horizon effort to preserve
             memory with provenance, consent, and cultural context. We are
             building systems where collection, curation, and discovery remain
@@ -46,11 +46,11 @@ export default function MemoryProjectPage() {
       </section>
 
       <section className="relative z-10 px-6 pb-12 md:pb-16">
-        <div className="mx-auto max-w-5xl rounded-xl border border-white/10 bg-white/[0.02] p-7 backdrop-blur-sm md:p-9">
-          <p className="mb-4 text-xs uppercase tracking-[0.3em] text-white/30">
+        <div className="mx-auto max-w-5xl rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
+          <p className="mb-4 text-xs uppercase tracking-[0.3em] text-[var(--tiro-text-subtle)]">
             Ethics and Consent
           </p>
-          <p className="text-sm leading-[1.9] text-white/55 md:text-base">
+          <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
             Consent is explicit, traceable, and revocable. Every contribution
             must carry clear provenance and rights context. TIRO treats dignity,
             privacy, and stewardship as infrastructure requirements, not policy
@@ -61,25 +61,31 @@ export default function MemoryProjectPage() {
 
       <section className="relative z-10 px-6 pb-28 md:pb-36">
         <div className="mx-auto max-w-5xl">
-          <p className="mb-6 text-xs uppercase tracking-[0.3em] text-white/30">
+          <p className="mb-6 text-xs uppercase tracking-[0.3em] text-[var(--tiro-text-subtle)]">
             Submission Guidelines
           </p>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-7 backdrop-blur-sm md:p-9">
-            <ul className="space-y-4 text-sm leading-relaxed text-white/55 md:text-base">
+          <div className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
+            <ul className="space-y-4 text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
               {submissionGuidelines.map((item) => (
                 <li key={item} className="flex items-start gap-3">
-                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-white/50" />
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--tiro-text-muted)]" />
                   <span>{item}</span>
                 </li>
               ))}
             </ul>
 
-            <div className="mt-10 border-t border-white/10 pt-6">
+            <div className="mt-10 space-y-4 border-t border-[var(--tiro-border)] pt-6">
               <Link
                 href="/manifesto"
-                className="text-sm text-white/50 underline decoration-white/20 underline-offset-4 transition-colors duration-300 hover:text-white/75"
+                className="block text-sm text-[var(--tiro-text-muted)] underline decoration-[var(--tiro-border)] underline-offset-4 transition-colors duration-300 hover:text-[var(--tiro-text-soft)]"
               >
                 Read the Manifesto v0.1
+              </Link>
+              <Link
+                href="/memories/lagos-port-harcourt-migration"
+                className="block text-sm text-[var(--tiro-text-muted)] underline decoration-[var(--tiro-border)] underline-offset-4 transition-colors duration-300 hover:text-[var(--tiro-text-soft)]"
+              >
+                View Sample Memory
               </Link>
             </div>
           </div>

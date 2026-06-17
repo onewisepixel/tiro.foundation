@@ -1,0 +1,200 @@
+# TIRO Workshop — Memory System v0.2
+
+Current status:
+
+* Landing page exists
+* Manifesto page exists
+* Memory Project page exists
+* `/memories/demo` exists as a static Memory detail page
+* Visual language is dark, restrained, archival, institutional, and elegant
+
+Goal for this session:
+Evolve the static memory detail page into a reusable Memory system prototype with media support, related nodes, and a browsable memory index.
+
+Do not add a database yet.
+Do not add auth yet.
+Do not add upload flows yet.
+Do not add external dependencies unless absolutely necessary.
+
+## 1. Create a reusable Memory data model
+
+Create a local mock data file, for example:
+
+`src/data/memories.ts`
+
+Define a TypeScript type/interface for `MemoryRecord`.
+
+Suggested fields:
+
+```ts
+type MemoryMedia = {
+  type: "image" | "audio" | "video" | "none";
+  src?: string;
+  alt?: string;
+  caption?: string;
+  duration?: string;
+  credit?: string;
+};
+
+type RelatedNode = {
+  label: string;
+  type: "Person" | "Place" | "Theme" | "Institution" | "Language";
+  href?: string;
+};
+
+type MemoryRecord = {
+  id: string;
+  title: string;
+  summary: string;
+  location: string;
+  language: string;
+  era: string;
+  contributor: string;
+  consentStatus: string;
+  provenance: string;
+  rightsUsage: string;
+  sensitivity?: string;
+  media: MemoryMedia;
+  transcript: string;
+  culturalContext: string;
+  tags: string[];
+  relatedNodes: RelatedNode[];
+  relatedMemories: {
+    title: string;
+    summary: string;
+    href: string;
+  }[];
+};
+```
+
+Create at least 3 demo memory records:
+
+* `lagos-port-harcourt-migration`
+* `rain-season-enugu`
+* `market-song-lagos`
+
+The existing `/memories/demo` may redirect to or render the Lagos migration record.
+
+## 2. Build a reusable MediaViewer component
+
+Create:
+
+`src/components/MemoryMediaViewer.tsx`
+
+Requirements:
+
+* If media type is `"image"`, render a large archival image frame.
+* If media type is `"audio"`, render an HTML5 audio player inside a styled archival card.
+* If media type is `"video"`, render an HTML5 video player with controls.
+* If media type is `"none"`, render a restrained placeholder that says:
+  “No public media attached to this record.”
+* Always show caption and credit if available.
+* Styling should match existing TIRO visual system.
+* Use semantic HTML.
+* Keep it accessible.
+* Do not autoplay anything.
+
+Placement:
+On the Memory detail page, place the media viewer after Provenance/Consent and before Transcript.
+
+Rationale:
+The record should establish trust, provenance, and rights before inviting media consumption.
+
+## 3. Refactor Memory detail page
+
+Create a reusable detail component if helpful:
+
+`src/components/MemoryDetail.tsx`
+
+The page should render:
+
+* Hero
+* Metadata cards
+* Provenance / consent / rights card
+* Media viewer
+* Transcript panel
+* Cultural context / notes
+* Tags
+* Related nodes
+* Related memories
+
+Use the mock data file as the source of truth.
+
+## 4. Add `/memories` index page
+
+Create:
+
+`src/app/memories/page.tsx`
+
+This should display all demo memory records as cards.
+
+Each card should include:
+
+* title
+* summary
+* location
+* era
+* media type indicator
+* tags
+* link to detail page
+
+The page should feel like the beginning of an archive, not a blog list.
+
+Title:
+“Memory Records”
+
+Subtitle:
+“Early archival prototypes for preserving memory with provenance, consent, and cultural context.”
+
+## 5. Add dynamic route for memory records
+
+Create:
+
+`src/app/memories/[id]/page.tsx`
+
+Use the mock data file to find a memory by id.
+
+If no record exists, show a clean not-found state or use Next.js `notFound()`.
+
+Keep `/memories/demo` working if it already exists, but it can redirect to `/memories/lagos-port-harcourt-migration`.
+
+## 6. Add Related Nodes section
+
+On the memory detail page, render related nodes as subtle chips or small cards.
+
+Examples:
+
+* Lagos — Place
+* Port Harcourt — Place
+* Internal Migration — Theme
+* Nigerian Pidgin — Language
+* Informal Labor — Theme
+
+This is the seed of TIRO’s future knowledge graph.
+
+## 7. Add Related Memories section
+
+At the bottom of each memory detail page, show 2–3 related memories.
+
+This should create the feeling that the archive is navigable and interconnected.
+
+## 8. Quality rules
+
+* Do not overdesign.
+* Do not add bright neon colors.
+* Do not make it feel like a media startup.
+* Preserve institutional restraint.
+* Keep spacing elegant.
+* Ensure mobile responsiveness.
+* Avoid excessive animation.
+* Keep components readable.
+* Avoid premature backend architecture.
+
+## 9. Final output
+
+After implementation, summarize:
+
+* files created
+* files modified
+* how to test locally
+* what to improve next
