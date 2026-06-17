@@ -7,16 +7,17 @@ type Params = {
   id: string;
 };
 
+type PageProps = {
+  params: Promise<Params>;
+};
+
 export function generateStaticParams() {
   return memories.map((memory) => ({ id: memory.id }));
 }
 
-export function generateMetadata({
-  params,
-}: {
-  params: Params;
-}): Metadata {
-  const memory = getMemoryById(params.id);
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
+  const memory = getMemoryById(id);
 
   if (!memory) {
     return {
@@ -31,8 +32,9 @@ export function generateMetadata({
   };
 }
 
-export default function MemoryDetailRoute({ params }: { params: Params }) {
-  const memory = getMemoryById(params.id);
+export default async function MemoryDetailRoute({ params }: PageProps) {
+  const { id } = await params;
+  const memory = getMemoryById(id);
 
   if (!memory) {
     notFound();

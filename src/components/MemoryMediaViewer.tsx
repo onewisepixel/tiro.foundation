@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { MemoryMedia } from "@/data/memories";
 
 type MemoryMediaViewerProps = {
@@ -43,12 +44,15 @@ export default function MemoryMediaViewer({ media }: MemoryMediaViewerProps) {
       <figure className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-5 backdrop-blur-sm md:p-7">
         <div className="overflow-hidden rounded-lg border border-[var(--tiro-border)] bg-[color-mix(in_srgb,var(--tiro-bg)_84%,black)]">
           {media.src ? (
-            <img
-              src={media.src}
-              alt={media.alt || "Archival image"}
-              className="h-auto w-full object-cover"
-              loading="lazy"
-            />
+            <div className="relative h-64 w-full md:h-80">
+              <Image
+                src={media.src}
+                alt={media.alt || "Archival image"}
+                fill
+                sizes="(min-width: 768px) 768px, 100vw"
+                className="object-cover"
+              />
+            </div>
           ) : (
             <div className="grid h-64 place-items-center bg-gradient-to-b from-[var(--tiro-surface-strong)] to-[var(--tiro-surface)] px-6 text-center md:h-80">
               <p className="max-w-lg text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
