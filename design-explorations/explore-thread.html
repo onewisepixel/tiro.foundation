@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TIRO Foundation — Node Zero (Exploration: The Thread)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Karla:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --indigo:#0B0E16;
+    --indigo-deep:#060811;
+    --paper:#EDE4D3;
+    --paper-dim:#E1D5BC;
+    --oxide:#8B3A2B;
+    --brass:#A9863F;
+    --brass-dim:rgba(169,134,63,0.35);
+    --ink-on-paper:rgba(11,14,22,0.72);
+    --ink-on-paper-soft:rgba(11,14,22,0.5);
+    --paper-on-indigo:rgba(237,228,211,0.72);
+    --paper-on-indigo-soft:rgba(237,228,211,0.48);
+    --serif:'Spectral', Georgia, serif;
+    --sans:'Karla', -apple-system, sans-serif;
+    --mono:'Space Mono', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{font-family:var(--sans); background:var(--indigo); color:var(--paper-on-indigo);}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{transition:none !important;} }
+  a{color:inherit;}
+  ::selection{background:var(--oxide); color:var(--paper);}
+  :focus-visible{outline:1.5px solid var(--brass); outline-offset:3px;}
+
+  h1,h2,h3{font-family:var(--serif); font-weight:500; letter-spacing:-0.01em;}
+  p{max-width:52ch; font-size:16px; line-height:1.65;}
+  p + p{margin-top:14px;}
+
+  .eyebrow{
+    font-family:var(--sans); font-size:12.5px; letter-spacing:0.06em;
+    font-style:italic; opacity:0.7; margin-bottom:16px; display:block;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    position:fixed; top:0; left:0; right:0; z-index:60;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 5vw; font-family:var(--mono); font-size:11px;
+    letter-spacing:0.04em; color:var(--paper-on-indigo-soft);
+    background:linear-gradient(180deg, rgba(6,8,17,0.85), transparent);
+    pointer-events:none;
+  }
+  .topbar span{pointer-events:auto;}
+
+  /* ---------- Spine ---------- */
+  #spineWrap{
+    position:absolute; top:0; left:50%; width:2px; height:100%;
+    transform:translateX(-50%); z-index:5; pointer-events:none;
+  }
+  .spine-line{position:absolute; inset:0; background:var(--brass-dim);}
+  .spine-fill{
+    position:absolute; top:0; left:0; width:100%; height:0%;
+    background:var(--oxide); transform-origin:top;
+    transition:height 0.1s linear;
+  }
+  .knot{
+    position:absolute; left:50%; transform:translate(-50%,-50%);
+    width:11px; height:11px; border-radius:50%;
+    background:var(--indigo); border:2px solid var(--brass);
+    transition:border-color 0.5s ease, background 0.5s ease, box-shadow 0.5s ease;
+  }
+  .knot.lit{ border-color:var(--oxide); background:var(--oxide); box-shadow:0 0 0 5px rgba(139,58,43,0.18); }
+  @media (max-width:820px){ #spineWrap{display:none;} }
+
+  main{position:relative;}
+
+  section{ position:relative; padding:11vh 6vw; }
+  section.indigo{ background:var(--indigo); }
+  section.paper{ background:var(--paper); color:var(--ink-on-paper); }
+  section.paper h2, section.paper h3{ color:var(--indigo); }
+  section.paper .eyebrow{ color:var(--oxide); opacity:1; }
+  section.paper p{ color:var(--ink-on-paper); }
+  section.indigo .eyebrow{ color:var(--brass); opacity:1; }
+
+  .row{ display:flex; width:100%; }
+  .side-left{ justify-content:flex-start; }
+  .side-right{ justify-content:flex-end; }
+  .beam{ width:100%; max-width:480px; }
+  @media (min-width:821px){
+    .side-left .beam{ padding-right:calc(50% + 46px); max-width:none; width:calc(50% - 46px); }
+    .side-right .beam{ padding-left:calc(50% + 46px); max-width:none; width:calc(50% - 46px); }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero{ min-height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding-top:8vh; }
+  .hero-mark{ width:64px; height:64px; margin-bottom:5vh; }
+  .motto{
+    font-family:var(--serif); font-style:italic; font-weight:400;
+    font-size:clamp(28px, 4vw, 46px); max-width:15ch; line-height:1.3;
+  }
+  .hero-sub{ margin-top:24px; max-width:48ch; font-size:17px; color:var(--paper-on-indigo-soft); }
+  .hero-scroll{ margin-top:9vh; font-family:var(--mono); font-size:11px; color:var(--brass); letter-spacing:0.08em; }
+
+  h2{ font-size:clamp(26px, 3vw, 36px); margin-bottom:20px; }
+  h3{ font-size:18px; font-style:italic; color:var(--brass); margin-bottom:8px; font-weight:500; }
+
+  /* ---------- Doctrine ---------- */
+  .doctrine-item{ padding:20px 0; }
+  .doctrine-item + .doctrine-item{ border-top:1px solid rgba(237,228,211,0.12); }
+
+  /* ---------- Memory record ---------- */
+  .record-card{
+    margin-top:20px; border:1px solid rgba(11,14,22,0.18);
+    background:rgba(11,14,22,0.03); padding:26px 28px; max-width:520px;
+  }
+  .record-title{ font-family:var(--serif); font-size:20px; font-style:italic; color:var(--indigo); margin-bottom:14px; }
+  .record-field{ display:flex; justify-content:space-between; gap:16px; padding:7px 0; font-family:var(--mono); font-size:12px; border-top:1px dashed rgba(11,14,22,0.15); }
+  .record-field:first-of-type{ border-top:none; }
+  .record-field .k{ color:var(--oxide); }
+  .record-field .v{ text-align:right; color:var(--ink-on-paper); }
+  .record-quote{
+    margin-top:18px; padding-top:18px; border-top:1px solid rgba(11,14,22,0.15);
+    font-family:var(--serif); font-style:italic; font-size:15px; color:var(--ink-on-paper-soft); line-height:1.7;
+  }
+
+  /* ---------- Nodes ---------- */
+  .node-cloud{ display:flex; flex-wrap:wrap; gap:10px; margin-top:28px; max-width:640px; }
+  .node-chip{
+    font-family:var(--mono); font-size:12px; padding:7px 13px;
+    border:1px solid var(--brass-dim); color:var(--paper-on-indigo);
+    display:flex; align-items:center; gap:8px;
+  }
+  .node-chip .type{ color:var(--brass); }
+
+  /* ---------- Governance flow ---------- */
+  .gov-flow{ margin-top:30px; display:flex; flex-wrap:wrap; gap:8px 4px; font-family:var(--mono); font-size:12.5px; max-width:70ch; }
+  .gov-flow .step{ padding:6px 10px; border:1px solid var(--brass-dim); }
+  .gov-flow .sep{ color:var(--oxide); align-self:center; }
+
+  /* ---------- Contact ---------- */
+  .contact-link{
+    display:inline-block; margin-top:26px; font-family:var(--serif); font-style:italic;
+    font-size:clamp(20px,2.4vw,27px); border-bottom:1px solid var(--brass); padding-bottom:3px; text-decoration:none;
+  }
+  .contact-link:hover{ color:var(--brass); }
+
+  footer{
+    padding:40px 6vw; background:var(--indigo-deep);
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;
+    font-family:var(--mono); font-size:10.5px; color:rgba(237,228,211,0.4);
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span>TIRO — NODE ZERO</span>
+  <span id="clockLabel">EXPLORATION</span>
+</div>
+
+<main id="mainWrap">
+  <div id="spineWrap">
+    <div class="spine-line"></div>
+    <div class="spine-fill" id="spineFill"></div>
+    <div id="spineKnots"></div>
+  </div>
+
+  <section class="indigo hero" id="hero" data-knot>
+    <div class="hero-mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M32 4 C 20 16, 44 24, 32 36 C 20 48, 44 52, 32 60" stroke="var(--brass)" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="32" cy="4" r="2.5" fill="var(--brass)"/>
+        <circle cx="32" cy="60" r="2.5" fill="var(--oxide)"/>
+      </svg>
+    </div>
+    <p class="eyebrow">TIRO Foundation — founding document</p>
+    <h1 class="motto">Some things are worth remembering on purpose.</h1>
+    <p class="hero-sub">TIRO is a permanent, neutral custodian of endangered cultural and linguistic memory — built to outlast the people, institutions, and technologies that built it.</p>
+    <p class="hero-scroll">↓ begin the thread</p>
+  </section>
+
+  <section class="indigo" id="mission" data-knot>
+    <div class="row side-left">
+      <div class="beam">
+        <span class="eyebrow">Mission</span>
+        <h2>Civilization is not only what we build. It's what we manage not to forget.</h2>
+        <p>Every time a language falls silent or a community loses control of its own history, humanity's inheritance gets smaller. TIRO exists to resist that loss — not by owning what it preserves, but by holding it in trust.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="paper" id="doctrine" data-knot>
+    <div class="row side-right">
+      <div class="beam">
+        <span class="eyebrow">The Custodian Doctrine</span>
+        <h2>To record something does not make it ours.</h2>
+        <div class="doctrine-item">
+          <h3>Preservation without appropriation</h3>
+          <p>The people from whom knowledge came retain their rights, intentions, and dignity in it.</p>
+        </div>
+        <div class="doctrine-item">
+          <h3>Access without dispossession</h3>
+          <p>Making knowledge findable must never require its keepers to surrender control of it.</p>
+        </div>
+        <div class="doctrine-item">
+          <h3>Technology without techno-solutionism</h3>
+          <p>We ask not only whether something can be built, but who benefits, and what must stay human even once automation is possible.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="indigo" id="memory" data-knot>
+    <div class="row side-left">
+      <div class="beam">
+        <span class="eyebrow">The Memory Project — pilot record</span>
+        <h2>One family's migration, held in full context.</h2>
+        <p>The first proof of the archive is not a demo. It's a single, properly consented record — the standard every future one is measured against.</p>
+      </div>
+    </div>
+    <div class="row side-right" style="margin-top:10px;">
+      <div class="beam">
+        <div class="record-card">
+          <div class="record-title">Migration Story from Lagos to Port Harcourt</div>
+          <div class="record-field"><span class="k">RECORD</span><span class="v">TIR-MEM-0001</span></div>
+          <div class="record-field"><span class="k">STATUS</span><span class="v">Verified</span></div>
+          <div class="record-field"><span class="k">LOCATION</span><span class="v">Lagos & Port Harcourt, NG</span></div>
+          <div class="record-field"><span class="k">LANGUAGE</span><span class="v">Nigerian Pidgin, English</span></div>
+          <div class="record-field"><span class="k">CONSENT</span><span class="v">Explicit — educational & archival</span></div>
+          <div class="record-field"><span class="k">CONFIDENCE</span><span class="v">High — cross-witnessed</span></div>
+          <p class="record-quote">"I still remember the morning we left Lagos. The lorry was loaded before first light, and my mother kept counting the bags like each one was a person."</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="paper" id="provenance" data-knot>
+    <div class="row side-right">
+      <div class="beam">
+        <span class="eyebrow">Provenance & Rights</span>
+        <h2>Communities remain the principals. TIRO is the custodian.</h2>
+        <p>Nothing enters the archive without documented provenance — who contributed it, under what terms, with what continuing rights. Where a community sets conditions on access or reuse, those conditions travel with the record permanently, not as a courtesy that can be revised away later.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="indigo" id="nodes" data-knot>
+    <div class="row side-left">
+      <div class="beam">
+        <span class="eyebrow">TIRO Nodes — seed index</span>
+        <h2>A node is not a center. It's a point of connection.</h2>
+        <p>The first nodes are small on purpose — a city, a language, a theme — each one a thread the archive can be pulled through later.</p>
+        <div class="node-cloud">
+          <span class="node-chip"><span class="type">Place</span> Lagos</span>
+          <span class="node-chip"><span class="type">Place</span> Port Harcourt</span>
+          <span class="node-chip"><span class="type">Place</span> Balogun Market</span>
+          <span class="node-chip"><span class="type">Theme</span> Internal Migration</span>
+          <span class="node-chip"><span class="type">Theme</span> Trade</span>
+          <span class="node-chip"><span class="type">Theme</span> Urban Memory</span>
+          <span class="node-chip"><span class="type">Language</span> Nigerian Pidgin</span>
+          <span class="node-chip"><span class="type">Language</span> Yoruba</span>
+          <span class="node-chip"><span class="type">Language</span> English</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="paper" id="governance" data-knot>
+    <div class="row side-right">
+      <div class="beam">
+        <span class="eyebrow">Governance</span>
+        <h2>The Steward protects the constitution. The Board governs the charity.</h2>
+        <p>TIRO's founder holds one narrow, constitutional role — Steward-Protector — reserved only for decisions that would alter TIRO's founding mission. It's a brake, not a veto over ordinary governance.</p>
+        <div class="gov-flow">
+          <span class="step">objection raised</span><span class="sep">—</span>
+          <span class="step">90-day pause</span><span class="sep">—</span>
+          <span class="step">independent review</span><span class="sep">—</span>
+          <span class="step">board reconsideration</span><span class="sep">—</span>
+          <span class="step">supermajority override</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="indigo" id="contact" data-knot>
+    <div class="row side-left">
+      <div class="beam">
+        <span class="eyebrow">Correspond</span>
+        <h2>TIRO is early. It's meant to be built alongside the people it exists to serve.</h2>
+        <p>If you steward a language, an archive, or a community's history — we want to hear from you.</p>
+        <a class="contact-link" href="mailto:steward@tiro.foundation">steward@tiro.foundation</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>TIRO Foundation — Memory. Intelligence. Stewardship.</span>
+  <span>design exploration — v0.2, unratified</span>
+</footer>
+
+<script>
+  const spineWrap = document.getElementById('spineWrap');
+  const spineFill = document.getElementById('spineFill');
+  const spineKnots = document.getElementById('spineKnots');
+  const mainWrap = document.getElementById('mainWrap');
+  const knotSections = Array.from(document.querySelectorAll('[data-knot]'));
+  let knotEls = [];
+
+  function layoutKnots(){
+    spineKnots.innerHTML = '';
+    knotEls = knotSections.map(sec => {
+      const top = sec.offsetTop + sec.offsetHeight / 2;
+      const el = document.createElement('div');
+      el.className = 'knot';
+      el.style.top = top + 'px';
+      spineKnots.appendChild(el);
+      return { el, top };
+    });
+  }
+
+  function updateSpine(){
+    const total = mainWrap.offsetHeight;
+    const scrolled = window.scrollY + window.innerHeight * 0.5;
+    const pct = Math.max(0, Math.min(1, scrolled / total));
+    spineFill.style.height = (pct * 100) + '%';
+    const line = pct * total;
+    knotEls.forEach(k => k.el.classList.toggle('lit', line >= k.top));
+  }
+
+  window.addEventListener('load', () => { layoutKnots(); updateSpine(); });
+  window.addEventListener('resize', () => { layoutKnots(); updateSpine(); });
+  window.addEventListener('scroll', updateSpine, { passive: true });
+</script>
+
+</body>
+</html>

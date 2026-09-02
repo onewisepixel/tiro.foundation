@@ -17,23 +17,11 @@ const submissionGuidelines = [
 
 export default function MemoryProjectPage() {
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32"
-      style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}
-    >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 flex items-start justify-center"
-      >
-        <div className="ambient-orb" />
-      </div>
-
-      <section className="relative z-10 px-6 pb-14 pt-8 md:pb-16 md:pt-12">
+    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
+      <section className="px-6 pb-14 pt-8 md:pb-16 md:pt-12">
         <div className="mx-auto max-w-5xl">
-          <p className="mb-6 text-xs uppercase tracking-[0.3em] text-[var(--tiro-text-subtle)]">
-            Memory Project v0.1
-          </p>
-          <h1 className="mb-6 text-4xl font-semibold leading-tight tracking-tight text-[var(--tiro-text)] md:text-6xl">
+          <p className="tiro-eyebrow mb-6">Memory Project v0.1</p>
+          <h1 className="mb-6 max-w-3xl font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
             A Living Archive for Human Continuity
           </h1>
           <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
@@ -42,14 +30,21 @@ export default function MemoryProjectPage() {
             building systems where collection, curation, and discovery remain
             accountable to the people whose stories are held.
           </p>
+
+          <div className="mt-10 flex flex-wrap gap-6">
+            <Link href="/memories" className="tiro-button">
+              Browse Memory Records
+            </Link>
+            <Link href="/nodes" className="tiro-link self-center text-sm">
+              Explore the Node Index
+            </Link>
+          </div>
         </div>
       </section>
 
-      <section className="relative z-10 px-6 pb-12 md:pb-16">
-        <div className="mx-auto max-w-5xl rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
-          <p className="mb-4 text-xs uppercase tracking-[0.3em] text-[var(--tiro-text-subtle)]">
-            Ethics and Consent
-          </p>
+      <section className="px-6 pb-12 md:pb-16">
+        <div className="tiro-card mx-auto max-w-5xl">
+          <p className="tiro-eyebrow mb-4">Ethics and Consent</p>
           <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
             Consent is explicit, traceable, and revocable. Every contribution
             must carry clear provenance and rights context. TIRO treats dignity,
@@ -59,32 +54,24 @@ export default function MemoryProjectPage() {
         </div>
       </section>
 
-      <section className="relative z-10 px-6 pb-28 md:pb-36">
+      <section className="px-6 pb-28 md:pb-36">
         <div className="mx-auto max-w-5xl">
-          <p className="mb-6 text-xs uppercase tracking-[0.3em] text-[var(--tiro-text-subtle)]">
-            Submission Guidelines
-          </p>
-          <div className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
+          <p className="tiro-eyebrow mb-6">Submission Guidelines</p>
+          <div className="tiro-card">
             <ul className="space-y-4 text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
               {submissionGuidelines.map((item) => (
                 <li key={item} className="flex items-start gap-3">
-                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--tiro-text-muted)]" />
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--tiro-accent)]" />
                   <span>{item}</span>
                 </li>
               ))}
             </ul>
 
-            <div className="mt-10 space-y-4 border-t border-[var(--tiro-border)] pt-6">
-              <Link
-                href="/manifesto"
-                className="block text-sm text-[var(--tiro-text-muted)] underline decoration-[var(--tiro-border)] underline-offset-4 transition-colors duration-300 hover:text-[var(--tiro-text-soft)]"
-              >
+            <div className="mt-10 flex flex-wrap gap-6 border-t border-[var(--tiro-border)] pt-6">
+              <Link href="/manifesto" className="tiro-link text-sm">
                 Read the Manifesto v0.1
               </Link>
-              <Link
-                href="/memories/lagos-port-harcourt-migration"
-                className="block text-sm text-[var(--tiro-text-muted)] underline decoration-[var(--tiro-border)] underline-offset-4 transition-colors duration-300 hover:text-[var(--tiro-text-soft)]"
-              >
+              <Link href="/memories/lagos-port-harcourt-migration" className="tiro-link text-sm">
                 View Sample Memory
               </Link>
             </div>

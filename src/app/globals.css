@@ -1,81 +1,57 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b0c10;
-  --foreground: #f5f7fb;
+  /* Indigo register — institutional voice */
+  --background: #0b0e16;
+  --foreground: #ede4d3;
 
-  --tiro-bg: #0b0c10;
-  --tiro-text: #f5f7fb;
-  --tiro-text-soft: rgba(245, 247, 251, 0.82);
-  --tiro-text-muted: rgba(245, 247, 251, 0.6);
-  --tiro-text-subtle: rgba(245, 247, 251, 0.34);
-  --tiro-border: rgba(245, 247, 251, 0.12);
-  --tiro-surface: rgba(245, 247, 251, 0.04);
-  --tiro-surface-strong: rgba(245, 247, 251, 0.07);
-  --tiro-orb-a: rgba(80, 60, 180, 0.28);
-  --tiro-orb-b: rgba(40, 30, 100, 0.14);
+  --tiro-bg: #0b0e16;
+  --tiro-bg-deep: #060811;
+  --tiro-text: #ede4d3;
+  --tiro-text-soft: rgba(237, 228, 211, 0.86);
+  --tiro-text-muted: rgba(237, 228, 211, 0.64);
+  --tiro-text-subtle: rgba(237, 228, 211, 0.4);
+  --tiro-border: rgba(237, 228, 211, 0.14);
+  --tiro-border-strong: rgba(237, 228, 211, 0.24);
+  --tiro-surface: rgba(237, 228, 211, 0.045);
+  --tiro-surface-strong: rgba(237, 228, 211, 0.09);
+  --tiro-accent: #c79a4b;
+  --tiro-accent-strong: #b8543c;
+  --tiro-mark: var(--tiro-text);
 }
 
 html[data-theme="light"] {
-  --background: #f4f2ec;
-  --foreground: #1a1d22;
+  /* Paper register — archival record voice */
+  --background: #ede4d3;
+  --foreground: #14161f;
 
-  --tiro-bg: #f4f2ec;
-  --tiro-text: #1a1d22;
-  --tiro-text-soft: rgba(26, 29, 34, 0.82);
-  --tiro-text-muted: rgba(26, 29, 34, 0.62);
-  --tiro-text-subtle: rgba(26, 29, 34, 0.38);
-  --tiro-border: rgba(26, 29, 34, 0.14);
-  --tiro-surface: rgba(255, 255, 255, 0.58);
-  --tiro-surface-strong: rgba(255, 255, 255, 0.78);
-  --tiro-orb-a: rgba(170, 156, 236, 0.22);
-  --tiro-orb-b: rgba(120, 120, 170, 0.12);
+  --tiro-bg: #ede4d3;
+  --tiro-bg-deep: #e1d5bc;
+  --tiro-text: #14161f;
+  --tiro-text-soft: rgba(20, 22, 31, 0.84);
+  --tiro-text-muted: rgba(20, 22, 31, 0.63);
+  --tiro-text-subtle: rgba(20, 22, 31, 0.4);
+  --tiro-border: rgba(20, 22, 31, 0.16);
+  --tiro-border-strong: rgba(20, 22, 31, 0.28);
+  --tiro-surface: rgba(20, 22, 31, 0.035);
+  --tiro-surface-strong: rgba(20, 22, 31, 0.07);
+  --tiro-accent: #8b3a2b;
+  --tiro-accent-strong: #7a6023;
+  --tiro-mark: var(--tiro-text);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-code);
+  --font-serif: var(--font-display);
 }
 
 body {
   background: var(--tiro-bg);
   color: var(--tiro-text);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0px) scale(1); }
-  50% { transform: translateY(-24px) scale(1.03); }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 0.65; }
-}
-
-.ambient-orb {
-  width: 70vw;
-  max-width: 800px;
-  aspect-ratio: 1;
-  margin-top: -15vh;
-  background: radial-gradient(
-    ellipse at center,
-    var(--tiro-orb-a) 0%,
-    var(--tiro-orb-b) 45%,
-    transparent 72%
-  );
-  animation: float 9s ease-in-out infinite, pulse-glow 9s ease-in-out infinite;
-  border-radius: 50%;
-  filter: blur(40px);
+  font-family: var(--font-body, Arial, Helvetica, sans-serif);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -93,9 +69,124 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ambient-orb {
-    animation: none;
-    opacity: 0.55;
+/* ---------- Shared vocabulary ---------- */
+
+.tiro-eyebrow {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+.tiro-card {
+  border: 1px solid var(--tiro-border);
+  background: var(--tiro-surface);
+  padding: 1.75rem;
+}
+
+@media (min-width: 768px) {
+  .tiro-card {
+    padding: 2.25rem;
   }
+}
+
+a.tiro-card,
+.tiro-card-link {
+  display: block;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+a.tiro-card:hover,
+.tiro-card-link:hover {
+  background: var(--tiro-surface-strong);
+  border-color: var(--tiro-border-strong);
+}
+
+.tiro-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--tiro-border);
+  padding: 0.4rem 0.75rem;
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  color: var(--tiro-text-muted);
+}
+
+a.tiro-chip {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+
+a.tiro-chip:hover {
+  background: var(--tiro-surface-strong);
+  color: var(--tiro-text);
+  border-color: var(--tiro-accent);
+}
+
+.tiro-chip .type {
+  color: var(--tiro-accent);
+}
+
+.tiro-link {
+  color: var(--tiro-text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border);
+  text-underline-offset: 4px;
+  transition: color 200ms ease, text-decoration-color 200ms ease;
+}
+
+.tiro-link:hover {
+  color: var(--tiro-text);
+  text-decoration-color: var(--tiro-accent);
+}
+
+.tiro-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.65rem 0;
+  border-top: 1px dashed var(--tiro-border);
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+}
+
+.tiro-kv:first-of-type {
+  border-top: none;
+}
+
+.tiro-kv .k {
+  color: var(--tiro-accent);
+  flex-shrink: 0;
+}
+
+.tiro-kv .v {
+  color: var(--tiro-text-soft);
+  text-align: right;
+}
+
+.tiro-rule {
+  height: 1px;
+  border: none;
+  background: var(--tiro-border);
+}
+
+.tiro-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--tiro-border-strong);
+  padding: 0.75rem 1.75rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tiro-text);
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.tiro-button:hover {
+  background: var(--tiro-surface-strong);
+  border-color: var(--tiro-accent);
 }

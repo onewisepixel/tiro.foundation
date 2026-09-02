@@ -30,7 +30,7 @@ function MediaMeta({ media }: { media: MemoryMedia }) {
 export default function MemoryMediaViewer({ media }: MemoryMediaViewerProps) {
   if (media.type === "none") {
     return (
-      <figure className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
+      <figure className="tiro-card">
         <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
           No public media attached to this record.
         </p>
@@ -41,8 +41,8 @@ export default function MemoryMediaViewer({ media }: MemoryMediaViewerProps) {
 
   if (media.type === "image") {
     return (
-      <figure className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-5 backdrop-blur-sm md:p-7">
-        <div className="overflow-hidden rounded-lg border border-[var(--tiro-border)] bg-[color-mix(in_srgb,var(--tiro-bg)_84%,black)]">
+      <figure className="tiro-card">
+        <div className="overflow-hidden border border-[var(--tiro-border)] bg-[var(--tiro-bg-deep)]">
           {media.src ? (
             <div className="relative h-64 w-full md:h-80">
               <Image
@@ -54,7 +54,7 @@ export default function MemoryMediaViewer({ media }: MemoryMediaViewerProps) {
               />
             </div>
           ) : (
-            <div className="grid h-64 place-items-center bg-gradient-to-b from-[var(--tiro-surface-strong)] to-[var(--tiro-surface)] px-6 text-center md:h-80">
+            <div className="grid h-64 place-items-center px-6 text-center md:h-80">
               <p className="max-w-lg text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
                 Archival image frame reserved for authenticated documentary
                 plate or scan.
@@ -69,8 +69,8 @@ export default function MemoryMediaViewer({ media }: MemoryMediaViewerProps) {
 
   if (media.type === "audio") {
     return (
-      <figure className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
-        <div className="rounded-lg border border-[var(--tiro-border)] bg-[color-mix(in_srgb,var(--tiro-bg)_88%,black)] p-4 md:p-5">
+      <figure className="tiro-card">
+        <div className="border border-[var(--tiro-border)] bg-[var(--tiro-bg-deep)] p-4 md:p-5">
           <audio
             controls
             preload="none"
@@ -92,8 +92,8 @@ export default function MemoryMediaViewer({ media }: MemoryMediaViewerProps) {
   }
 
   return (
-    <figure className="rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-5 backdrop-blur-sm md:p-7">
-      <div className="overflow-hidden rounded-lg border border-[var(--tiro-border)] bg-[color-mix(in_srgb,var(--tiro-bg)_84%,black)]">
+    <figure className="tiro-card">
+      <div className="overflow-hidden border border-[var(--tiro-border)] bg-[var(--tiro-bg-deep)]">
         <video
           controls
           preload="metadata"

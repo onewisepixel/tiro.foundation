@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import TiroMark from "@/components/TiroMark";
 
 export const metadata: Metadata = {
   title: "Manifesto v0.1 — The Tiro Foundation",
@@ -9,58 +10,43 @@ export const metadata: Metadata = {
 const pillars = [
   {
     label: "Memory",
-    description: "Preserving knowledge, identity, and lived experience.",
+    description:
+      "Civilizations survive through memory — not only archives and records, but stories, identities, languages, rituals, and lived experience. We reject the idea that cultural memory should become disposable.",
   },
   {
     label: "Intelligence",
-    description: "Building systems that augment human capability responsibly.",
+    description:
+      "Intelligence is not inherently wisdom. TIRO supports the responsible exploration of advanced systems that augment human capability while preserving human dignity, agency, and context.",
   },
   {
     label: "Stewardship",
-    description: "Creating structures that can safely outlive their creators.",
+    description:
+      "The measure of a system is not merely whether it functions, but whether it can safely endure. TIRO builds structures that can outlive individual creators while remaining aligned with human-centered principles.",
   },
 ];
 
 export default function ManifestoPage() {
   return (
-    <main
-      className="relative min-h-screen overflow-hidden bg-[var(--tiro-bg)] text-[var(--tiro-text)]"
-      style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}
-    >
-      {/* Animated background orb */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 flex items-start justify-center"
-      >
-        <div className="ambient-orb" />
-      </div>
+    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
+      <section className="px-6 pb-14 pt-8 text-center md:pb-16 md:pt-12">
+        <TiroMark variant="primary" className="mx-auto mb-8 h-16 w-auto text-[var(--tiro-mark)] md:h-20" />
 
-      {/* ── Hero ── */}
-      <section className="relative z-10 flex flex-col items-center justify-center px-6 pb-14 pt-32 text-center md:pb-16 md:pt-44">
-        <p
-          className="mb-6 text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]"
-          aria-label="Version"
-        >
-          Manifesto v0.1
-        </p>
+        <p className="tiro-eyebrow mb-6">Manifesto v0.1</p>
 
-        <h1 className="mb-6 text-5xl font-semibold leading-tight tracking-tight text-[var(--tiro-text)] md:text-7xl">
+        <h1 className="mx-auto mb-6 max-w-3xl font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
           The Tiro Foundation
         </h1>
 
-        <p className="max-w-xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
+        <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
           An exploration into memory, systems, empathy, and human continuity.
         </p>
 
-        {/* Thin divider */}
-        <div className="mt-12 h-px w-16 bg-[var(--tiro-border)]" />
+        <hr className="tiro-rule mx-auto mt-12 w-16" />
       </section>
 
-      <section id="core-thesis" className="relative z-10 px-6 pb-12 md:pb-16">
-        <div className="mx-auto max-w-3xl rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-7 backdrop-blur-sm md:p-9">
-          <p className="mb-4 text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]">
-            Core Thesis
-          </p>
+      <section className="px-6 pb-12 md:pb-16">
+        <div className="tiro-card mx-auto max-w-3xl">
+          <p className="tiro-eyebrow mb-5">Core Thesis</p>
           <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
             Exploration without empathy becomes extraction. Intelligence
             without memory becomes dangerous. Systems intended to shape the
@@ -70,25 +56,17 @@ export default function ManifestoPage() {
         </div>
       </section>
 
-      {/* ── Core Pillars ── */}
-      <section id="core-pillars" className="relative z-10 px-6 pb-16 md:pb-24">
+      <section className="px-6 pb-16 md:pb-24">
         <div className="mx-auto max-w-5xl">
-          <h2 className="mb-12 text-center text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]">
-            Core Pillars
-          </h2>
+          <p className="tiro-eyebrow mb-12 text-center">Core Pillars</p>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-px border border-[var(--tiro-border)] bg-[var(--tiro-border)] md:grid-cols-3">
             {pillars.map(({ label, description }) => (
-              <div
-                key={label}
-                className="group rounded-xl border border-[var(--tiro-border)] bg-[var(--tiro-surface)] p-8 backdrop-blur-sm
-                           transition-all duration-500
-                           hover:bg-[var(--tiro-surface-strong)] hover:shadow-[0_0_32px_rgba(120,100,255,0.07)]"
-              >
-                <h3 className="mb-3 text-lg font-semibold tracking-wide text-[var(--tiro-text-soft)] transition-colors duration-300 group-hover:text-[var(--tiro-text)]">
+              <div key={label} className="bg-[var(--tiro-bg)] p-8">
+                <h2 className="mb-3 font-[family-name:var(--font-display)] text-xl italic text-[var(--tiro-accent)]">
                   {label}
-                </h3>
-                <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)] transition-colors duration-300 group-hover:text-[var(--tiro-text-soft)]">
+                </h2>
+                <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)]">
                   {description}
                 </p>
               </div>
@@ -97,12 +75,47 @@ export default function ManifestoPage() {
         </div>
       </section>
 
-      {/* ── Founding Statement ── */}
-      <section id="founding-statement" className="relative z-10 px-6 pb-28 md:pb-36">
+      <section className="px-6 pb-16 md:pb-24">
+        <div className="mx-auto max-w-3xl">
+          <p className="tiro-eyebrow mb-6">Doctrine</p>
+          <div className="border-t border-[var(--tiro-border)]">
+            {[
+              [
+                "Custody is not ownership",
+                "Recording something does not grant the right to reinterpret, monetize, or erase it.",
+              ],
+              [
+                "Witness before interpreter",
+                "Systems should point back to the human source rather than synthesizing themselves into an authority.",
+              ],
+              [
+                "A node, not a center",
+                "TIRO is one point of connection among many possible ones — a person, a village, a library.",
+              ],
+              [
+                "Built for the long view",
+                "Quiet, unglamorous preservation work is sufficient. It is not something to scale past.",
+              ],
+            ].map(([term, note]) => (
+              <div
+                key={term}
+                className="grid grid-cols-1 gap-2 border-b border-[var(--tiro-border)] py-6 md:grid-cols-[minmax(180px,240px)_1fr] md:gap-8"
+              >
+                <h3 className="font-[family-name:var(--font-display)] text-base italic text-[var(--tiro-text-soft)]">
+                  {term}
+                </h3>
+                <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+                  {note}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-6 pb-28 md:pb-36">
         <div className="mx-auto max-w-xl">
-          <p className="mb-5 text-xs tracking-[0.3em] uppercase text-[var(--tiro-text-subtle)]">
-            A Note on Origins
-          </p>
+          <p className="tiro-eyebrow mb-5">A Note on Origins</p>
           <p className="text-sm leading-[1.85] text-[var(--tiro-text-muted)] md:text-base">
             TIRO emerged from a belief that technological progress without
             cultural memory and human empathy becomes directionless. The

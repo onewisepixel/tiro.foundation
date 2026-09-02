@@ -1,16 +1,32 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Spectral, Karla, Space_Mono, Space_Grotesk } from "next/font/google";
 import TopNav from "@/components/TopNav";
+import Footer from "@/components/Footer";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const spectral = Spectral({
+  variable: "--font-display",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const karla = Karla({
+  variable: "--font-body",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
+
+const spaceMono = Space_Mono({
+  variable: "--font-code",
+  subsets: ["latin"],
+  weight: ["400", "700"],
+});
+
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-logo",
+  subsets: ["latin"],
+  weight: ["500"],
 });
 
 export const metadata: Metadata = {
@@ -45,11 +61,13 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${spectral.variable} ${karla.variable} ${spaceMono.variable} ${spaceGrotesk.variable} antialiased`}
       >
         <TopNav />
 
         {children}
+
+        <Footer />
       </body>
     </html>
   );
