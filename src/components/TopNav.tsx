@@ -60,12 +60,9 @@ export default function TopNav() {
   return (
     <header className="fixed left-0 right-0 top-0 z-40 border-b border-[var(--tiro-border)] bg-[var(--tiro-bg)]">
       <nav className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 font-[family-name:var(--font-code)] text-xs text-[var(--tiro-text-muted)]">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 text-[var(--tiro-mark)] transition-colors hover:text-[var(--tiro-accent)]"
-        >
-          <TiroMark variant="primary" className="h-[30px] w-auto" />
-          <span className="font-[family-name:var(--font-logo)] text-[15px] font-medium uppercase tracking-[0.14em]">
+        <Link href="/" className="group flex items-center gap-2.5">
+          <TiroMark variant="primary" className="h-[30px] w-auto text-[var(--tiro-mark)]" />
+          <span className="font-[family-name:var(--font-logo)] text-[15px] font-medium uppercase tracking-[0.14em] text-[var(--tiro-text)] transition-colors group-hover:text-[var(--tiro-accent)]">
             TIRO
           </span>
         </Link>

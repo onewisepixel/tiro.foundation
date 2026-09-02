@@ -9,7 +9,7 @@ export default function ContactPage() {
   return (
     <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
       <section className="px-6 pb-28 pt-8 md:pb-36 md:pt-12">
-        <div className="mx-auto max-w-2xl">
+        <div className="mx-auto max-w-3xl">
           <p className="tiro-eyebrow mb-6">Contact</p>
           <h1 className="mb-8 font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
             Reach a steward

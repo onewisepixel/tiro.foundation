@@ -17,7 +17,7 @@
   --tiro-surface-strong: rgba(237, 228, 211, 0.09);
   --tiro-accent: #c79a4b;
   --tiro-accent-strong: #b8543c;
-  --tiro-mark: var(--tiro-text);
+  --tiro-mark: var(--tiro-accent);
 }
 
 html[data-theme="light"] {
@@ -37,7 +37,7 @@ html[data-theme="light"] {
   --tiro-surface-strong: rgba(20, 22, 31, 0.07);
   --tiro-accent: #8b3a2b;
   --tiro-accent-strong: #7a6023;
-  --tiro-mark: var(--tiro-text);
+  --tiro-mark: var(--tiro-accent);
 }
 
 @theme inline {
