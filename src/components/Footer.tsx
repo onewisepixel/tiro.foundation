@@ -4,6 +4,7 @@ const footerLinks = [
   { href: "/about", label: "About" },
   { href: "/manifesto", label: "Manifesto" },
   { href: "/memory-project", label: "Memory Project" },
+  { href: "/community-rights", label: "Community Rights" },
   { href: "/contact", label: "Contact" },
 ];
 

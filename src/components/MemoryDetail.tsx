@@ -67,7 +67,18 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
               <span className="text-[var(--tiro-text-soft)]">Contributor:</span> {memory.contributor}
             </p>
             <p>
+              <span className="text-[var(--tiro-text-soft)]">Source Authority:</span> {memory.sourceAuthority}
+            </p>
+            {memory.legalRights ? (
+              <p>
+                <span className="text-[var(--tiro-text-soft)]">Legal Rights:</span> {memory.legalRights}
+              </p>
+            ) : null}
+            <p>
               <span className="text-[var(--tiro-text-soft)]">Consent Status:</span> {memory.consentStatus}
+            </p>
+            <p>
+              <span className="text-[var(--tiro-text-soft)]">Consent Withdrawal:</span> {memory.consentWithdrawal}
             </p>
             <p>
               <span className="text-[var(--tiro-text-soft)]">Provenance Note:</span> {memory.provenance}

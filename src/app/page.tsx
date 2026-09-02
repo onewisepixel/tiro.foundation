@@ -26,7 +26,7 @@ export default function Home() {
             </Link>
 
             <Link href="/manifesto" className="tiro-link text-sm">
-              Read Manifesto v0.1
+              Read Manifesto v0.2
             </Link>
           </div>
 

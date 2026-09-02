@@ -85,10 +85,13 @@ export default function AboutPage() {
           </p>
           <div className="flex flex-wrap gap-6">
             <Link href="/manifesto" className="tiro-link text-sm">
-              Read Manifesto v0.1
+              Read Manifesto v0.2
             </Link>
             <Link href="/memory-project" className="tiro-link text-sm">
               Enter the Memory Project
+            </Link>
+            <Link href="/community-rights" className="tiro-link text-sm">
+              Community Rights &amp; Stewardship
             </Link>
             <Link href="/contact" className="tiro-link text-sm">
               Contact TIRO

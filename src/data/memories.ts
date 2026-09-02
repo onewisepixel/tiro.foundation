@@ -30,7 +30,10 @@ export type MemoryRecord = {
   language: string;
   era: string;
   contributor: string;
+  sourceAuthority: string;
+  legalRights?: string;
   consentStatus: string;
+  consentWithdrawal: string;
   provenance: string;
   rightsUsage: string;
   sensitivity?: string;
@@ -70,7 +73,11 @@ export const memories: MemoryRecord[] = [
     era: "Late 1980s to early 1990s",
     contributor:
       "Recorded with Elder Chidinma N. by TIRO field researcher A. Okafor",
+    sourceAuthority:
+      "Elder Chidinma N. and the family whose migration this account describes",
     consentStatus: "Explicitly granted for educational and archival use",
+    consentWithdrawal:
+      "Elder Chidinma N. or a designated family representative may request withdrawal or restriction at any time by contacting TIRO with record ID TIR-MEM-0001. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
     provenance:
       "Captured during a neighborhood oral-history session in Diobu, with audio witness confirmation and local steward review before cataloging.",
     rightsUsage:
@@ -139,7 +146,10 @@ When I tell this story now, I do not tell it as struggle only. I tell it as memo
     era: "Early 1990s",
     contributor:
       "Shared by Nkem O. during TIRO community memory circle, translated with contributor review",
+    sourceAuthority: "Nkem O. and the Achara Layout community memory circle",
     consentStatus: "Explicitly granted for public educational display",
+    consentWithdrawal:
+      "Nkem O. may request withdrawal or restriction at any time by contacting TIRO with record ID TIR-MEM-0002. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
     provenance:
       "Recorded in a facilitated workshop in Achara Layout with transcript review by contributor and language steward.",
     rightsUsage:
@@ -198,7 +208,11 @@ For us children, rain was both work and wonder. We carried sandbags, then sat wi
     language: "Yoruba and Nigerian Pidgin",
     era: "Mid 1970s recollected in 2000s",
     contributor: "Narrated and sung by Elder Fatai A. in TIRO oral archive session",
+    sourceAuthority:
+      "Elder Fatai A. and the Lagos Island trading community the song originates from",
     consentStatus: "Granted with performance context restrictions",
+    consentWithdrawal:
+      "Elder Fatai A. may request withdrawal or restriction at any time by contacting TIRO with record ID TIR-MEM-0003. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
     provenance:
       "Captured in a supervised oral-history studio session; melodic phrases reviewed with contributor for contextual accuracy.",
     rightsUsage:

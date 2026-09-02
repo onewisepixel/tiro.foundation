@@ -69,7 +69,10 @@ export default function MemoryProjectPage() {
 
             <div className="mt-10 flex flex-wrap gap-6 border-t border-[var(--tiro-border)] pt-6">
               <Link href="/manifesto" className="tiro-link text-sm">
-                Read the Manifesto v0.1
+                Read the Manifesto v0.2
+              </Link>
+              <Link href="/community-rights" className="tiro-link text-sm">
+                Community Rights &amp; Stewardship
               </Link>
               <Link href="/memories/lagos-port-harcourt-migration" className="tiro-link text-sm">
                 View Sample Memory
