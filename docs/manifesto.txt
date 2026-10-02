@@ -6,7 +6,7 @@ Owner: TIRO founder / Steward.
 Authority: Historical philosophical context, not current program or operating policy.
 Supersession: v0.2 is the accepted, current public manifesto, synchronized at `/manifesto`; operative stewardship principles are published at `/community-rights` (`src/app/community-rights/page.tsx`).
 
-The original text below is preserved for institutional history. Its broad technology and intelligence ambitions do not authorize programs, collection, publication, or reuse. Read current program direction in `docs/5013c.txt` and product acceptance criteria in `docs/ethos.txt`.
+The original text below is preserved for institutional history. Its broad technology and intelligence ambitions do not authorize programs, collection, publication, or reuse. Read current program direction in `docs/501c3.txt` and product acceptance criteria in `docs/ethos.txt`.
 
 ## Prelude
 

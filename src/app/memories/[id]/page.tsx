@@ -27,8 +27,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 
   return {
-    title: `${memory.title} — The Tiro Foundation`,
-    description: memory.summary,
+    title: `Demo: ${memory.title} — The Tiro Foundation`,
+    description: `Demonstration record — illustrative content, not collected archival testimony. ${memory.summary}`,
   };
 }
 

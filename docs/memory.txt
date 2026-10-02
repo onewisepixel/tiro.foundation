@@ -211,7 +211,7 @@ Examples:
 * Nigerian Pidgin — Language
 * Informal Labor — Theme
 
-This is the seed of TIRO’s future knowledge graph. These are metadata nodes, not operational preservation nodes. A place, language, theme, or person appearing here has not thereby agreed to partnership, appointed TIRO as custodian, or authorized a use. Operational node readiness is defined in `docs/5013c.txt` §6 Stages 0 and 8.
+This is the seed of TIRO’s future knowledge graph. These are metadata nodes, not operational preservation nodes. A place, language, theme, or person appearing here has not thereby agreed to partnership, appointed TIRO as custodian, or authorized a use. Operational node readiness is defined in `docs/501c3.txt` §6 Stages 0 and 8.
 
 ## 7. Add Related Memories section
 

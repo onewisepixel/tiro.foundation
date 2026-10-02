@@ -6,7 +6,7 @@ Owner: TIRO founder / Steward; future product and preservation leads by delegati
 Authority: Product requirements implementing `docs/manifestov0-2.txt` and the Community Rights & Cultural Data Stewardship policy at `/community-rights` (`src/app/community-rights/page.tsx`). Policy principles govern permissions; the lifecycle procedures below are proposed operational criteria pending adoption.
 Supersession: Replaces this file's v0.1 delivery sequencing and consent sketch. `docs/memory.txt` is the historical static-prototype brief.
 
-Unless marked evidenced in §6.0, features, service targets, roles, and architecture below are requirements or options, not implemented assurances. Legal authority comes from adopted governing instruments, not this specification. Governance proposals are in `docs/5013c.txt` §6 Stage 5.
+Unless marked evidenced in §6.0, features, service targets, roles, and architecture below are requirements or options, not implemented assurances. Legal authority comes from adopted governing instruments, not this specification. Governance proposals are in `docs/501c3.txt` §6 Stage 5.
 
 > A north-star document for the web portal that hosts **The Memory Project**, designed to stay useful from **Phase 1** to **Phase 15**—even as technology evolves. This spec favors **universal modularity**, **future‑first UX**, **accessibility**, and a **custodial paradigm** of culture and memory.
 
@@ -192,7 +192,7 @@ Grants are versioned and use-specific. “Not granted,” “unknown,” “disp
 * `Consent` — record/version, signer, capacity and mandateRef, applicable authorities/rights, use grants and exclusions, dates, audience, duration, comprehension, jurisdiction, and disclosed retention/withdrawal terms (§3.3).
 * `Person` — separate subject/contributor/collector/signer capacities; minimal PII; restricted encrypted contacts.
 * `Node` — metadata graph entity: person, place, theme, language, institution. A link implies no stewardship appointment or permission.
-* `PreservationOperation` — operational node with accountable operators, community agreements, custody/access responsibilities, readiness evidence, and incident/withdrawal contacts. Node Zero and Node One are defined in `docs/5013c.txt` §6 Stages 0 and 8. Partners may retain independent custody.
+* `PreservationOperation` — operational node with accountable operators, community agreements, custody/access responsibilities, readiness evidence, and incident/withdrawal contacts. Node Zero and Node One are defined in `docs/501c3.txt` §6 Stages 0 and 8. Partners may retain independent custody.
 * `Pathway` — ordered authorized references + attributed annotations; restriction propagates to embeds, search, and playlists.
 * `Assignment` — task with rubric, submissions, mentor sign-off and authority checks.
 * `Translation` / `Derivative` — source/version, purpose, permissionRef, reviewer, attribution, distribution destinations, and withdrawal dependency.
@@ -231,7 +231,7 @@ Repository baseline reviewed: `8533bdd7eee208f5907e99c119269dcc301c6438`.
 | Local memory display prototype | `src/data/memories.ts`, index/detail routes, media/detail components, and graph links exist; values are demonstration content |
 | Demonstration labeling and evidence controls | Required; current mock “Verified” and granted-consent strings are not substantiated institutional evidence and must be replaced or visibly framed as illustrative |
 | Real intake, auth, rights registry, withdrawals, backup restoration, preservation export | Not established by this source review; release gates below require evidence |
-| Incorporation, IRS recognition, appointed governance | Not established by these files; status must be evidenced separately under `docs/5013c.txt` |
+| Incorporation, IRS recognition, appointed governance | Not established by these files; status must be evidenced separately under `docs/501c3.txt` |
 
 Prototype delivery is a separate milestone from permission to receive real entrusted material. A static prototype may remain without accounts, uploads, or a database.
 
@@ -373,7 +373,7 @@ Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 * **Threat model**: PII leakage, unauthorized access, scraping, link‑sharing of restricted content, supply‑chain dependencies.
 * **Controls**: least‑privilege RBAC/ABAC; signed media URLs; regional data residency; encryption at rest/in transit; rate‑limits; WAF.
-* **Governance**: proposed authority map in `docs/5013c.txt` §6 Stage 5. The fiduciary board governs the charity and delegates operations; ethics reviewers set review conditions and may pause harmful uses; regional stewards execute authorized protocols; source authorities and legal rights holders retain their applicable authority. Staff may impose protective restrictions, but no TIRO body may expand consent or override applicable source/legal rights. Delegations and appeals must be documented before collection.
+* **Governance**: proposed authority map in `docs/501c3.txt` §6 Stage 5. The fiduciary board governs the charity and delegates operations; ethics reviewers set review conditions and may pause harmful uses; regional stewards execute authorized protocols; source authorities and legal rights holders retain their applicable authority. Staff may impose protective restrictions, but no TIRO body may expand consent or override applicable source/legal rights. Delegations and appeals must be documented before collection.
 * **Privacy procedures**: assess applicable law and regional protocols rather than claiming blanket GDPR/CCPA compliance. Consent receipts, subject requests, minimization, retention schedules, and deletion controls require implementation evidence. Restricted consent evidence and sensitive provenance follow disclosed retention rules; append-only operational logs contain no protected content.
 * **Conflicts and appeals**: conflicted reviewers recuse; independent review and board escalation address TIRO handling decisions. Authority disputes remain restricted while unresolved; a TIRO appeal is not a mechanism to extinguish community or legal rights.
 
@@ -407,7 +407,7 @@ Ordinary deletion from active stores and controlled derivatives is due within 30
 
 **Backups, caches, derivatives, and partners:** invalidate controlled public caches and revoke media links when access ceases; block affected derivatives and future processing; track destination copies and send scoped restriction/deletion notices. Backups remain inaccessible for ordinary use, expire on the disclosed schedule, and replay current restrictions/deletion instructions before any restoration is served. Partner agreements require compatible handling and acknowledgments. Record failed or unverifiable recovery honestly and escalate; independent public copies cannot be guaranteed erased.
 
-**Audit and appeals:** retain minimal nonsensitive action receipts only under an approved schedule. Sensitive evidence, testimony, precise locations, identifiers, and consent documents are excluded from permanent logs and public changelogs. Safe withdrawal tombstones may be retained only if appropriate; metadata that exposes the source must itself be restricted or deleted. A public changelog is optional when disclosure would create harm. Refer handling appeals to non-conflicted ethics reviewers and then the board under `docs/5013c.txt` §6 Stage 5; no appeal or board override expands source consent. Notify requesters of decisions, retained material, limits, and available appeal routes.
+**Audit and appeals:** retain minimal nonsensitive action receipts only under an approved schedule. Sensitive evidence, testimony, precise locations, identifiers, and consent documents are excluded from permanent logs and public changelogs. Safe withdrawal tombstones may be retained only if appropriate; metadata that exposes the source must itself be restricted or deleted. A public changelog is optional when disclosure would create harm. Refer handling appeals to non-conflicted ethics reviewers and then the board under `docs/501c3.txt` §6 Stage 5; no appeal or board override expands source consent. Notify requesters of decisions, retained material, limits, and available appeal routes.
 
 ---
 
