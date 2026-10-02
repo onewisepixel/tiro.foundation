@@ -1,4 +1,12 @@
-# TIRO Digital Presence & Memory Project — Living Product Spec (v0.1)
+# TIRO Digital Presence & Memory Project — Living Product Spec (v0.2)
+
+Status: Proposed acceptance specification; not a declaration of production readiness.
+Revision date: 2026-10-02.
+Owner: TIRO founder / Steward; future product and preservation leads by delegation.
+Authority: Product requirements implementing `docs/manifestov0-2.txt` and the Community Rights & Cultural Data Stewardship policy at `/community-rights` (`src/app/community-rights/page.tsx`). Policy principles govern permissions; the lifecycle procedures below are proposed operational criteria pending adoption.
+Supersession: Replaces this file's v0.1 delivery sequencing and consent sketch. `docs/memory.txt` is the historical static-prototype brief.
+
+Unless marked evidenced in §6.0, features, service targets, roles, and architecture below are requirements or options, not implemented assurances. Legal authority comes from adopted governing instruments, not this specification. Governance proposals are in `docs/5013c.txt` §6 Stage 5.
 
 > A north-star document for the web portal that hosts **The Memory Project**, designed to stay useful from **Phase 1** to **Phase 15**—even as technology evolves. This spec favors **universal modularity**, **future‑first UX**, **accessibility**, and a **custodial paradigm** of culture and memory.
 
@@ -7,7 +15,7 @@
 ## 0) Principles & Non‑Negotiables
 
 1. **Custodial by design**
-   TIRO is a neutral, trusted custodian for human memory. We bias for longevity, provenance, and consent, not virality.
+   TIRO seeks to be a trusted custodian for human memory. Neutrality means non-appropriation and fair handling of contested accounts, not absence of curation. Longevity, provenance, community control, and scoped consent take priority over virality.
 
 2. **Provider‑agnostic, universally modular**
    Everything integrates via adapters: storage, search, auth, payments, analytics, LLMs, and messaging.
@@ -22,10 +30,10 @@
    Core Web Vitals targets: LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1 on 4G mid‑tier phones worldwide.
 
 6. **Observability & auditability**
-   End‑to‑end versioning, immutable audit logs for consent & curation actions, transparent model cards for AI features.
+   Versioned records, tamper-evident audit events with minimal nonsensitive identifiers, and transparent model cards for AI features. Sensitive testimony, consent documents, personal contacts, and withdrawn content belong in restricted stores with retention controls, never permanent public logs.
 
-7. **Sovereign growth**
-   Translate before you market. Ship i18n frameworks from the start. Incentivize community translations.
+7. **Community capacity and language inclusion**
+   Localize critical consent and withdrawal flows before collection. Support and credit community translators without turning cultural participation into a speculative economy.
 
 ---
 
@@ -40,13 +48,13 @@
 
 ## 1.1) Manifesto → Product Traceability
 
-| Manifesto principle | Product requirement(s) in this spec | Success signals |
+| Source and section | Product acceptance criteria | Evidence required |
 | --- | --- | --- |
-| Memory without continuity must be avoided | Versioned `Memory`/`Consent`/`Audit`; export + checksum manifests; content lifecycle with changelog | Export completeness checks pass; provenance present on published memories |
-| Intelligence must remain empathetic and human-centered | Human-in-the-loop review queues; model cards; sensitivity workflows; dual-control for sensitive material | Reviewer override rates tracked; sensitive-content incidents trend downward |
-| Stewardship over speed/virality | Custodial design principle; governance and ethics board; long-horizon archival connectors | Retention and consent compliance SLAs met; successful archival deposit drills |
-| Capability must be paired with responsibility | RBAC/ABAC, signed URLs, auditability, region-aware consent, transparency metrics | Access violations minimized; consent revocation honored within policy windows |
-| Progress should remain recognizably human | Accessibility baseline (WCAG 2.2 AA), language inclusion, respectful voice standards | A11y audits passing; translated critical flows available in target locales |
+| Manifesto v0.2 I; policy “Custody, not ownership” and “Source authority” | Distinguish authority, legal rights, signer capacity, collector, subject, and contributor (§§3.2–3.3) | Review receipts identify each applicable capacity and unresolved claims |
+| Manifesto v0.2 II, V; policy “Purpose does not transfer” | Scope each use; authorized processing only; source-linked interpretation (§§3.3–3.4) | Permission checks deny unauthorized training, synthesis, research, and derivatives |
+| Manifesto v0.2 III, VI; policy “Consent: explicit, traceable, revocable” | Restriction, withdrawal, retention, deletion, and restoration controls (§12) | Withdrawal and restore drills meet adopted windows without republishing revoked material |
+| Manifesto v0.2 IV; policy “No claim of exclusivity” | Separate graph entities and preservation operations; permission-bound exports (§§3.10, 4) | Complete authorized export restores elsewhere; partner retains independent custody |
+| Manifesto v0.2 II, VII; policy “Access is not entitlement” | Preservation-only access, accessible public education, localized consent (§§6.1, 7, 13) | Restricted items remain absent from public search/media; critical flows pass accessibility and language review |
 
 ---
 
@@ -68,7 +76,8 @@
 * `/about` — Mission, custodial paradigm, governance
 * `/news` — Updates, research, releases
 * `/support` — Donate/partner, transparency reports
-* `/legal` — Terms, Privacy, Consent policy
+* `/community-rights` — Community Rights & Cultural Data Stewardship policy (existing public baseline)
+* `/legal` — Proposed Terms, Privacy, regional consent procedures
 
 **Account**
 
@@ -99,24 +108,52 @@
 
 * Guided multi‑step uploader (media → metadata → consent → review).
 * Accepts images, audio, video, text, PDFs. Auto‑transcode, checksums, virus scanning.
-* **Field sets**: title, summary, subject(s), location (geo), language(s), capture date, cultural context, content warnings, rights.
+* **Field sets**: title, summary, subjects, collectors, contributors, location (geo), languages, capture date, cultural context, content warnings, source authority, legal rights where known, signer capacity, permitted uses, access restrictions, and withdrawal instructions.
+* Submission is quarantined by default. Collector, contributor, subject, source authority, legal rights holder, and authorized representative are separate capacities; one person may hold several only with supporting evidence. A collector's upload or signature is not proof of authority over everyone recorded.
+* A subject is a person represented in the material; identify applicable privacy, dignity, and consent interests separately from authorship or cultural authority. Minimize public identifying information.
 * Offline‑friendly chunked uploads; resumable; background processing.
 
 ### 3.3 Consent & Rights Registry
 
-* Consent types: Record, Use, Publish, Research, Derivative Works.
-* Capture signer identity, date, scope, jurisdiction, and withdrawal terms.
-* Versioned consents tied to Memory IDs; redaction upon revocation where required.
+The policy at `/community-rights` supplies the governing principles. The following operational definitions and evidence requirements implement them; they do not expand a grant of consent.
+
+**Capacity and authority**
+
+* **Source authority**: person, community, or body with cultural or intellectual authority underlying the material; record shared, disputed, uncertain, or unassigned authority explicitly.
+* **Legal rights holder**: holder of an identified applicable legal right (for example copyright), with evidence and jurisdiction where known. Cultural authority neither depends on, nor substitutes for, establishing that legal right. Unknown legal rights require assessment, not an assumption of clearance.
+* **Authorized representative / signer capacity**: whose interests the signer may represent, for which material and uses, on what basis, and for how long. Keep the mandate or verification receipt restricted. A signer cannot grant another party's rights by assertion alone.
+* Identify all applicable authorizations for each proposed use, including subject interests and collective protocols. Unresolved authority prevents the affected use; quarantine and preservation-only retention also require their own lawful, disclosed basis.
+
+**Use permissions**
+
+| Use | Meaning and authorization boundary |
+| --- | --- |
+| Recording / collection | Capture or receive specified material; does not imply retention or public access |
+| Preservation | Retain, copy for integrity, restore, and migrate within specified custody terms; no automatic publication |
+| Publication | Make specified material and metadata accessible to an authorized audience and through named channels |
+| Research | Permit defined analysis or researcher access under separate access and output conditions |
+| Derivatives | Translate, edit, adapt, or create other versions only within the approved scope; track the source and permission |
+| Model training | Include material in training, fine-tuning, or evaluation datasets only when specifically authorized for that purpose |
+| Synthetic reproduction | Generate imitations, reconstructed performances, or voice/likeness reproductions only under distinct explicit authorization |
+| Commercial reuse | License or otherwise exploit commercially only with explicit authority and approved terms; educational access does not grant it |
+
+Biometric analysis and materially different computational uses require distinct explicit scope as well. Transcription and translation services must satisfy the permitted processing terms; vendors receive no independent training or reuse right. Permission to train does not grant synthetic reproduction or commercial reuse.
+
+**Per-record receipt**
+
+Record signer identity and capacity; applicable authority and rights; evidence references; record/version covered; date, jurisdiction, language and comprehension method; purposes and audiences; media and metadata permitted; restrictions; duration and review/renewal dates; withdrawal requester and decision authority; retention grounds and periods; backup/copy handling; and contact procedure. Publish only the safe consent summary, never the underlying identity documents.
+
+Grants are versioned and use-specific. “Not granted,” “unknown,” “disputed,” and “withdrawn” are not equivalent to permission. Renewed or expanded use requires fresh applicable authorization and review. §12 defines the action and response workflow.
 
 ### 3.4 Processing & Enrichment
 
 * Transcription (speech‑to‑text), translation memory, entity metadata (people/places/keywords).
-* Human‑in‑the‑loop verification queues; provenance chain maintained.
+* Human‑in‑the‑loop verification queues; provenance chain maintained. Permission checks occur before processing and before sending content to a vendor. Human review distinguishes source testimony, transcription, translation, and TIRO interpretation; automation cannot confer authority.
 
 ### 3.5 Curation & Moderation
 
 * Queues for review, sensitivity flags, cultural protocols, redaction tools (blur, bleep, crop, transcript redaction).
-* Dual‑control approvals for sensitive materials.
+* Dual‑control approvals for sensitive materials before the first real collection release; documented context and reasons for selection. Ethics or curator approval cannot expand source permissions. Disagreements remain attributed and are not resolved by silently overwriting a source account.
 
 ### 3.6 Discovery & Navigation
 
@@ -126,7 +163,7 @@
 
 ### 3.7 Participation & Programs
 
-* Assignments for students/volunteers; checklists; mentor review; verification scores.
+* Assignments for students/volunteers; checklists; mentor review; evidence-based verification receipts identifying what was checked, by whom, and with what limitations. Verification is not a popularity or contributor-reputation score.
 * Translator workflows with memory‑based suggestions; glossary.
 
 ### 3.8 Notifications & Messaging
@@ -135,34 +172,42 @@
 
 ### 3.9 Analytics & Transparency
 
-* Collection metrics, contributor impact, translation throughput, consent statuses, uptime, and audits.
+* Collection metrics, community benefit, preservation integrity, translation coverage, consent/withdrawal handling, accessibility, uptime, and audits. Demo records are excluded from real collection counts, pilot results, impact reports, and donor evidence.
 
 ### 3.10 Sustainability & Export
 
-* Open export (JSONL + media manifests + checksums). Cold storage strategies. External deposit (e.g., partner archives).
+* Preservation export (JSONL + authorized media + checksums + provenance + consent/restriction/withdrawal state) and tested restoration are prerequisites for real collection (§6.1). Use open formats; export capability is not redistribution permission.
+* Staff preservation packages include only material the destination is authorized to hold and the necessary restricted policy metadata. Public exports must omit restricted content, identifiers, and sensitive metadata. A media package without its permissions and lifecycle history is incomplete.
+* External deposits require approved destination custody terms, access and retention limits, withdrawal notification, derivative controls, and acceptance of source obligations. Cold storage cannot erase those obligations. Partner-copy duties are tracked under §12.
 
 ---
 
-## 4) Data & Domain Model (v0.1)
+## 4) Data & Domain Model (proposed operational schema)
 
 **Entities** (IDs are UUIDv7; all write operations are versioned):
 
-* `Memory` — core object (status: draft|review|published|restricted|withdrawn)
-  Fields: mediaRefs[], transcript, languages[], tags[], geo, era, rightsRefs[], related[]
-* `Consent` — linked to person(s) + memory; history/version chain
-* `Person` — subject or contributor; minimal PII; contact stored encrypted
-* `Node` — any entity: person, place, institution; typed with attributes
-* `Pathway` — ordered references + annotations
-* `Assignment` — task with rubric, submissions, mentor sign‑off
-* `Translation` — language, sourceRef, reviewerRef, quality score
-* `Audit` — append‑only trail of actions and justifications
+* `Memory` — core object; `recordKind`: demo|pilot|collection; review and verification evidence; mediaRefs[], transcript, languages[], tags[], geo, era, subjects[], collectors[], contributors[], authorityRefs[], legalRightsRefs[], consentRefs[], accessPolicyRef, withdrawalTermsRef, provenanceRefs[], related[]. `publicationStatus` and `custodyStatus` are separate (§12).
+* `AuthorityClaim` — source authority, shared/disputed/unknown status, claimant, scope, evidenceRef, reviewer, and resolution/appeal history.
+* `LegalRight` — right type, holder, scope, jurisdiction, evidence, known/unknown/disputed status.
+* `Consent` — record/version, signer, capacity and mandateRef, applicable authorities/rights, use grants and exclusions, dates, audience, duration, comprehension, jurisdiction, and disclosed retention/withdrawal terms (§3.3).
+* `Person` — separate subject/contributor/collector/signer capacities; minimal PII; restricted encrypted contacts.
+* `Node` — metadata graph entity: person, place, theme, language, institution. A link implies no stewardship appointment or permission.
+* `PreservationOperation` — operational node with accountable operators, community agreements, custody/access responsibilities, readiness evidence, and incident/withdrawal contacts. Node Zero and Node One are defined in `docs/5013c.txt` §6 Stages 0 and 8. Partners may retain independent custody.
+* `Pathway` — ordered authorized references + attributed annotations; restriction propagates to embeds, search, and playlists.
+* `Assignment` — task with rubric, submissions, mentor sign-off and authority checks.
+* `Translation` / `Derivative` — source/version, purpose, permissionRef, reviewer, attribution, distribution destinations, and withdrawal dependency.
+* `CustodyCopy` — location/counterparty, permission and deposit agreement, retention/backup period, notification, restriction/deletion receipt.
+* `LifecycleRequest` — requester and capacity evidence, action, affected uses/copies, protective hold, deadlines, decision, appeal, closure evidence.
+* `Audit` — tamper-evident minimal action trail; sensitive evidence in a separate retention-controlled store. Public changelogs are redacted and may be omitted when disclosure itself creates harm.
+
+This schema is an acceptance target, not the current TypeScript shape. `src/data/memories.ts` already contains display fields `sourceAuthority`, optional `legalRights`, and `consentWithdrawal`; they are not proof of validated authority or a working rights registry. `docs/memory.txt` identifies current fields and proposed additions.
 
 **Storage abstraction**
 Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate), search (OpenSearch/Algolia), and RDB (Postgres/PlanetScale). Media never stored in the DB.
 
 ---
 
-## 5) Architecture Snapshot
+## 5) Architecture Options (not an inventory of deployed services)
 
 * **Frontend**: Next.js (App Router), React Server Components, Edge Runtime where possible.
 * **Design System**: tokens (color/typography/spacing/motion), component library, iconography set.
@@ -176,17 +221,31 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 
 ## 6) Phased Delivery Plan (v0 → v5)
 
+### 6.0) Evidenced prototype versus acceptance targets
+
+Repository baseline reviewed: `8533bdd7eee208f5907e99c119269dcc301c6438`.
+
+| Capability | Evidence and status |
+| --- | --- |
+| Static institutional and policy pages | Source routes include `/`, `/about`, `/manifesto`, `/memory-project`, `/community-rights`, `/contact`; source presence does not certify a deployment |
+| Local memory display prototype | `src/data/memories.ts`, index/detail routes, media/detail components, and graph links exist; values are demonstration content |
+| Demonstration labeling and evidence controls | Required; current mock “Verified” and granted-consent strings are not substantiated institutional evidence and must be replaced or visibly framed as illustrative |
+| Real intake, auth, rights registry, withdrawals, backup restoration, preservation export | Not established by this source review; release gates below require evidence |
+| Incorporation, IRS recognition, appointed governance | Not established by these files; status must be evidenced separately under `docs/5013c.txt` |
+
+Prototype delivery is a separate milestone from permission to receive real entrusted material. A static prototype may remain without accounts, uploads, or a database.
+
 **Phase 0 — Foundations (2–4 sprints)**
 
 * Repo scaffolding, CI/CD, IaC baseline, design tokens, auth (passwordless), RBAC, storage adapter, uploader MVP, audit log scaffolding.
 
 **Phase 1 — Memory MVP**
 
-* Public site, Memory ingestion + consent capture, transcript pipeline, basic search, Memory detail page, admin review queue.
+* Public site and visibly labeled demonstrations; real ingestion only after all §6.1 collection gates pass. Include scoped consent and capacity checks, restricted access, sensitivity review/redaction, withdrawal and deletion handling, verified backups/restoration, complete preservation export, authorized processing, basic search, Memory detail, and admin review.
 
 **Phase 2 — Programs & Curation**
 
-* Assignments, checklists, curation tools, redaction, sensitive flows, translations v1, Pathways v1.
+* Expand assignments, checklists, curation tools, translations, and Pathways. Basic redaction, sensitivity review, and access restrictions already ship before real collection in Phase 1.
 
 **Phase 3 — Discovery & Scale**
 
@@ -196,22 +255,24 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 
 * Public API (OAuth/apps), webhooks, SDKs, embeddable players, partner ingestion.
 
-**Phase 5 — Sustainability & Exports**
+**Phase 5 — Preservation Network & Sustainability**
 
-* Open export, archival connectors, cold storage policies, grant/partner integrations.
+* Expand archival connectors, permission-bound partner deposits, preservation automation, and diversified grant/partner funding. Complete exports and baseline retention/cold-storage policies already precede real collection.
 
-> Future: tokenized incentives, reputation systems, LLM assist for curation/transcription with model cards and human review.
+> Future AI assistance requires authorized inputs, model/vendor review, clear limitations, and human sign-off; it does not relax collection gates.
 
 ### 6.1) Explicit v1 Scope Boundaries (Execution Guardrails)
 
 **In scope for v1 (ship target):**
 
-* Public site (`/`, `/memory-project`, `/memories`, `/memories/:id`, `/about`, `/legal`).
+* Public site (`/`, `/memory-project`, `/memories`, `/memories/:id`, `/about`, `/community-rights`, and adopted legal/consent procedures). Demonstration notices appear on every demo index card and detail page before any illustrative verification or consent text.
 * Contributor sign-in (passwordless) and baseline roles (Visitor, Contributor, Curator, Staff).
-* Memory ingestion MVP: upload, metadata, consent capture, processing queue, basic moderation.
+* Memory ingestion MVP: quarantine, metadata and separate capacities, evidenced use-specific consent, authorized processing, human publication review, restricted/preservation-only handling, redaction, and dual control for sensitive material.
 * Transcript generation + human correction workflow.
 * Search v1: keyword + core facets (language, region, era, medium).
-* Admin review queue with publish/restrict states and immutable audit events.
+* Admin review queue with independent access/custody states, minimal tamper-evident events, and a tracked withdrawal/restriction/correction/deletion request queue.
+* Complete preservation exports, integrity checks, encrypted separated backups, verified restoration, copy/derivative inventory, and restore-time replay of restrictions/deletions.
+* Localized consent/withdrawal instructions, disclosed retention and backup windows, designated stewards and escalation/appeal contacts.
 * Foundational accessibility/performance budgets and observability baseline.
 
 **Out of scope for v1 (defer):**
@@ -219,12 +280,14 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 * Advanced map/timeline exploration with offline tiles.
 * Partner OAuth app ecosystem, public SDKs, and webhooks at scale.
 * Full assignments/programs suite and translation memory optimization.
-* Tokenized incentives, reputation systems, and kiosk/interactive exhibits.
+* Kiosk/interactive exhibits. Participation economies are not an institutional delivery commitment (§15).
 * Multi-region active-active architecture beyond baseline reliability target.
 
 **v1 completion definition:**
 
-* A contributor can submit a memory with explicit consent, a curator can review/publish it, and a visitor can discover and cite it with visible provenance.
+* Before real collection, demonstrate on non-sensitive test fixtures: applicable authority/capacity evidence; scoped permission checks; restricted records absent from public pages, search, API, and media; sensitivity review and redaction; withdrawal across dependent views/copies; deletion and backup expiry; full preservation export and successful restoration without reviving revoked access. Assign operators, approve regional consent/retention procedures, and record gate evidence and sign-off.
+* After the gates pass, a contributor may entrust material for preservation only. A curator may publish only separately authorized, reviewed content. A visitor may discover and cite that authorized record with safe provenance and uncertainty shown. A valid request must remove or restrict affected access and generate a safe receipt under §12.
+* Demo records are visibly labeled on index and detail pages; “Verified,” granted-consent claims, and pilot/impact counts require actual evidence. A prototype alone does not satisfy v1 collection readiness.
 
 ---
 
@@ -250,7 +313,7 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 
 * WCAG 2.2 AA baseline. `aria-live` for background processing. Color contrast ≥ 4.5:1.
 * Captions/transcripts mandatory for public audio/video.
-* All critical actions offer undo; destructive actions require reason logging.
+* Critical actions explain reversibility; publication can be restricted promptly, while completed deletion may be irreversible. Record minimal safe reasons, with sensitive details retained separately only when authorized.
 
 ### 7.1) Product Copy Guardrails (UI + System Messaging)
 
@@ -269,7 +332,7 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 
 1. **Student Field Collector**
 
-* Receives Assignment → uses uploader → captures consent (photo/signature) → submits → mentor review → publish/restrict.
+* Receives Assignment → verifies applicable authority and signer capacity → captures localized scoped consent → submits to quarantine → mentor and sensitivity review → preserve only, restrict, or separately authorize publication. A photo/signature alone does not establish capacity.
 
 2. **Translator**
 
@@ -285,7 +348,7 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 
 5. **Partner Institution**
 
-* Uses API to sync collection metadata; pushes new items via signed ingest endpoints; receives webhooks on publish.
+* Signs custody/access and withdrawal terms → passes readiness review → syncs only authorized metadata/media → receives lifecycle notifications and confirms downstream restriction/deletion. Independent custody does not grant TIRO unlimited distribution rights.
 
 ---
 
@@ -300,6 +363,8 @@ Adapters for object storage (S3/GCS/Azure), vector DB (FAISS/pgvector/Weaviate),
 `POST /api/assignments` → create tasks; list & submit
 Webhook events: `memory.processed`, `memory.published`, `consent.revoked`, `translation.submitted`.
 
+Every read, search result, export, embed, media URL, and webhook must enforce the current audience/use grant. Public responses expose only authorized content and safe consent summaries; restricted evidence and sensitive metadata are never sent through a public endpoint. A state change invalidates dependent caches and links before further delivery.
+
 Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 ---
@@ -308,14 +373,15 @@ Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 * **Threat model**: PII leakage, unauthorized access, scraping, link‑sharing of restricted content, supply‑chain dependencies.
 * **Controls**: least‑privilege RBAC/ABAC; signed media URLs; regional data residency; encryption at rest/in transit; rate‑limits; WAF.
-* **Governance**: Ethics board for sensitive collections; regional stewards; takedown protocols; transparency & appeals.
-* **Compliance posture**: GDPR/CCPA basics; consent receipts; subject access & deletion; data retention schedules.
+* **Governance**: proposed authority map in `docs/5013c.txt` §6 Stage 5. The fiduciary board governs the charity and delegates operations; ethics reviewers set review conditions and may pause harmful uses; regional stewards execute authorized protocols; source authorities and legal rights holders retain their applicable authority. Staff may impose protective restrictions, but no TIRO body may expand consent or override applicable source/legal rights. Delegations and appeals must be documented before collection.
+* **Privacy procedures**: assess applicable law and regional protocols rather than claiming blanket GDPR/CCPA compliance. Consent receipts, subject requests, minimization, retention schedules, and deletion controls require implementation evidence. Restricted consent evidence and sensitive provenance follow disclosed retention rules; append-only operational logs contain no protected content.
+* **Conflicts and appeals**: conflicted reviewers recuse; independent review and board escalation address TIRO handling decisions. Authority disputes remain restricted while unresolved; a TIRO appeal is not a mechanism to extinguish community or legal rights.
 
 ---
 
 ## 11) Observability & Quality
 
-* **SLOs**: uptime 99.9%, ingest pipeline P95 < 15m to publish, search P95 < 250ms.
+* **Proposed SLOs**: uptime 99.9%, automated ingest pipeline P95 < 15m until ready for human review, search P95 < 250ms. Processing time excludes human review and authorization decisions; there is no publication-speed target. Measure withdrawal and restoration separately against adopted §12 windows.
 * **Logs/traces/metrics**: structured; PII redaction at source.
 * **QA**: accessibility audits, performance budgets, cross‑device testing (low‑end Android), red‑team for privacy.
 
@@ -323,15 +389,32 @@ Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 ## 12) Content Lifecycle
 
-* Draft → Review → Published/Restricted → Versioned updates → Withdrawn/Archived.
-* Every state change emits an audit event and a user‑facing changelog entry.
+Preservation and public access are independent. Use `publicationStatus`: not-published|review|published|restricted|withdrawn and `custodyStatus`: quarantined|preserved|deletion-pending|deleted. A withdrawn record may remain preserved only under an applicable disclosed basis. Mark in-scope content deleted only after active removal and backup expiry are complete; register any separately authorized or legally required restricted retention explicitly, without implying those copies were erased.
+
+| Action | Meaning | Request and decision authority |
+| --- | --- | --- |
+| Withdraw publication / use | Stop affected public access and future distribution/use in TIRO-controlled systems; disable dependent derivatives, embeds, search, API, caches, and media links | Authorized requester named in receipt, affected rights holder, or authorized representative; steward verifies capacity and scope and executes cessation |
+| Restrict | Narrow audience, uses, metadata, or location visibility; may be an immediate protective hold | Applicable source/rights authority requests; staff may restrict provisionally for harm or disputed authority; renewed access needs authorization and review |
+| Correct | Add or revise an attributed factual/transcription/translation correction; preserve safe provenance and contested accounts | Source, subject, contributor, or researcher may flag an error; authorized curator reviews evidence and source permissions before changing material |
+| Retain for preservation only | Keep a restricted preservation copy with no public access or unauthorized reuse | Requires recorded preservation grant or applicable legal/integrity duty disclosed at consent; responsible archivist records purpose, access, duration, and review |
+| Delete | Remove affected content and derived copies under TIRO control; schedule authorized backup expiry | Applicable rights/subject authority or receipt-designated requester; steward verifies capacity, archives lead executes, and any applicable legal retention exception is documented and explained |
+
+Anyone may report harm or disputed authority; accepting a report does not itself authorize disclosure, ownership reassignment, or deletion. Protective restriction does not wait for final identity resolution when continued exposure may cause harm. Unclear capacity is resolved using minimal evidence; do not require impossible documentation or publish identifying proof.
+
+**Proposed response windows (calendar time, acceptance targets pending adoption):** acknowledge within 2 days of receipt; impose a protective hold on credible urgent exposure within 24 hours; cease the affected publication and future distribution under TIRO control within 7 days of verified withdrawal; resolve or issue a reasoned status/retention decision within 30 days of receipt. Notify authorized partners within 2 days of verified scope and seek restriction/deletion receipts within 30 days. Escalate overdue requests; send a progress update at least every 7 days while a request remains open. Capacity review must not be used to prolong harmful access.
+
+Ordinary deletion from active stores and controlled derivatives is due within 30 days of verification. At consent disclose the maximum backup expiry; the proposed baseline is no more than 90 days after active deletion, unless a specific applicable legal retention obligation is identified. Such obligations are recorded with authority, access limits, duration, review/expiry, and notice; no generic “integrity” exception creates indefinite secret retention. If a jurisdiction or agreement requires faster handling, use that stricter limit. Before consent, tell the source which published or independently held copies TIRO cannot retrieve.
+
+**Backups, caches, derivatives, and partners:** invalidate controlled public caches and revoke media links when access ceases; block affected derivatives and future processing; track destination copies and send scoped restriction/deletion notices. Backups remain inaccessible for ordinary use, expire on the disclosed schedule, and replay current restrictions/deletion instructions before any restoration is served. Partner agreements require compatible handling and acknowledgments. Record failed or unverifiable recovery honestly and escalate; independent public copies cannot be guaranteed erased.
+
+**Audit and appeals:** retain minimal nonsensitive action receipts only under an approved schedule. Sensitive evidence, testimony, precise locations, identifiers, and consent documents are excluded from permanent logs and public changelogs. Safe withdrawal tombstones may be retained only if appropriate; metadata that exposes the source must itself be restricted or deleted. A public changelog is optional when disclosure would create harm. Refer handling appeals to non-conflicted ethics reviewers and then the board under `docs/5013c.txt` §6 Stage 5; no appeal or board override expands source consent. Notify requesters of decisions, retained material, limits, and available appeal routes.
 
 ---
 
 ## 13) Internationalization (i18n)
 
 * ICU message format; `lang` routing; language‑aware search; RTL ready.
-* Community translation workflows; reward signals (non‑financial to start, future tokenization optional).
+* Community translation workflows with attribution, consent, review, and fair support/compensation where approved. Critical consent and withdrawal flows must be understandable in collection languages before use.
 
 ---
 
@@ -339,22 +422,24 @@ Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 * Image/video adaptive delivery; preconnect, priority hints; critical CSS; script budgets.
 * Uploader supports offline capture and later resume; background sync where supported.
-* Edge caching of public content; stale‑while‑revalidate.
+* Edge caching only for authorized public content; revocation invalidates caches and dependent links. Do not serve withdrawn material through stale-while-revalidate or restore paths.
 
 ---
 
 ## 15) Roadmap Notes (beyond v5)
 
-* **Reputation & Incentives**: non‑transferable badges; later, tokenized incentives with anti‑gaming heuristics and K‑factor throttles.
+* **Participation economics**: speculative token, reputation, or referral mechanisms are removed from the institutional roadmap. Any future exploration belongs in a separate proposal with a community-benefit rationale, rights implications, and governance review; it is not a promised feature. Priorities remain preservation quality, community control, accessibility, and durable funding.
 * **LLM Assist**: summarization drafts, metadata suggestions, sensitive‑content heuristics with human sign‑off and documented limitations.
 * **Interactive Exhibits**: kiosk mode, partner microsites powered by the same APIs.
 
 ---
 
-## 16) Open Questions (to iterate in v0.2)
+## 16) Adoption Decisions and Implementation Work
 
 * Final brand palette & typography locks (map tokens to exact hex/weights).
-* Consent policy templates by region (library + expert review).
+* Adopt and localize regional consent templates, capacity evidence, response windows, retention/backup expiry, and partner-copy terms before real collection.
+* Adopt governance delegations and appeals, appoint operators, and record readiness sign-off.
+* Synchronize accepted manifesto text and correct demo status/illustrative claims in the public implementation; this documentation revision alone does not change those pages.
 * Initial storage/search providers to target (adapters already specified).
 * First three partner integrations (ingest/export).
 * Program rubrics for student assignments (validation & mentor ratios).
@@ -365,17 +450,18 @@ Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 **MemoryCard**
 
-* Props: `title`, `summary`, `thumbSrc`, `duration`, `language`, `era`, `flags[]`
+* Props: `title`, `summary`, `thumbSrc`, `duration`, `language`, `era`, `flags[]`, `recordKind`, `verificationSummary`
+* Demo status visible on every demonstration card and detail page; evidence-free verification and consent assertions are labeled illustrative or omitted
 * States: loading, error, restricted (mask + request access flow)
 * A11y: full keyboard focus ring; enter/space to open; aria‑label includes language and duration
 
 **ConsentBanner**
 
-* Shows consent scope; link to revocation instructions; localized boilerplate; always visible on detail pages
+* Shows safe authority/consent scope, record status, and withdrawal instructions; localized and visible before media on detail pages. Demonstrations state that sample permissions and identities are illustrative, not actual consent evidence.
 
 **TranscriptPanel**
 
-* Side‑by‑side with media; searchable; downloadable; caption export (WebVTT/SRT)
+* Side‑by‑side with media; searchable and downloadable only within permitted audience/use; permission-bound caption export (WebVTT/SRT)
 
 **PathwayRail**
 
@@ -391,4 +477,4 @@ Auth: OAuth 2.1 / OIDC for partners; signed URL uploads; short‑lived tokens.
 
 ---
 
-**This is a living document.** Propose edits inline; version as `/docs/specs/tiro-dxp-memory-v0.1.md`. Changelog entries accompany each merge.
+**This is a living document.** Maintain the canonical product specification at `docs/ethos.txt`; repository commits and PRs record revisions. Do not create a competing specification at an unmaintained alternate path.
