@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { memories } from "@/data/memories";
+import { countByDemo, formatRecordCountLabel } from "@/lib/recordKind";
 
 type NodeSeed = {
   label: string;
@@ -34,7 +35,21 @@ function getLinkedMemories(label: string) {
   );
 }
 
+function getPageNotice(): string | null {
+  const { total, demo } = countByDemo(memories);
+
+  if (total === 0 || demo === 0) {
+    return null;
+  }
+  if (demo === total) {
+    return "Record counts and linked memories below reference demonstration content — illustrative identities, provenance, and permissions; not collected archival testimony.";
+  }
+  return "Some record counts and linked memories below reference demonstration content; others reference TIRO-evidenced records. Demonstration links are labeled individually.";
+}
+
 export default function NodesIndexPage() {
+  const pageNotice = getPageNotice();
+
   return (
     <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
       <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
@@ -48,11 +63,11 @@ export default function NodesIndexPage() {
             is the first architectural layer linking memory to place, language,
             and thematic context.
           </p>
-          <p className="mt-4 max-w-3xl font-[family-name:var(--font-code)] text-xs uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
-            Record counts and linked memories below reference demonstration
-            content — illustrative identities, provenance, and permissions;
-            not collected archival testimony.
-          </p>
+          {pageNotice ? (
+            <p className="mt-4 max-w-3xl font-[family-name:var(--font-code)] text-xs uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
+              {pageNotice}
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -65,7 +80,7 @@ export default function NodesIndexPage() {
               <article key={`${seed.type}-${seed.label}`} className="tiro-card">
                 <div className="tiro-kv border-t-0">
                   <span className="k">{seed.type}</span>
-                  <span className="v">{linkedMemories.length} Demo Record{linkedMemories.length === 1 ? "" : "s"}</span>
+                  <span className="v">{formatRecordCountLabel(linkedMemories)}</span>
                 </div>
 
                 <h2 className="mt-5 font-[family-name:var(--font-display)] text-2xl italic tracking-tight text-[var(--tiro-text-soft)]">
@@ -75,10 +90,13 @@ export default function NodesIndexPage() {
                 {linkedMemories.length > 0 ? (
                   <ul className="mt-4 space-y-2 text-sm text-[var(--tiro-text-muted)]">
                     {linkedMemories.slice(0, 3).map((memory) => (
-                      <li key={memory.id}>
+                      <li key={memory.id} className="flex flex-wrap items-center gap-2">
                         <Link href={`/memories/${memory.id}`} className="tiro-link">
                           {memory.title}
                         </Link>
+                        {memory.recordKind === "demo" ? (
+                          <span className="tiro-chip">Demo</span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

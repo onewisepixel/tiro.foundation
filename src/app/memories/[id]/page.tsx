@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import MemoryDetail from "@/components/MemoryDetail";
 import { getMemoryById, memories } from "@/data/memories";
+import { getRecordKindNotice } from "@/data/recordNotices";
 
 type Params = {
   id: string;
@@ -26,9 +27,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
+  const notice = getRecordKindNotice(memory.recordKind);
+
   return {
-    title: `Demo: ${memory.title} — The Tiro Foundation`,
-    description: `Demonstration record — illustrative content, not collected archival testimony. ${memory.summary}`,
+    title: `${memory.recordKind === "demo" ? "Demo: " : ""}${memory.title} — The Tiro Foundation`,
+    description: notice ? `${notice.short} ${memory.summary}` : memory.summary,
   };
 }
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import type { MemoryRecord } from "@/data/memories";
+import { getMemoryById, type MemoryRecord } from "@/data/memories";
+import { getRecordKindNotice } from "@/data/recordNotices";
 import MemoryMediaViewer from "@/components/MemoryMediaViewer";
 
 type MemoryDetailProps = {
@@ -7,6 +8,8 @@ type MemoryDetailProps = {
 };
 
 export default function MemoryDetail({ memory }: MemoryDetailProps) {
+  const notice = getRecordKindNotice(memory.recordKind);
+
   const hasIntegrityNotes =
     Boolean(memory.confidenceLevel) ||
     Boolean(memory.multipleVersions) ||
@@ -26,10 +29,11 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
             {memory.summary}
           </p>
 
-          <p className="mt-6 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
-            Demonstration record — illustrative content, identities,
-            provenance, and permissions; not collected archival testimony.
-          </p>
+          {notice ? (
+            <p className="mt-6 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
+              {notice.full}
+            </p>
+          ) : null}
 
           <div className="tiro-card mt-10">
             <div className="tiro-kv">
@@ -213,16 +217,24 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
         <div className="tiro-card mx-auto max-w-5xl">
           <p className="tiro-eyebrow mb-5">Related Memories</p>
           <div className="space-y-4">
-            {memory.relatedMemories.map((related) => (
-              <Link key={related.href} href={related.href} className="tiro-card-link border border-[var(--tiro-border)] p-4">
-                <p className="text-sm font-medium text-[var(--tiro-text-soft)] md:text-base">
-                  {related.title}
-                </p>
-                <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-                  {related.summary}
-                </p>
-              </Link>
-            ))}
+            {memory.relatedMemories.map((related) => {
+              const targetRecord = getMemoryById(related.id);
+              const isDemo = targetRecord?.recordKind === "demo";
+
+              return (
+                <Link key={related.href} href={related.href} className="tiro-card-link border border-[var(--tiro-border)] p-4">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <p className="text-sm font-medium text-[var(--tiro-text-soft)] md:text-base">
+                      {related.title}
+                    </p>
+                    {isDemo ? <span className="tiro-chip">Demo</span> : null}
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+                    {related.summary}
+                  </p>
+                </Link>
+              );
+            })}
           </div>
         </div>
       </section>

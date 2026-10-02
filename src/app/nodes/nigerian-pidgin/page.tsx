@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { memories } from "@/data/memories";
+import { countByDemo } from "@/lib/recordKind";
 
 export const metadata: Metadata = {
   title: "Nigerian Pidgin — Node — The Tiro Foundation",
@@ -21,7 +22,21 @@ const relatedNodes = [
   { label: "Informal Trade" },
 ];
 
+function getConnectionsNotice(): string | null {
+  const { total, demo } = countByDemo(memoryConnections);
+
+  if (total === 0 || demo === 0) {
+    return null;
+  }
+  if (demo === total) {
+    return "These connections reference demonstration records — illustrative content; not collected archival testimony.";
+  }
+  return "Some connections below reference demonstration records; others reference TIRO-evidenced records. Demonstration links are labeled individually.";
+}
+
 export default function NigerianPidginNodePage() {
+  const connectionsNotice = getConnectionsNotice();
+
   return (
     <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
       <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
@@ -42,16 +57,22 @@ export default function NigerianPidginNodePage() {
       <section className="px-6 pb-12 md:pb-16">
         <div className="tiro-card mx-auto max-w-5xl">
           <p className="tiro-eyebrow mb-5">Memory Connections</p>
-          <p className="mb-5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
-            These connections reference demonstration records — illustrative
-            content; not collected archival testimony.
-          </p>
+          {connectionsNotice ? (
+            <p className="mb-5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
+              {connectionsNotice}
+            </p>
+          ) : null}
           <div className="space-y-4">
             {memoryConnections.map((memory) => (
               <Link key={memory.id} href={`/memories/${memory.id}`} className="tiro-card-link border border-[var(--tiro-border)] p-4">
-                <p className="text-sm font-medium text-[var(--tiro-text-soft)] md:text-base">
-                  {memory.title}
-                </p>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <p className="text-sm font-medium text-[var(--tiro-text-soft)] md:text-base">
+                    {memory.title}
+                  </p>
+                  {memory.recordKind === "demo" ? (
+                    <span className="tiro-chip">Demo</span>
+                  ) : null}
+                </div>
                 <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
                   {memory.summary}
                 </p>

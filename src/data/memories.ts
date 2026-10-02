@@ -16,6 +16,9 @@ export type RelatedNode = {
 export type MemoryRecord = {
   id: string;
   recordId: string;
+  // Record category only — does not establish verification or publication permission.
+  // See src/data/recordNotices.ts for the per-kind display notice.
+  recordKind: "demo" | "pilot" | "collection";
   archiveStatus: string;
   lastReviewed: string;
   accessLevel: string;
@@ -43,6 +46,7 @@ export type MemoryRecord = {
   tags: string[];
   relatedNodes: RelatedNode[];
   relatedMemories: {
+    id: string;
     title: string;
     summary: string;
     href: string;
@@ -53,6 +57,7 @@ export const memories: MemoryRecord[] = [
   {
     id: "lagos-port-harcourt-migration",
     recordId: "TIR-MEM-0001",
+    recordKind: "demo",
     archiveStatus: "Verified",
     lastReviewed: "2026-06-04",
     accessLevel: "Public",
@@ -116,12 +121,14 @@ When I tell this story now, I do not tell it as struggle only. I tell it as memo
     ],
     relatedMemories: [
       {
+        id: "rain-season-enugu",
         title: "Childhood Memory of Rain Season in Enugu",
         summary:
           "An account of monsoon routines, school life, and neighborhood preparation in southeastern Nigeria.",
         href: "/memories/rain-season-enugu",
       },
       {
+        id: "market-song-lagos",
         title: "Market Song Remembered in Lagos",
         summary:
           "A preserved performance fragment linking commerce, rhythm, and collective memory.",
@@ -132,6 +139,7 @@ When I tell this story now, I do not tell it as struggle only. I tell it as memo
   {
     id: "rain-season-enugu",
     recordId: "TIR-MEM-0002",
+    recordKind: "demo",
     archiveStatus: "Verified",
     lastReviewed: "2026-06-04",
     accessLevel: "Public",
@@ -177,12 +185,14 @@ For us children, rain was both work and wonder. We carried sandbags, then sat wi
     ],
     relatedMemories: [
       {
+        id: "lagos-port-harcourt-migration",
         title: "Migration Story from Lagos to Port Harcourt",
         summary:
           "A family recollection tracing movement, labor, and belonging across Nigerian cities.",
         href: "/memories/lagos-port-harcourt-migration",
       },
       {
+        id: "market-song-lagos",
         title: "Market Song Remembered in Lagos",
         summary:
           "A preserved market performance linking rhythm with trade memory.",
@@ -193,6 +203,7 @@ For us children, rain was both work and wonder. We carried sandbags, then sat wi
   {
     id: "market-song-lagos",
     recordId: "TIR-MEM-0003",
+    recordKind: "demo",
     archiveStatus: "Verified",
     lastReviewed: "2026-06-04",
     accessLevel: "Public",
@@ -242,12 +253,14 @@ Even after loudspeakers arrived, fragments remained. People still recognized who
     ],
     relatedMemories: [
       {
+        id: "lagos-port-harcourt-migration",
         title: "Migration Story from Lagos to Port Harcourt",
         summary:
           "A family recollection tracing movement, labor, and belonging across Nigerian cities.",
         href: "/memories/lagos-port-harcourt-migration",
       },
       {
+        id: "rain-season-enugu",
         title: "Childhood Memory of Rain Season in Enugu",
         summary:
           "An account of monsoon routines and neighborhood resilience in Enugu.",
