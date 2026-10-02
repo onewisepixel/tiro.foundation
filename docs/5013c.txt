@@ -1,6 +1,15 @@
-Yes. I pulled the TIRO threads I can recover across our history, including material that predates the current “Node Zero” framing. What emerges is much more coherent than it sometimes felt while we were building it.
- 
-The central conclusion first: the organization that should become the U.S. 501(c)(3) is not “TIRO, the AI assistant,” and not simply “TIRO, the website.” It is the institutional TIRO: a permanent, neutral custodian of endangered cultural and linguistic memory. Node Zero is the first operational manifestation of that institution.
+# TIRO Foundation — Node Zero to Proposed U.S. 501(c)(3)
+
+Status: Advisory institutional strategy and proposed governance; not adopted charter, bylaws, or filing.
+Revision date: 2026-10-02.
+Owner: TIRO founder / Steward; future board owns adoption of governing instruments.
+Authority: Planning recommendations derived from the public manifesto and stewardship direction. These files do not establish incorporation, IRS recognition, tax deductibility, director appointments, or operational preservation readiness.
+Supersession: Revises the September 2026 advisory memo in this file. Historical reasoning in §1 remains context; §2 distinguishes current direction from proposals and verified status. This document does not supersede adopted law, governing instruments, or applicable source permissions.
+Related sources: `docs/manifestov0-2.txt` is the public mission baseline; `/community-rights` (`src/app/community-rights/page.tsx`) states stewardship principles; `docs/ethos.txt` supplies proposed operational acceptance criteria and lifecycle procedures; `docs/memory.txt` records prototype history.
+
+This memo reconstructs the institutional direction and proposes a path to incorporation. Recommendations become institutional authority only through the relevant adoption or filing, with dated evidence.
+
+The central conclusion first: the organization that should become the U.S. 501(c)(3) is the institutional TIRO: a durable custodian of cultural and linguistic memory, with particular attention to endangered and under-documented material. Neutrality means non-appropriation and fair handling of contested accounts, not avoidance of accountable curation. Node Zero is its founding web portal and institutional prototype, becoming an operational custodian only after the readiness gates.
  
 That distinction gives us a clean line from where we are now to incorporation.
  
@@ -43,7 +52,7 @@ TIRO Foundation
  
 This became the institutional form.
  
-At various points we described TIRO as an organization concerned with disappearing languages, oral history, cultural preservation and intergenerational memory. Igbo became the obvious first proving ground, with Nigeria functioning as an initial geographic focus rather than a permanent jurisdictional boundary.
+At various points we described TIRO as an organization concerned with disappearing languages, oral history, cultural preservation and intergenerational memory. A bounded Igbo oral-memory pilot in Nigeria became the proposed first proving ground, subject to community scoping and authorization. Nigeria is an initial geographic focus rather than a permanent jurisdictional boundary. This is not a claim that every Igbo variety or cultural practice is endangered.
  
 Pointe-Noire, Republic of the Congo also appeared in the Foundation's geographic imagination, particularly as TIRO evolved beyond being implicitly Nigerian and toward something pan-African/global.
  
@@ -149,7 +158,7 @@ It was mission protection.
  
 The version developed in our discussions included something close to:
  
-Founder-Protector objection → 90-day pause → independent review → board reconsideration → approximately 75% supermajority override.
+Founder-Protector objection → 90-day pause → independent review → board reconsideration → proposed 75% supermajority override. The detailed proposed scope, calculation, deadlines, and succession are in §6 Stage 5; this historical summary does not itself confer authority.
  
 The intent was therefore “constitutional brake,” not “founder monarch.”
  
@@ -302,7 +311,7 @@ Node Zero isn't merely version 1 of the website.
  
 It is:
  
-the first functioning TIRO node before TIRO has a network.
+the founding TIRO web portal and institutional prototype before TIRO has an operational preservation network. Source-level pages demonstrate design; operational custody requires the readiness gates in `docs/ethos.txt` §6.1.
  
 That means it can perform four jobs simultaneously:
  
@@ -324,9 +333,18 @@ That fourth one is the killer.
  
 ---
  
-2. What is canon and what isn't
- 
-If I were freezing TIRO's constitution today, I would treat the following as Canon:
+2. Direction, proposals, and evidenced status
+
+Use this source hierarchy to avoid repeating policy as competing doctrine:
+
+1. Applicable law and formally adopted certificate/bylaws govern the legal entity and fiduciary duties. Such adoption is not evidenced here.
+2. Applicable source permissions, legal rights, and custody agreements limit each use of entrusted material. A TIRO governance vote cannot manufacture those permissions.
+3. The Community Rights & Cultural Data Stewardship policy at `/community-rights` supplies operative stewardship principles. Detailed procedures proposed in `docs/ethos.txt` §§3.3 and 12 require adoption and implementation before collection.
+4. `docs/manifestov0-2.txt` supplies public mission/philosophy; `docs/manifesto.txt` is superseded history. The product spec translates policy into acceptance criteria. This strategy proposes legal/institutional implementation; `docs/memory.txt` is a historical prototype brief.
+
+Resolve a conflict by restricting the affected use and referring it for appropriate review; do not treat a broad mission statement as permission. Adoption of this documentation revision does not create incorporation or substitute for adoption of the charter/bylaws.
+
+Current direction expressed in the public manifesto/policy and this planning baseline (not an adopted constitution):
  
 Name: TIRO / TIRO Foundation.
  
@@ -340,7 +358,7 @@ Flagship program: The Memory Project.
  
 Initial domain: endangered, under-documented and orally transmitted cultural/linguistic knowledge.
  
-Initial proving ground: Igbo/Nigeria.
+Initial proving ground: proposed community-scoped Igbo oral-memory pilot in Nigeria.
  
 Geographic ambition: global.
  
@@ -350,9 +368,9 @@ Technology philosophy: technology serves preservation and access.
  
 Governance principle: continuity beyond the founder.
  
-Founder role: Steward / Steward-Protector.
+Founder role: Steward; Steward-Protector authority is proposed in §6 Stage 5, not an evidenced appointment.
  
-Infrastructure principle: redundancy, provenance, auditability and permanence.
+Infrastructure principle: redundancy, provenance, safe auditability and durable continuity within disclosed permissions/retention limits.
  
 Long-term institutional relationships: communities + archives + universities + cultural institutions + governments/UNESCO-type bodies.
  
@@ -360,7 +378,20 @@ Public posture: quiet credibility over attention economics.
  
 AI posture: witness/interface rather than cultural authority.
  
-I would classify the following as important but still mutable:
+Evidence and status must remain separate:
+
+| Item | Status supported by the reviewed repository | Evidence required to change status |
+| --- | --- | --- |
+| Manifesto/policy and static portal | Public-facing source exists at baseline `8533bdd7eee208f5907e99c119269dcc301c6438`; this revision proposes amendments | Accepted revision and synchronized public text; deployment evidence if claiming live capability |
+| Mock memory records | Demonstration source exists; no interviews, permissions, or verification established | Clearly labeled demos; real pilot requires accession, applicable consent and provenance receipts |
+| Real preservation operation | Readiness not established by these documents | `docs/ethos.txt` §6.1 gate evidence and designated responsible stewards |
+| Texas nonprofit corporation | Proposed; filing completion not established here | Accepted certificate and organizational records |
+| Directors, officers, Protector, ethics delegation | Proposed; appointments not established here | Dated governing instruments, resolutions, acceptance and conflict disclosures |
+| 501(c)(3) recognition and public-charity classification | Proposed; not established here | IRS determination letter and ongoing classification/support evidence |
+
+Maintain dated status and evidence references in the eventual institutional register; do not publish unverified claims of recognition or donation deductibility. Absence of evidence here is not proof that an external event has never occurred.
+
+The following remain important but mutable:
  
 Pointe-Noire as a permanent operating center; exact cloud stack; exact archive schema; interactive globe implementation; AI model architecture; local-first personal assistant architecture; “The Witness” as a formal product name; exact governance veto mechanics; exact country sequence after Nigeria.
  
@@ -377,7 +408,7 @@ That does not kill it. It protects both projects.
  
 I recommend:
  
-TIRO Foundation, a Texas nonprofit corporation recognized by the IRS as a 501(c)(3) public charity.
+Proposed target: TIRO Foundation incorporated as a Texas nonprofit corporation, applying for IRS recognition under 501(c)(3) and an appropriate public-charity classification. Neither incorporation nor recognition is claimed as completed.
  
 Not a private foundation.
  
@@ -387,27 +418,31 @@ Not an LLC.
  
 Not a fiscal-sponsorship-only permanent structure.
  
-Texas nonprofit incorporation is inexpensive; the Texas Form 202 filing fee is currently $25 and requires at least three initial directors. 
+Texas Form 202 lists a $25 filing fee and at least three initial directors for a board-managed nonprofit as reviewed on 2026-10-02 [S4]. Check current requirements and fees again before filing.
  
-Texas also does not generally require most ordinary charities to obtain a statewide charitable-solicitation registration, although particular specialized categories do. 
+Before fundraising, assess applicable solicitation requirements in Texas and every jurisdiction where TIRO will seek support; incorporation and federal recognition do not settle those obligations.
  
 Given that TIRO is presently rooted here and its activities will be international, there isn't an obvious governance advantage that justifies incorporating it elsewhere at this stage.
  
-Its IRS exempt-purpose framing should probably combine:
- 
-educational + charitable + scientific/cultural preservation activities.
+The organizing document should limit TIRO to qualifying exempt purposes under section 501(c)(3), initially educational and charitable purposes. Cultural preservation is an activity advancing those purposes, not a separate statutory exempt-purpose category. Include scientific purposes only if the adopted research program and operations genuinely support that framing.
  
 The certificate itself should be narrower and cleaner than our philosophical literature.
  
-Something conceptually like:
- 
-> TIRO Foundation exists to preserve, document, study, and make responsibly accessible endangered, under-documented, and orally transmitted languages, histories, traditions, and other forms of cultural knowledge; to educate the public concerning such knowledge; to support communities and researchers engaged in its preservation; and to develop charitable and educational infrastructure that advances these purposes.
+Proposed purpose-clause concept, for review in the incorporation packet:
+
+> TIRO Foundation is organized exclusively for educational and charitable purposes within the meaning of section 501(c)(3) of the Internal Revenue Code. In furtherance of those purposes, it preserves, documents, studies, and supports responsible access to cultural and linguistic memory, particularly endangered, under-documented, and orally transmitted knowledge; educates the public through contextual resources and programming; and strengthens community preservation capacity.
+
+The public program mission remains broader in expression than this organizing clause, but all corporate activities must further the qualifying purposes. Curation follows community priorities, risk of loss, documentation gaps, cultural significance, and the ability to honor permissions and preservation duties (`docs/manifestov0-2.txt` II).
  
  
  
 That is not yet the final legal language—I would draft that against IRS organizational-test requirements before filing—but it is the right conceptual territory.
  
-The organizing document must limit TIRO to qualifying exempt purposes and permanently dedicate its assets to exempt purposes upon dissolution. 
+The organizing document must limit TIRO to qualifying exempt purposes and permanently dedicate TIRO-owned assets to exempt purposes upon dissolution [S1]. Net earnings may not inure to insiders, and operations must serve public rather than private interests [S2]. These IRS requirements are distinct from TIRO's optional Protector design.
+
+**Owned charitable assets versus entrusted material:** separately inventory TIRO-owned funds, equipment, software, and any rights actually acquired, versus recordings, documents, metadata, or other material held under custody agreements or licenses. Custody does not transfer ownership; restrictions follow the actual rights and agreements, even when stored on TIRO equipment.
+
+On merger, transfer, or dissolution, owned net charitable assets remain dedicated to qualifying exempt/public purposes. Entrusted material may be transferred only under applicable source/legal authorization and compatible custody terms carrying provenance, access restrictions, retention limits, and withdrawal duties. Identify and notify the relevant authorities; seek any required fresh authorization. If lawful successor custody is unavailable, arrange authorized return or deletion, subject to applicable retention duties. Do not characterize the entire corpus as freely disposable TIRO property or promise donors ownership of it.
  
  
 ---
@@ -418,7 +453,7 @@ TIRO might initially qualify for the streamlined Form 1023-EZ if projected annua
  
 I nevertheless think 1023-EZ is the wrong instrument for TIRO.
  
-Current IRS fees are $275 for 1023-EZ and $600 for the full Form 1023. 
+IRS fees reviewed on 2026-10-02 are $275 for 1023-EZ and $600 for the full Form 1023 [S5]; check again at filing.
  
 Spend the extra $325.
  
@@ -466,9 +501,11 @@ This is how I would map the transition.
  
 Stage 0 — Node Zero
  
-September 2026
- 
-We are here.
+Planning baseline: September 2026; revision assessed 2026-10-02. Stages are conditional milestones, not evidence of completion or a guaranteed calendar.
+
+Node Zero is the founding web portal and institutional prototype. Initially it establishes mission, policy, contact, and demonstrable record structure; receiving real entrusted material requires operational readiness.
+
+Responsibilities: named portal operator and preservation steward; safe record/status display; accessible rights/contact routes; versioned policy and readiness evidence; handling of authorized material only. Before real custody, pass `docs/ethos.txt` §6.1 gates for authority/capacity, consent, restricted access, sensitive review, withdrawal, backup restoration, and complete preservation exports.
  
 The immediate objective should not be “finish the website.”
  
@@ -494,7 +531,9 @@ Public-facing governance principles.
  
 Contact/participation mechanism.
  
-A small amount of genuine archival material or clearly documented pilot methodology.
+A small amount of genuine authorized archival material only after readiness, or clearly documented proposed pilot methodology before collection.
+
+Demonstrations must be visibly marked on index and detail pages, with illustrative identities/provenance/permissions and no implied actual consent or verification. Keep them separate from actual pilot results, collection totals, public-impact metrics, fundraising evidence, and filing narratives about completed activity. `docs/memory.txt` supplies the prototype labeling requirements.
  
  
 It does not require scale.
@@ -621,7 +660,7 @@ Instead, reserve Steward-Protector intervention for a narrow class of constituti
  
 dissolution;
  
-sale/disposition of substantially all archival assets;
+sale/disposition of substantially all TIRO-owned preservation infrastructure or archival rights actually held by TIRO;
  
 abandoning the cultural-memory mission;
  
@@ -636,17 +675,32 @@ merger;
 removal of fundamental provenance/community-sovereignty protections.
  
  
-Then use our original mechanism:
- 
-objection → 90-day stay → independent review → board reconsideration → supermajority override.
- 
-That preserves the spirit beautifully.
- 
-The Steward protects the constitution.
- 
-The Board governs the charity.
- 
-That is a much stronger institution.
+Proposed governance design for adoption in the certificate/bylaws, with legal review for enforceability and fiduciary duties:
+
+| Body / capacity | Authority and limits | Accountability / review |
+| --- | --- | --- |
+| Fiduciary board | Governs charity, budget, appointments, delegations, program policy, risk and owned assets; cannot create permissions over entrusted material | Majority independent as proposed; minutes, conflicts policy, financial oversight and mission duties |
+| Steward-Protector | May trigger a time-limited mission-protection pause for the enumerated constitutional events; no general operational veto | Written reasons, independent review, fixed deadlines, board override, non-hereditary succession |
+| Ethics committee / ethics reviewers | Delegated sensitivity review, protective holds, cultural-protocol advice and first independent handling appeal; not a second fiduciary board | Board-approved charter, named non-conflicted reviewers and community participation; cannot broaden consent |
+| Regional / collection stewards | Execute approved protocols, capacity checks, access decisions within grants, withdrawal and incident response | Written delegation, training, readiness evidence, reports and escalation to ethics/board |
+| Source authorities, legal rights holders, subjects and authorized representatives | Retain the applicable cultural, legal, privacy and consent interests identified for each use | Shared/disputed claims documented; TIRO review can decide its own handling but cannot extinguish outside authority |
+
+**Pause, independent review, and override (proposal):**
+
+1. For a qualifying event, the Protector delivers a reasoned written objection within 14 calendar days of formal notice of the proposed decision. A timely objection pauses that decision for at most 90 calendar days from receipt; no rolling or repeat pause on the same materially unchanged proposal. An unavailable or vacant Protector does not create an automatic stay.
+2. Within 15 days of objection, non-conflicted directors appoint three independent reviewers with nonprofit-governance, preservation, and community-rights competence, including a community-selected nominee accepted for independence. Reviewers may not be the Protector, current directors, close family, financially dependent persons, or beneficiaries of the transaction. The board maintains a vetted reserve panel to prevent appointment deadlock; the Protector does not appoint or control it.
+3. Reviewers receive relevant safe evidence and affected-community submissions and issue a reasoned report by day 60. The board reconsiders by day 90 with reasons and a record of conflicts. If review is delayed, request the reserve panel and disclose the gap; the stay still expires at day 90, and proceeding without a report requires the same override threshold and a documented explanation.
+4. Override requires affirmative votes of at least `ceil(0.75 × N)`, where N is the number of seated, non-conflicted directors eligible on that matter at the formal notice date. Abstentions and absences remain in N; conflicted directors and already-vacant seats do not. Resignation does not reduce the fixed denominator; replacements fill the relevant eligible seats. This protects against manipulating the vote during the stay.
+5. At least three non-conflicted directors and the applicable bylaw/statutory quorum must participate. If fewer can act, restore an independent eligible board before discretionary action. Expiry releases the temporary stay, not the approval requirement: the objected proposal proceeds only after the required recorded approval or withdrawal of the objection. Ordinary urgent safeguarding may continue under documented board authority; this proposal cannot delay legally required protective action.
+6. An override changes only TIRO's internal decision. It never authorizes a source-rights violation, expands consent, or defeats applicable law/custody terms. An unlawful transfer is prohibited independently of the Protector.
+
+**Succession and vacancy (proposal):** the founder may be the initial Protector only by express adoption and appointment. The office is not inheritable, saleable, or transferable by private designation. Subsequent Protectors serve five-year terms, with at most one renewal. Non-conflicted ethics/community representatives nominate qualified independent candidates; the board appoints by 75% of all seated non-conflicted directors, rounded up, with at least three participating and a lawful quorum. The founder may recommend a successor but cannot appoint one unilaterally.
+
+On death, resignation, incapacity, expiry, removal, or vacancy, the board records the event, opens nominations within 30 days and aims to appoint within 90 days. Pending appointment, a designated non-conflicted ethics panel may trigger the same limited pause without acquiring general Protector or fiduciary authority. Incapacity, misconduct, and removal require documented evidence, an opportunity to respond where feasible, independent review, and the same 75% board threshold. Review of the Protector's own appointment, compensation, conflicts, or removal cannot be vetoed by the Protector. Long-term vacancies do not prevent ordinary board governance; reasons and continuing recruitment are reported.
+
+**Delegation, handling appeals, and conflicts (proposal):** publish contacts and scope; name primary and backup stewards before collection. Anyone may raise a concern. Non-conflicted ethics reviewers acknowledge an appeal within 2 calendar days and issue a decision or status within 30; unresolved appeals go to non-conflicted directors for a reasoned response within a further 30 days. Protective restrictions remain during disputed authority; appeal decisions do not restore access without applicable authorization. Recusal, evidence access, deadlines, decisions, and further applicable external remedies are documented. Product action windows are in `docs/ethos.txt` §12.
+
+These percentages, terms, and deadlines are TIRO governance choices proposed for review, not IRS mandates. The legal requirement against private benefit/inurement [S2] applies independently. Board fiduciary responsibility remains with the board; mission protection is bounded, reviewable, and separable from the founder.
  
 Stage 6 — IRS Form 1023
  
@@ -666,7 +720,20 @@ Program 3 — Community Preservation Capacity
  
 Training, equipment, documentation standards, partnerships or small preservation initiatives allowing communities to participate directly in documenting their heritage.
  
-That already makes a credible charity.
+These are proposed initial activities; distinguish planned, present, and completed work in the filing. Do not describe prototype demonstrations as executed preservation or interviews.
+
+**Proposed first-year activity plan — draft allocations, not actual expenditures or secured funding:**
+
+| Activity | Operators, location and beneficiaries | Funding and draft total time / expense share | Exempt-purpose connection and evidence |
+| --- | --- | --- | --- |
+| Memory Collection & Preservation | Board-designated preservation lead, trained collectors and community-authorized stewards; bounded Igbo pilot location in Nigeria selected with participants; secure approved storage; source communities and future learners benefit | Donations, preservation/humanities grants and documented institutional support; 45% total time / 50% total expenses | Educational/charitable preservation of under-documented knowledge; demonstrate scoped permissions, context, checksums, restoration, community access and return options |
+| Public Archive & Education | Portal operator, editors, translators and educators under delegated oversight; digital access with initial coordination from Houston, Texas and agreed community/partner sessions; public, descendants, students, researchers benefit | Public donations, educational/humanities grants and mission-compatible partnerships; 30% time / 25% expenses | Education through authorized recordings, contextual materials and accessible resources; track actual use/accessibility and distinguish interpretations, demos and restricted collections |
+| Community Preservation Capacity | Community-selected stewards and qualified trainers; agreed pilot workshops in Nigeria and remote support; participating communities and local preservation workers benefit | Grants, donated equipment/services and documented support; 15% time / 15% expenses | Educational training and charitable preservation support selected on transparent community-benefit criteria; document training, equipment custody, permissions and community-defined outcomes |
+| Administration, governance and fundraising | Officers/board and delegated finance support; proposed Texas coordination; supports the public-serving programs | Diversified contributions; 10% time / 10% expenses | Enables accountable operation; report supporting costs distinctly and allocate consistently with financial projections |
+
+Time and expense columns each total 100% across the proposed first-year activities. Replace draft shares with a board-approved budget and honest activity estimates for the actual filing; no named operator, venue, grant, partner commitment, or country permission is implied as secured. The full narrative must explain each activity, who conducts it, where, total time, funding, expense share and connection to exempt purposes [S3]. If operations, fees, grants, or international transfers differ, describe those actual arrangements rather than relying on this table.
+
+Collection begins only when local permissions, safety, governance, and `docs/ethos.txt` §6.1 gates are satisfied. Public access is optional and separately authorized; restricted community preservation still advances the mission. Earned revenue and any research activity require an evidenced exempt-purpose connection and separate approval.
  
 We don't need to sell the IRS on The Witness, distributed AI nodes, universal memory infrastructure or 2032.
  
@@ -678,11 +745,13 @@ After recognition, TIRO can apply with the Texas Comptroller for applicable stat
  
 Stage 8 — First institutional node
  
-And only here do I think the word Node acquires its full meaning.
- 
-Node Zero = web/institutional prototype.
- 
-Node One = first community preservation operation.
+Use node precisely: a philosophical node is a point of connection; a metadata node is a graph entity; an operational preservation node is an accountable activity with operators, agreements, and custody responsibilities. Graph membership appoints no custodian.
+
+Node Zero = founding web/institutional prototype, with operational custody only after the Stage 0 gates.
+
+Node One = proposed first bounded community preservation operation. It is not a national center or completed partnership merely because a community is named.
+
+Responsibilities and readiness: agree the pilot scope with source communities; identify source/legal authorities, subjects and signer capacities; appoint trained primary/backup collection stewards; establish regional consent and restricted-access procedures; disclose retention/withdrawal terms; demonstrate sensitivity review, copy inventory, full export and verified restore; budget recurring preservation; agree community benefit and independent copies; approve and record `docs/ethos.txt` §6.1 sign-off. An accountable operation may preserve locally or through authorized partners; community custody need not move to TIRO.
  
 My instinct remains:
  
@@ -694,7 +763,7 @@ Not “Africa.”
  
 A bounded cultural corpus where the Foundation can prove:
  
-collection → consent → provenance → preservation → transcription → contextualization → public access → community benefit → redundancy.
+community scoping and authority → scoped consent → collection and provenance → verified preservation → authorized transcription/contextualization → optional, separately authorized public access → community benefit → tested redundancy and withdrawal handling.
  
 That becomes our reference implementation.
  
@@ -718,7 +787,7 @@ Village/community archive.
  
 Diaspora organization.
  
-A future TIRO network could become interoperable rather than centrally owned.
+A future TIRO network could become interoperable rather than centrally owned. Partner nodes may retain independent legal and physical custody; agreements specify stewardship, access, exports, copy notifications and withdrawal handling. Inclusion in TIRO discovery never transfers authority or confers redistribution permission.
  
 TIRO Foundation then becomes less “website operator” and more:
  
@@ -731,15 +800,15 @@ The circle closes.
  
 ---
  
-7. The actual institutional stack
+7. The proposed institutional stack
  
 I now see TIRO as four layers:
  
-TIRO Foundation The legal person. Holds fiduciary responsibility, charitable assets, institutional relationships and mission.
+TIRO Foundation The proposed legal person, after evidenced incorporation. Its fiduciary board governs TIRO-owned charitable assets, institutional relationships and mission. Entrusted cultural material remains subject to distinct source rights, licenses and custody duties; it is not automatically owned by the legal entity.
  
 ↓
  
-The Custodian Doctrine The constitution. Determines how TIRO behaves.
+The Custodian Doctrine The intended constitutional direction; formal authority awaits adoption in the appropriate governing instruments. Public policy supplies stewardship principles; operating procedures translate them into accountable duties.
  
 ↓
  
@@ -786,7 +855,7 @@ Ten mock cultural records become less important.
  
 Three properly documented, consented, provenance-rich records become vastly more important.
  
-The portal becomes institutional evidence.
+The portal may evidence design and documented methodology now. It evidences actual institutional activity only when claims are supported by real permissions, provenance, review and preservation records. A mock corpus is never evidence of completed charitable collection.
  
  
 ---
@@ -862,3 +931,27 @@ In other words, instead of producing seven documents that slowly disagree with e
 That feels extremely TIRO.
  
 And, looking at everything we've developed over the last eighteen-ish months, I think this is where the project has quietly been trying to get the entire time.
+
+
+---
+
+10. Source notes and adoption checklist
+
+Sources reviewed for this revision on 2026-10-02. Filing fees, eligibility, classification, jurisdictional requirements and procedures must be checked again at filing; this memo does not establish a filed or approved application.
+
+[S1] IRS, “Charity — required provisions for organizing documents”: qualifying purpose limitations and dedication of owned assets on dissolution.
+https://www.irs.gov/charities-non-profits/charitable-organizations/charity-required-provisions-for-organizing-documents
+
+[S2] IRS, “Inurement/private benefit: Charitable organizations”: public rather than private interests and prohibition of insider inurement. This does not prescribe TIRO's Protector structure or voting percentages.
+https://www.irs.gov/charities-non-profits/charitable-organizations/inurement-private-benefit-charitable-organizations
+
+[S3] IRS, Instructions for Form 1023, Part IV narrative of activities: actual/planned activities, operators, locations, total time, funding, expense allocation and exempt-purpose connection; classification and organizational provisions are addressed separately.
+https://www.irs.gov/instructions/i1023
+
+[S4] Texas Secretary of State, Form 202: fee, board-managed director minimum, and need for additional tax-exemption language.
+https://www.sos.state.tx.us/corp/forms/202_boc.pdf
+
+[S5] IRS, “Form 1023 and 1023-EZ: Amount of user fee”: current application fees and payment through Pay.gov; fees may change.
+https://www.irs.gov/charities-non-profits/form-1023-and-1023-ez-amount-of-user-fee
+
+Before claiming adoption or capability: record the accepted charter/certificate/bylaws and resolutions; appointed operators and conflicts; regional consent and retention terms; accepted action/appeal windows; readiness and restore/export evidence; actual activity/budget data; accepted filings and determination letter when received. Synchronize public text and demonstration status after acceptance. Until evidenced, proposals and acceptance criteria remain explicitly proposed.

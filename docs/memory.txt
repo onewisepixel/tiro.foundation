@@ -1,6 +1,16 @@
-# TIRO Workshop — Memory System v0.2
+# TIRO Workshop — Memory System v0.2 (historical prototype brief)
 
-Current status:
+Status: Historical implementation brief, with proposed stewardship-alignment annotations.
+Revision date: 2026-10-02.
+Owner: TIRO founder / Steward.
+Authority: Prototype history and display-model guidance only; not an operational consent registry or permission to collect real material.
+Supersession: Real collection acceptance criteria and lifecycle procedures are maintained in `docs/ethos.txt` §§3.3, 6.1, and 12; public stewardship principles are at `/community-rights` (`src/app/community-rights/page.tsx`).
+
+Completion evidence at repository baseline `8533bdd7eee208f5907e99c119269dcc301c6438`: local `MemoryRecord` data, three mock examples, reusable media/detail components, memory index, dynamic detail route, demo route, and related nodes/memories exist. These are source-level observations, not a production-readiness audit. The original creation instructions below record that prototype milestone; do not repeat completed work.
+
+Remaining acceptance work: visibly distinguish demonstration records on index and detail pages; remove or explicitly label illustrative verification/consent claims; synchronize display metadata with the proposed operational schema. No actual consent, interview, verification, or pilot result is established by mock strings. This documentation edit does not change the public implementation.
+
+Historical starting status (before the prototype work):
 
 * Landing page exists
 * Manifesto page exists
@@ -8,7 +18,7 @@ Current status:
 * `/memories/demo` exists as a static Memory detail page
 * Visual language is dark, restrained, archival, institutional, and elegant
 
-Goal for this session:
+Original prototype goal (now represented in source):
 Evolve the static memory detail page into a reusable Memory system prototype with media support, related nodes, and a browsable memory index.
 
 Do not add a database yet.
@@ -24,7 +34,7 @@ Create a local mock data file, for example:
 
 Define a TypeScript type/interface for `MemoryRecord`.
 
-Suggested fields:
+Display-model sketch below incorporates the fields already present in `src/data/memories.ts`. `sourceAuthority`, optional `legalRights`, and `consentWithdrawal` are existing display fields, not new implementation work. The marked additions are proposed metadata targets and are not yet implemented. Structured authorizations, evidence, and copy/lifecycle controls belong in `docs/ethos.txt` §4, not in free-text UI fields.
 
 ```ts
 type MemoryMedia = {
@@ -37,6 +47,7 @@ type MemoryMedia = {
 };
 
 type RelatedNode = {
+  // Metadata relationship only; does not appoint a custodian or grant authority.
   label: string;
   type: "Person" | "Place" | "Theme" | "Institution" | "Language";
   href?: string;
@@ -44,13 +55,37 @@ type RelatedNode = {
 
 type MemoryRecord = {
   id: string;
+  recordId: string;
+  archiveStatus: string; // Evidence-backed for real records; illustrative for demos.
+  lastReviewed: string;
+  accessLevel: string;
+  confidenceLevel?: string;
+  multipleVersions?: string;
+  translatorNotes?: string;
+  disputedDetails?: string;
+  communityAnnotations?: string;
+  // Proposed additions; not current runtime fields:
+  recordKind: "demo" | "pilot" | "collection";
+  demonstrationNotice?: string;
+  authorityStatus: "identified" | "shared" | "disputed" | "unknown";
+  legalRightsStatus: "identified" | "disputed" | "unknown";
+  collectors: string[];
+  subjects: string[];
+  signerCapacitySummary: string;
+  permittedUses: string[]; // Use-specific safe summary; full grants in registry.
+  accessRestrictions: string[];
+  verificationSummary?: string; // What was checked and its limits, not a score.
+  // Existing display fields continue below:
   title: string;
   summary: string;
   location: string;
   language: string;
   era: string;
   contributor: string;
+  sourceAuthority: string; // Cultural/intellectual authority, distinct from collector.
+  legalRights?: string; // Separately identified applicable legal rights where known.
   consentStatus: string;
+  consentWithdrawal: string; // Requester, contact, scope, and disclosed retention limits.
   provenance: string;
   rightsUsage: string;
   sensitivity?: string;
@@ -67,7 +102,11 @@ type MemoryRecord = {
 };
 ```
 
-Create at least 3 demo memory records:
+The historical prototype called for at least 3 demo memory records. These examples are now in the local data file; they are demonstrations, not collected testimony:
+
+Every index card and detail page must visibly state “Demonstration record — illustrative content, identities, provenance, and permissions; not collected archival testimony.” Reserve “Verified,” granted-consent claims, review dates presented as real events, and institutional record counts for evidence-backed material. If illustrative status fields remain, label them as examples wherever shown. Keep demo identifiers distinct from accessioned records and exclude demonstrations from pilot results, collection totals, donor evidence, and impact measures.
+
+Existing examples:
 
 * `lagos-port-harcourt-migration`
 * `rain-season-enugu`
@@ -98,7 +137,7 @@ Placement:
 On the Memory detail page, place the media viewer after Provenance/Consent and before Transcript.
 
 Rationale:
-The record should establish trust, provenance, and rights before inviting media consumption.
+The display should establish record kind, provenance, and permission scope before media consumption. For demonstrations, explain that all such evidence is illustrative; the visual design must not imply an actual interview or consent receipt.
 
 ## 3. Refactor Memory detail page
 
@@ -110,7 +149,8 @@ The page should render:
 
 * Hero
 * Metadata cards
-* Provenance / consent / rights card
+* Visible demonstration/pilot/collection status
+* Provenance / source authority / separately known legal rights / consent scope / withdrawal card
 * Media viewer
 * Transcript panel
 * Cultural context / notes
@@ -130,6 +170,7 @@ This should display all demo memory records as cards.
 
 Each card should include:
 
+* visible record-kind notice (mandatory for demonstrations)
 * title
 * summary
 * location
@@ -141,10 +182,10 @@ Each card should include:
 The page should feel like the beginning of an archive, not a blog list.
 
 Title:
-“Memory Records”
+“Memory Record Demonstrations”
 
 Subtitle:
-“Early archival prototypes for preserving memory with provenance, consent, and cultural context.”
+“Illustrative records demonstrating archival structure. These examples are not collected testimony, verified records, or evidence of consent.”
 
 ## 5. Add dynamic route for memory records
 
@@ -170,7 +211,7 @@ Examples:
 * Nigerian Pidgin — Language
 * Informal Labor — Theme
 
-This is the seed of TIRO’s future knowledge graph.
+This is the seed of TIRO’s future knowledge graph. These are metadata nodes, not operational preservation nodes. A place, language, theme, or person appearing here has not thereby agreed to partnership, appointed TIRO as custodian, or authorized a use. Operational node readiness is defined in `docs/5013c.txt` §6 Stages 0 and 8.
 
 ## 7. Add Related Memories section
 
@@ -190,9 +231,9 @@ This should create the feeling that the archive is navigable and interconnected.
 * Keep components readable.
 * Avoid premature backend architecture.
 
-## 9. Final output
+## 9. Historical completion reporting
 
-After implementation, summarize:
+For future changes to this prototype, report implemented capabilities separately from requirements and real-collection readiness. Summarize:
 
 * files created
 * files modified

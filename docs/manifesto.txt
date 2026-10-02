@@ -1,5 +1,13 @@
 # The Tiro Foundation — Manifesto v0.1
 
+Status: Historical; superseded by `docs/manifestov0-2.txt`.
+Revision date: 2026-10-02 (historical-status notice only).
+Owner: TIRO founder / Steward.
+Authority: Historical philosophical context, not current program or operating policy.
+Supersession: v0.2 is the current public manifesto baseline; operative stewardship principles are published at `/community-rights` (`src/app/community-rights/page.tsx`).
+
+The original text below is preserved for institutional history. Its broad technology and intelligence ambitions do not authorize programs, collection, publication, or reuse. Read current program direction in `docs/5013c.txt` and product acceptance criteria in `docs/ethos.txt`.
+
 ## Prelude
 
 Humanity is entering an era in which intelligence, automation, and information systems evolve faster than the cultural and emotional structures required to guide them responsibly.

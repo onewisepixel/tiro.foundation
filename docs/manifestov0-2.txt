@@ -1,5 +1,12 @@
 ## Manifesto v0.2
 
+Status: Proposed stewardship-alignment revision of the current public manifesto.
+Revision date: 2026-10-02.
+Owner: TIRO founder / Steward.
+Authority: Public mission and philosophy; this revision remains proposed until accepted. It does not establish legal status or implemented capabilities.
+Supersession: Replaces v0.1 (`docs/manifesto.txt`) as public expression. The live `/manifesto` page requires synchronization after acceptance.
+Related authority: Operative stewardship principles are published at `/community-rights` (`src/app/community-rights/page.tsx`); product acceptance criteria are in `docs/ethos.txt`; proposed legal governance is in `docs/5013c.txt`. Governing documents must be formally adopted before they confer institutional authority.
+
 ### There is enlightenment in exploration, but empathy is essential.
 
 Humanity has always been defined by its ability to transmit.
@@ -64,7 +71,9 @@ We document without pretending neutrality means absence of responsibility.
 
 We seek provenance, context, consent, and continuity.
 
-We collect not for curation, but for connection.
+We curate for connection, with context, accountability, and respect for the permissions under which material is entrusted.
+
+Curation is a responsibility to select and explain carefully, not a license to appropriate, suppress disagreement, or speak for a community.
 
 We record not merely for preservation, but for transmission.
 
@@ -79,6 +88,14 @@ And archives are sacred.
 Intelligence is a tool.
 
 It is not the mission.
+
+TIRO's institutional mission is to preserve cultural and linguistic memory with its source communities, support responsible access and public education, and strengthen communities' own capacity to preserve and transmit their knowledge.
+
+The Memory Project is the principal program through which that mission begins. Cultural memory includes languages, oral histories, stories, songs, practices, testimony, and the context through which people give these meaning. It is living knowledge, not merely historical data.
+
+Collections should be chosen with communities according to risk of loss, gaps in documentation, cultural significance, community priorities, and TIRO's ability to honor the necessary permissions and preservation duties. Endangered and under-documented material receives particular attention; neither age nor novelty alone establishes priority.
+
+An Igbo oral-memory pilot in Nigeria is the proposed first bounded collection, to be scoped with participating communities. This does not declare every Igbo practice, language variety, or demonstration example endangered.
 
 The technologies available to humanity will continue to change. Artificial intelligence will become more capable. Interfaces will disappear and reappear. Models, platforms, devices, and architectures that seem permanent today will eventually become historical artifacts themselves.
 
@@ -138,7 +155,15 @@ TIRO seeks to become a neutral, trusted custodian for human memory.
 
 Neutrality does not mean indifference.
 
-It means that custody should not confer authority to rewrite, exploit, commercialize, or erase what has been entrusted.
+It means non-appropriation, fair handling of contested accounts, and transparency about selection and interpretation. Custody alone confers no authority to rewrite, exploit, commercialize, or erase what has been entrusted.
+
+Source authority, legal rights, and the capacity of a person signing consent are distinct. Recording or submitting material establishes none of them automatically. Shared, uncertain, or disputed authority must be acknowledged and resolved for the proposed use before that use proceeds.
+
+Preservation does not require publication. Permission to preserve does not authorize public access, research, derivatives, model training, synthetic reproduction, or commercial reuse. Each use requires its own applicable authorization; new technology creates no new permission.
+
+Consent may change. Withdrawal from public access, restriction, correction, preservation-only retention, and deletion are different actions. TIRO must stop the affected publication and future distribution within its control when authorization is withdrawn, and explain any retention duty disclosed at consent. Sensitive material must not become permanent merely because it entered an audit log.
+
+The stewardship policy governs these distinctions. Product procedures must disclose deadlines, backup expiry, downstream-copy limits, and who may request or authorize each action. TIRO cannot promise to recover copies independently retained by others.
 
 A custodian protects.
 
@@ -148,7 +173,7 @@ A custodian remembers obligations as carefully as it remembers objects.
 
 A custodian builds systems capable of surviving individual people, individual technologies, individual institutions, and eventually individual generations.
 
-This requires permanence by design.
+This requires durable preservation by design, within the permissions and obligations entrusted to us. Permanence is an ambition for continuity, not an irrevocable claim over a person's or community's material.
 
 Redundancy.
 
@@ -201,6 +226,12 @@ An archive can be a node.
 A university, library, village, museum, language group, or institution can become a node.
 
 TIRO itself is a node.
+
+This philosophical use of node is distinct from a metadata node representing a person, place, language, theme, or institution in a knowledge graph. A graph entry confers no custodial authority.
+
+An operational preservation node has identified operators, community relationships, permissions, preservation responsibilities, and accountable governance. Node Zero is TIRO's founding web portal and institutional prototype; Node One is the proposed first bounded community preservation operation. Neither becomes an operational custodian merely by being named.
+
+Readiness requires evidenced permissions, trained stewards, restricted-access controls, withdrawal handling, verified restoration, and a complete preservation export. Partner nodes may keep independent custody. Their relationship to TIRO is established by agreement, not by inclusion in a graph.
 
 The ambition is not to construct a single repository into which the world's memory disappears.
 
