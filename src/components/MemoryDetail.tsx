@@ -26,6 +26,11 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
             {memory.summary}
           </p>
 
+          <p className="mt-6 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
+            Demonstration record — illustrative content, identities,
+            provenance, and permissions; not collected archival testimony.
+          </p>
+
           <div className="tiro-card mt-10">
             <div className="tiro-kv">
               <span className="k">Record ID</span>

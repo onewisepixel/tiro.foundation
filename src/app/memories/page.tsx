@@ -3,9 +3,9 @@ import Link from "next/link";
 import { memories } from "@/data/memories";
 
 export const metadata: Metadata = {
-  title: "Memory Records — The Tiro Foundation",
+  title: "Memory Record Demonstrations — The Tiro Foundation",
   description:
-    "Early archival prototypes for preserving memory with provenance, consent, and cultural context.",
+    "Illustrative records demonstrating archival structure. These examples are not collected testimony, verified records, or evidence of consent.",
 };
 
 export default function MemoriesIndexPage() {
@@ -15,11 +15,12 @@ export default function MemoriesIndexPage() {
         <div className="mx-auto max-w-5xl">
           <p className="tiro-eyebrow mb-5">Archive Index</p>
           <h1 className="mb-5 font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            Memory Records
+            Memory Record Demonstrations
           </h1>
           <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            Early archival prototypes for preserving memory with provenance,
-            consent, and cultural context.
+            Illustrative records demonstrating archival structure. These
+            examples are not collected testimony, verified records, or
+            evidence of consent.
           </p>
         </div>
       </section>
@@ -28,6 +29,12 @@ export default function MemoriesIndexPage() {
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
           {memories.map((memory) => (
             <article key={memory.id} className="tiro-card">
+              <p className="mb-5 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
+                Demonstration record — illustrative content, identities,
+                provenance, and permissions; not collected archival
+                testimony.
+              </p>
+
               <div className="tiro-kv border-t-0">
                 <span className="k">{memory.recordId}</span>
                 <span className="v">{memory.archiveStatus}</span>
