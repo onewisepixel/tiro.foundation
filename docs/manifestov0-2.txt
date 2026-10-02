@@ -1,10 +1,10 @@
 ## Manifesto v0.2
 
-Status: Proposed stewardship-alignment revision of the current public manifesto.
-Revision date: 2026-10-02.
+Status: Accepted. Current public manifesto, synchronized at `/manifesto`.
+Acceptance date: 2026-10-02.
 Owner: TIRO founder / Steward.
-Authority: Public mission and philosophy; this revision remains proposed until accepted. It does not establish legal status or implemented capabilities.
-Supersession: Replaces v0.1 (`docs/manifesto.txt`) as public expression. The live `/manifesto` page requires synchronization after acceptance.
+Authority: Public mission and philosophy, accepted by the founder/Steward. Acceptance establishes public expression only — it does not adopt bylaws, appoint governance roles, confer legal status, or imply implemented capabilities. Governance mechanics (including Steward-Protector) remain separately proposed pending adoption.
+Supersession: Replaces v0.1 (`docs/manifesto.txt`) as public expression.
 Related authority: Operative stewardship principles are published at `/community-rights` (`src/app/community-rights/page.tsx`); product acceptance criteria are in `docs/ethos.txt`; proposed legal governance is in `docs/5013c.txt`. Governing documents must be formally adopted before they confer institutional authority.
 
 ### There is enlightenment in exploration, but empathy is essential.
