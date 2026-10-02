@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { memories } from "@/data/memories";
-import { countByDemo } from "@/lib/recordKind";
+import { getConnectionsNotice } from "@/lib/recordKind";
 
 export const metadata: Metadata = {
   title: "Nigerian Pidgin — Node — The Tiro Foundation",
@@ -22,20 +22,8 @@ const relatedNodes = [
   { label: "Informal Trade" },
 ];
 
-function getConnectionsNotice(): string | null {
-  const { total, demo } = countByDemo(memoryConnections);
-
-  if (total === 0 || demo === 0) {
-    return null;
-  }
-  if (demo === total) {
-    return "These connections reference demonstration records — illustrative content; not collected archival testimony.";
-  }
-  return "Some connections below reference demonstration records; others reference TIRO-evidenced records. Demonstration links are labeled individually.";
-}
-
 export default function NigerianPidginNodePage() {
-  const connectionsNotice = getConnectionsNotice();
+  const connectionsNotice = getConnectionsNotice(memoryConnections);
 
   return (
     <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">

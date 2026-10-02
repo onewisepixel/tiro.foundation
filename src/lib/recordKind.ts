@@ -20,3 +20,17 @@ export function formatRecordCountLabel(records: MemoryRecord[]): string {
   }
   return `${total} Record${total === 1 ? "" : "s"} · ${demo} Demonstration Record${demo === 1 ? "" : "s"}`;
 }
+
+// Shared across any surface that lists linked memory records (node index,
+// node detail pages). Keep this the single source of that notice text.
+export function getConnectionsNotice(records: MemoryRecord[]): string | null {
+  const { total, demo } = countByDemo(records);
+
+  if (total === 0 || demo === 0) {
+    return null;
+  }
+  if (demo === total) {
+    return "These connections reference demonstration records — illustrative content; not collected archival testimony.";
+  }
+  return "Some connections below reference demonstration records; others reference other record categories. Demonstration links are labeled individually.";
+}

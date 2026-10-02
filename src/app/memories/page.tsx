@@ -31,20 +31,20 @@ function getIndexCopy(records: MemoryRecord[]) {
     return {
       heading: "Memory Records",
       subtitle:
-        "Memory records preserved by TIRO, each with its own provenance, consent, and rights record.",
+        "Memory records in this index. Each record states its own category, provenance, and consent status individually.",
       metaTitle: "Memory Records — The Tiro Foundation",
       metaDescription:
-        "Memory records preserved by TIRO, each with its own provenance, consent, and rights record.",
+        "Memory records in this index. Each record states its own category, provenance, and consent status individually.",
     };
   }
 
   return {
     heading: "Memory Records",
     subtitle:
-      "This index includes demonstration records alongside TIRO-evidenced records. Each record states its status individually below.",
+      "This index includes demonstration records alongside other record categories. Each record states its status individually below.",
     metaTitle: "Memory Records — The Tiro Foundation",
     metaDescription:
-      "This index includes demonstration records alongside TIRO-evidenced records. Each record states its status individually.",
+      "This index includes demonstration records alongside other record categories. Each record states its status individually.",
   };
 }
 

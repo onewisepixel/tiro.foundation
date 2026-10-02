@@ -44,7 +44,7 @@ function getPageNotice(): string | null {
   if (demo === total) {
     return "Record counts and linked memories below reference demonstration content — illustrative identities, provenance, and permissions; not collected archival testimony.";
   }
-  return "Some record counts and linked memories below reference demonstration content; others reference TIRO-evidenced records. Demonstration links are labeled individually.";
+  return "Some record counts and linked memories below reference demonstration content; others reference other record categories. Demonstration links are labeled individually.";
 }
 
 export default function NodesIndexPage() {

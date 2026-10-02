@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build-and-lint:
+  build-lint-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,3 +27,6 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Test (record-kind composition checks)
+        run: npm test

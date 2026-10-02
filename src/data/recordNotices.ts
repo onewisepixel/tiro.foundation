@@ -7,7 +7,8 @@ type RecordKindNotice = {
 
 // recordKind describes the record's category only — it establishes neither
 // verification nor permission to publish. A "collection" notice of `null`
-// means evidence-backed, not merely unlabeled.
+// reflects its category; it is not a claim that the record has been
+// verified or evidenced.
 const RECORD_KIND_NOTICES: Record<MemoryRecord["recordKind"], RecordKindNotice | null> = {
   demo: {
     full: "Demonstration record — illustrative content, identities, provenance, and permissions; not collected archival testimony.",
