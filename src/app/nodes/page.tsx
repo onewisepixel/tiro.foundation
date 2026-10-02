@@ -48,6 +48,11 @@ export default function NodesIndexPage() {
             is the first architectural layer linking memory to place, language,
             and thematic context.
           </p>
+          <p className="mt-4 max-w-3xl font-[family-name:var(--font-code)] text-xs uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
+            Record counts and linked memories below reference demonstration
+            content — illustrative identities, provenance, and permissions;
+            not collected archival testimony.
+          </p>
         </div>
       </section>
 
@@ -60,7 +65,7 @@ export default function NodesIndexPage() {
               <article key={`${seed.type}-${seed.label}`} className="tiro-card">
                 <div className="tiro-kv border-t-0">
                   <span className="k">{seed.type}</span>
-                  <span className="v">{linkedMemories.length} Record{linkedMemories.length === 1 ? "" : "s"}</span>
+                  <span className="v">{linkedMemories.length} Demo Record{linkedMemories.length === 1 ? "" : "s"}</span>
                 </div>
 
                 <h2 className="mt-5 font-[family-name:var(--font-display)] text-2xl italic tracking-tight text-[var(--tiro-text-soft)]">

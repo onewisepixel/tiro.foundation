@@ -11,17 +11,17 @@ const governance = [
   {
     label: "Ethics oversight",
     description:
-      "Sensitive collections are reviewed by an ethics board before publication, not after the fact.",
+      "Sensitive collections are intended to be reviewed by an ethics board before publication, not after the fact.",
   },
   {
     label: "Regional stewards",
     description:
-      "Local stewards hold context and authority over material from their own communities.",
+      "Local stewards are intended to hold context and authority over material from their own communities.",
   },
   {
     label: "Transparency and appeals",
     description:
-      "Takedown and appeal processes are documented and available to contributors and subjects alike.",
+      "Takedown and appeal processes are intended to be documented and available to contributors and subjects alike.",
   },
 ];
 
@@ -59,6 +59,11 @@ export default function AboutPage() {
       <section className="px-6 pb-16 md:pb-24">
         <div className="mx-auto max-w-3xl">
           <p className="tiro-eyebrow mb-6">Governance</p>
+          <p className="mb-8 max-w-2xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+            TIRO&apos;s governance is still forming. The following states the
+            standard TIRO intends to meet — it is not a record of appointed
+            roles or completed procedures.
+          </p>
           <div className="border-t border-[var(--tiro-border)]">
             {governance.map((item) => (
               <div

@@ -47,6 +47,10 @@ export default function LagosNodePage() {
       <section className="px-6 pb-12 md:pb-16">
         <div className="tiro-card mx-auto max-w-5xl">
           <p className="tiro-eyebrow mb-5">Memory Connections</p>
+          <p className="mb-5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
+            These connections reference demonstration records — illustrative
+            content; not collected archival testimony.
+          </p>
           <div className="space-y-4">
             {memoryConnections.map((memory) => (
               <Link key={memory.id} href={`/memories/${memory.id}`} className="tiro-card-link border border-[var(--tiro-border)] p-4">
