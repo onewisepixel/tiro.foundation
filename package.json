@@ -2,12 +2,16 @@
   "name": "tiro.foundation",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "backend",
+    "infra"
+  ],
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --test src/lib/recordKind.test.ts"
+    "test": "tsx --test src/lib/recordKind.test.ts \"backend/src/**/*.test.ts\""
   },
   "dependencies": {
     "@react-three/drei": "^10.0.6",

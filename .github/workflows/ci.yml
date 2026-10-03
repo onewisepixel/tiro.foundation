@@ -22,11 +22,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build (includes TypeScript check)
+      - name: Build Next.js app (includes its TypeScript check)
         run: npm run build
+
+      - name: Typecheck backend package
+        run: npx tsc --noEmit -p backend/tsconfig.json
+
+      - name: Typecheck infra package
+        run: npx tsc --noEmit -p infra/tsconfig.json
 
       - name: Lint
         run: npm run lint
 
-      - name: Test (record-kind composition checks)
+      # Pure logic-level tests only (frontend record-kind composition checks
+      # + backend permission/lifecycle/restore tests against the in-memory
+      # fake). No AWS credentials used or required — see
+      # docs/backend/evidence-matrix.md for what this does and doesn't prove.
+      - name: Test
         run: npm test
+
+      # Synth only — proves the CDK stack produces valid CloudFormation in
+      # environment-agnostic mode. Does NOT deploy, and needs no credentials.
+      - name: CDK synth (no deploy, no credentials)
+        working-directory: infra
+        run: npx cdk synth
