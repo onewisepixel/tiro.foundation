@@ -177,6 +177,39 @@ See "Real S3 media acceptance drill" below for the live-AWS result — **25/25 c
 one real bug was caught and fixed in the DRILL SCRIPT itself (not the system under test) before it
 could falsely report success.
 
+**2026-10-03, fifth review round — four gaps reproduced against the actual service code with
+in-memory stores (not AWS), all fixed, regression-tested, and re-verified live:**
+
+1. **Retention preserved the record but destroyed its media.** `completeDeletion()`'s media-purge
+   ran unconditionally and BEFORE the final write's custody-status check — `startDeletion` →
+   `retainForPreservationOnly` → `completeDeletion` correctly returned `"denied"`, but every S3
+   version was already gone. The ORIGINAL live retention drill used an unbound fixture and
+   couldn't have caught this. Fixed: a fresh custody-status read now gates the purge itself before
+   anything irreversible runs. `lifecycle.test.ts` adds a regression using real bound media; the
+   live drill's retention check was upgraded to use bound media too — see below.
+2. **Export had no size budget; retrieval buffered before checking actual size.** Reproduced: a
+   7MB export response from repeating one record id 20 times, plus retrieval trusting only its own
+   recorded size before fully buffering the real S3 object regardless of actual size. Fixed: a new
+   `MediaStore.headObjectSize` (bodyless HEAD, never GetObject) checks the REAL size before ever
+   buffering, in both `services/media.ts`'s retrieval route and `exportFixtureSet`; `exportFixtureSet`
+   also deduplicates `recordIds` and enforces a new aggregate budget
+   (`MAX_EXPORT_AGGREGATE_MEDIA_BYTES`, 5 MiB) across a whole export call, skipping (not silently
+   dropping) anything that would exceed either the per-object or aggregate limit.
+3. **Restore dropped audit history.** `importExport` never wrote `auditReceipts` — a restored
+   store always showed zero despite the export carrying them. Fixed: `importExport` writes them,
+   and `InMemoryFixtureStore.putAuditReceipt` (the one entity-put in that file not already
+   upsert-by-id) now dedupes by `receiptId` for safe replay.
+4. **Removing packaged media still passed validation.** Emptying `mediaObjects` to `[]` on a
+   complete-preservation package still validated and imported, since `validateExport` only checked
+   objects that WERE present. Fixed: every version-bound `MediaRef` must now be accounted for in
+   either `mediaObjects` or `mediaObjectsSkipped` — unaccounted gaps are rejected outright.
+   Honestly-skipped media gets its restored `versionId` cleared to `null` so a later fetch fails
+   closed instead of 404ing confusingly.
+
+127 tests pass (up from 119). The live drill was redeployed and extended — see "Real S3 media
+acceptance drill" below for the full, updated **29/29** result, including direct confirmation that
+retained media survives a denial and that restored audit receipts/media bytes actually persist.
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
@@ -394,10 +427,11 @@ mutations already described.
 
 ## Real S3 media acceptance drill — what actually happened
 
-Dated 2026-10-03. `backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run against the redeployed
+Dated 2026-10-03, updated the same day after the fifth review round. `backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run against the redeployed
 live stack (`TiroFixtureBackend-drill-20261002`, now with the S3 media IAM/env var changes and the
 new `GET /records/:recordId/media/:mediaId` route). **25/25 checks passed** on the corrected run
-(see the bug below). What it actually did, in order:
+(see the bug below); **29/29** after the fifth-round extensions described further down. What it
+actually did, in order:
 
 1. Created its own disposable Cognito test user (`AdminCreateUser`/`AdminInitiateAuth`), deleted at
    the end — the staff user and every seeded fixture were left in place, same precedent as every
@@ -462,6 +496,27 @@ an empty `mediaRefs` array, so `bindSeedMedia`'s text-binding branch (guarded by
 pre-existing version and got two. Fixed by correcting the expected counts (2 before the marker, 3
 after it includes the marker) rather than changing which object the check uses — the underlying
 system behavior was already correct; only the test's expectation was wrong. Re-run: 25/25.
+
+**Extended the same day for the fifth review round's four gaps (redeployed, re-run, 29/29):**
+
+- The retention-before-completion check (#9's second bullet above) now seeds its fixture with real
+  bound S3 media via `bindSeedMedia` — the original version used an unbound fixture and could not
+  have caught Finding 1 below (the live retention drill really did miss it, exactly as the reviewer
+  said). After the real `retainForPreservationOnly()` → `completeDeletion()` → `"denied"` sequence,
+  a fresh `listObjectVersions` call confirms BOTH of the binary media object's versions are still
+  present with the exact same version ids as before — not just that the record survived, but that
+  the media was never touched.
+- The pre-revocation backup now also carries a real `AuditReceipt` (written before export), and
+  after restoring it into the isolated target, a direct `listAuditReceipts()` call on the restored
+  store confirms the receipt is actually there (Finding 3) — and a direct `getObject()` call against
+  the restore target's own real, separately-prefixed `S3MediaStore` confirms the restored media's
+  bytes are present with a matching SHA-256 (not just that reconciliation's permission decision was
+  correct).
+
+All four of the fifth round's fixes (media-purge ordering, export/retrieval size bounds,
+restored audit history, package-completeness validation) are proven at the logic level by their own
+regression tests (127 tests, up from 119); the retention-before-completion and restore-survival
+halves specifically are ALSO now confirmed live, against the real redeployed stack.
 
 Cleanup: only the drill's own disposable Cognito test user was deleted. Every fixture it seeded
 (several more active/expired/disputed/positive-control/partial-failure/stale-precondition records),

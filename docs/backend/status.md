@@ -137,6 +137,46 @@ review round above.
 
 119 tests pass (up from 86).
 
+**2026-10-03, fifth review round — four gaps reproduced against the actual service code with
+in-memory stores, all fixed, regression-tested, and re-verified live:**
+
+1. **Retention preserved the record but destroyed its media.** `completeDeletion()`'s media-purge
+   step ran unconditionally, before the final write's custody-status validation — so
+   `startDeletion` → `retainForPreservationOnly` → `completeDeletion` correctly returned `"denied"`,
+   but every S3 version was already gone by the time that happened. Fixed: a fresh custody-status
+   read now gates the purge itself, BEFORE anything irreversible runs, not deferred to the
+   (necessarily later) register write. The live retention drill previously used an unbound fixture
+   and couldn't have caught this; it now uses one with real bound media and directly confirms the
+   media is untouched after a denial.
+2. **Export had no size budget; retrieval buffered before checking actual size.** A reviewer
+   reproduced a 7MB export response by repeating one record id 20 times, and noted that even the
+   per-request retrieval cap only checked OUR OWN recorded size before fully buffering the real S3
+   object. Fixed: `exportFixtureSet` deduplicates `recordIds`, and both it and
+   `services/media.ts`'s retrieval route now call a new `MediaStore.headObjectSize` (a bodyless
+   HEAD, never a GetObject) to check the REAL size before ever buffering a body — plus a per-object
+   cap (reusing the existing 256 KiB retrieval cap) and a new aggregate budget
+   (`MAX_EXPORT_AGGREGATE_MEDIA_BYTES`, 5 MiB) across an entire export call, skipping (not silently
+   dropping) anything that would exceed either.
+3. **Restore dropped audit history.** `importExport` never wrote `auditReceipts` at all, despite
+   the export carrying them — a restored store always showed zero. Fixed: `importExport` now writes
+   them, and `InMemoryFixtureStore.putAuditReceipt` (previously the one entity-put in that file NOT
+   upsert-by-id) now dedupes by `receiptId`, so replaying the same import is a safe no-op instead of
+   duplicating receipts.
+4. **Removing packaged media still passed validation.** Emptying a complete-preservation package's
+   `mediaObjects` to `[]` still validated and imported successfully, because `validateExport` only
+   checked objects that WERE present. Fixed: every version-bound `MediaRef` must now be accounted
+   for in either `mediaObjects` (included) or `mediaObjectsSkipped` (honestly recorded as skipped at
+   export time) — unaccounted-for gaps are rejected as incomplete/tampered. For genuinely,
+   honestly-skipped media, `importExport` now also clears that reference's `versionId` to `null` on
+   the restored record, so a later fetch fails closed (409, legacy) instead of 404ing confusingly
+   against a binding nothing ever carried through.
+
+127 tests pass (up from 119). The live acceptance drill (`realS3MediaAcceptanceDrill.ts`) was
+redeployed and extended — its retention-before-completion check now uses a fixture with real bound
+media and directly confirms every version survives a denial, and its restore check now confirms the
+restored audit receipt and restored media bytes are both actually present, not just that
+reconciliation denies. **29/29 checks passed.**
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a

@@ -303,6 +303,16 @@ async function main() {
     const [preRevocationFixture] = buildSeedFixtures();
     await bindSeedMedia(mediaStore, preRevocationFixture);
     await seedStore(fixtureStore, registerStore, [preRevocationFixture]);
+    // So the restore can prove audit history actually survives (a reviewer
+    // caught importExport silently dropping it entirely).
+    await fixtureStore.putAuditReceipt({
+      recordId: preRevocationFixture.record.recordId,
+      receiptId: `receipt-${drillTag}-pre-revocation`,
+      action: "restrict",
+      outcome: "completed",
+      safeNote: "[SYNTHETIC] S3 media acceptance drill — pre-revocation audit receipt",
+      at: new Date().toISOString(),
+    });
     const preRevocationBackup = await exportFixtureSet(
       fixtureStore,
       registerStore,
@@ -317,6 +327,11 @@ async function main() {
       "A pre-revocation backup actually carries real media bytes",
       Array.isArray(preRevocationMediaObjects) && preRevocationMediaObjects.length > 0,
       `count=${Array.isArray(preRevocationMediaObjects) ? preRevocationMediaObjects.length : "n/a"}`,
+    );
+    record(
+      "The backup also carries its real audit receipt (safe lifecycle history)",
+      preRevocationBackup.records[0]?.auditReceipts.length === 1,
+      `count=${preRevocationBackup.records[0]?.auditReceipts.length}`,
     );
 
     await revokeConsentGrant(fixtureStore, registerStore, {
@@ -366,6 +381,24 @@ async function main() {
       "Reconciling the restored (stale, looks-unrevoked) backup against the LIVE register still denies — no revived access",
       reconciliation[0]?.servable === false,
       JSON.stringify(reconciliation[0]),
+    );
+    const restoredReceipts = await restoredFixtureStore.listAuditReceipts(preRevocationFixture.record.recordId);
+    record(
+      "The restored store actually contains the audit receipt — previously dropped entirely by importExport",
+      restoredReceipts.length === 1 && restoredReceipts[0].receiptId === `receipt-${drillTag}-pre-revocation`,
+      `count=${restoredReceipts.length}`,
+    );
+    // Restored bytes survive too, not just the register-level denial above —
+    // fetch the restored (rebound) media directly from the restore target's
+    // own real S3 media store and verify its checksum.
+    const restoredPreRevocationMedia = (await restoredFixtureStore.getRecord(preRevocationFixture.record.recordId))!.mediaRefs[0];
+    const restoredBytes = restoredPreRevocationMedia.versionId
+      ? await restoredMediaStore.getObject(restoredPreRevocationMedia.objectKey, restoredPreRevocationMedia.versionId)
+      : null;
+    record(
+      "The restored record's media bytes are actually present and checksum-correct in the restore target's own S3 store",
+      restoredBytes !== null && restoredBytes.sha256 === restoredPreRevocationMedia.checksumSha256,
+      restoredBytes ? `sha256Match=${restoredBytes.sha256 === restoredPreRevocationMedia.checksumSha256}` : "no object returned",
     );
 
     // Positive control: restore+reconcile an export whose record was NEVER
@@ -490,9 +523,17 @@ async function main() {
 
     // --------------------- check 7b: retention-before-completion drill --
     // No hook needed here — just the real operations, in the real
-    // vulnerable order, against real DynamoDB.
+    // vulnerable order, against real DynamoDB. Reviewer-caught gap: the
+    // FIRST version of this check used a fixture with no bound media,
+    // which could never have caught "retention denies completion but the
+    // purge already destroyed the media anyway" — the purge ran before
+    // custody was ever validated. This fixture now carries real bound S3
+    // media specifically so this live check actually exercises that path.
     const [staleFixture] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, staleFixture);
     await seedStore(fixtureStore, registerStore, [staleFixture]);
+    const staleBinaryMedia = staleFixture.record.mediaRefs[1];
+    const staleVersionsBefore = await mediaStore.listObjectVersions(staleBinaryMedia.objectKey);
     const staleStart = await startDeletion(fixtureStore, registerStore, {
       requestId: `req-${drillTag}-stale-start`,
       recordId: staleFixture.record.recordId,
@@ -523,6 +564,13 @@ async function main() {
       "completeDeletion refuses (denies) when a real retention action changed custody before its final write, against real DynamoDB — the record is NOT deleted",
       staleComplete.status === "denied" && staleRecordStillThere !== null && staleRegister?.currentCustodyStatus === "preserved",
       `status=${staleComplete.status} custody=${staleRegister?.currentCustodyStatus}`,
+    );
+    const staleVersionsAfter = await mediaStore.listObjectVersions(staleBinaryMedia.objectKey);
+    record(
+      "Retained media is actually still fully intact in real S3 — a denial must never have already destroyed it (the exact reviewer-caught ordering bug)",
+      staleVersionsAfter.length === staleVersionsBefore.length &&
+        staleVersionsBefore.every((v) => staleVersionsAfter.some((a) => a.versionId === v.versionId)),
+      `before=${staleVersionsBefore.length} after=${staleVersionsAfter.length}`,
     );
 
     // Direct-DynamoDB confirmation (not via the service layer) that the

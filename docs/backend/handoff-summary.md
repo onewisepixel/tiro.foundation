@@ -74,6 +74,20 @@ in the drill script's own assumptions, not the system under test — was caught 
 corrected run passed outright. See the evidence matrix's "Real S3 media acceptance drill" for the
 full, exact result.
 
+**Update, a fifth review round — four gaps reproduced against the real service code, all fixed:**
+(1) `completeDeletion()` purged every S3 version BEFORE validating custody status, so a real
+retention action still got its media destroyed even though completion correctly returned
+`"denied"` — fixed with a fresh pre-purge custody check; (2) export had no size budget and
+retrieval buffered bytes before checking their real size — a reviewer reproduced a 7MB export from
+one repeated record id — fixed with a new bodyless-HEAD size check (`MediaStore.headObjectSize`),
+record-id deduplication, and a per-object plus aggregate export byte budget; (3) `importExport`
+never wrote restored `auditReceipts` at all — fixed, with the in-memory store's one
+non-upsert-by-id entity-put corrected for safe replay; (4) emptying a package's `mediaObjects`
+still passed validation — fixed by requiring every version-bound reference to be accounted for in
+either the included objects or an honest skip record, rejecting the rest as incomplete/tampered.
+127 tests pass (up from 119); the live drill was redeployed, extended to use real bound media for
+the retention check, and re-run — **29/29**. See the evidence matrix's fifth-review-round note.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
