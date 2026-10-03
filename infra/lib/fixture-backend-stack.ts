@@ -15,6 +15,9 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as snsSubscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 
 export type FixtureBackendStackProps = StackProps & {
   // A short, unique namespace per the brief's §6 drill-isolation instruction
@@ -24,6 +27,10 @@ export type FixtureBackendStackProps = StackProps & {
   // CloudWatch billing alarm threshold in USD. A notification, not a cap —
   // see docs/backend/decision-and-cost.md.
   billingAlarmThresholdUsd?: number;
+  // Where the billing alarm actually notifies. Without this the alarm exists
+  // but alerts no one. AWS sends a one-time SNS confirmation link to this
+  // address after deploy — it must be clicked before notifications flow.
+  billingAlarmEmail?: string;
 };
 
 export class FixtureBackendStack extends Stack {
@@ -138,7 +145,14 @@ export class FixtureBackendStack extends Stack {
     // least this alarm) is deployed there, regardless of where the other
     // resources above live.
     if (props.billingAlarmThresholdUsd) {
-      new cloudwatch.Alarm(this, "BillingAlarm", {
+      const billingTopic = new sns.Topic(this, "BillingAlarmTopic", {
+        topicName: `tiro-fixture-backend-billing-${namespace}`,
+      });
+      if (props.billingAlarmEmail) {
+        billingTopic.addSubscription(new snsSubscriptions.EmailSubscription(props.billingAlarmEmail));
+      }
+
+      const billingAlarm = new cloudwatch.Alarm(this, "BillingAlarm", {
         alarmName: `tiro-fixture-backend-billing-${namespace}`,
         metric: new cloudwatch.Metric({
           namespace: "AWS/Billing",
@@ -151,6 +165,7 @@ export class FixtureBackendStack extends Stack {
         evaluationPeriods: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       });
+      billingAlarm.addAlarmAction(new cloudwatchActions.SnsAction(billingTopic));
     }
   }
 }

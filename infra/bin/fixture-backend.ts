@@ -12,6 +12,7 @@ const namespace = app.node.tryGetContext("namespace") ?? process.env.TIRO_FIXTUR
 new FixtureBackendStack(app, `TiroFixtureBackend-${namespace}`, {
   namespace,
   billingAlarmThresholdUsd: 5,
+  billingAlarmEmail: process.env.TIRO_BILLING_ALARM_EMAIL,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
