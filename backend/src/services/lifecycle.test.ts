@@ -14,6 +14,8 @@ import type {
 } from "../domain/types";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
+import { bindSeedMedia } from "../fixtures/media";
+import { InMemoryMediaStore } from "../store/mediaStore";
 import { withdraw, restrict, retainForPreservationOnly, startDeletion, completeDeletion } from "./lifecycle";
 import { evaluatePermission } from "./permissions";
 
@@ -227,6 +229,7 @@ test("deletion stays deletion-pending until custody copies are reconciled", asyn
     copyId: "outstanding-copy",
     location: "backup",
     objectVersionId: null,
+    mediaId: null,
     createdAt: new Date().toISOString(),
     reconciledAt: null,
   });
@@ -252,6 +255,7 @@ test("deletion stays deletion-pending until custody copies are reconciled", asyn
     copyId: "outstanding-copy",
     location: "backup",
     objectVersionId: null,
+    mediaId: null,
     createdAt: new Date().toISOString(),
     reconciledAt: new Date().toISOString(),
   });
@@ -450,5 +454,160 @@ test(
     // would mean both writes landed and the exact-match guard didn't actually
     // stop the losing one.
     assert.equal(finalState?.controlVersion, 2);
+  },
+);
+
+async function setupActiveWithMedia() {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const mediaStore = new InMemoryMediaStore();
+  const [active] = buildSeedFixtures();
+  await bindSeedMedia(mediaStore, active);
+  await seedStore(fixtureStore, registerStore, [active]);
+  return { fixtureStore, registerStore, mediaStore, recordId: active.record.recordId, active };
+}
+
+test(
+  "completeDeletion purges every S3 version of each media object — including a second, superseded version — before reconciling (media-aware deletion)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, recordId, active } = await setupActiveWithMedia();
+    const binaryMedia = active.record.mediaRefs[1];
+    // Sanity check: the binary object really does have two versions before
+    // deletion runs, exactly the "removing a delete marker alone is
+    // insufficient" scenario this is meant to prove isn't a problem here.
+    assert.equal((await mediaStore.listObjectVersions(binaryMedia.objectKey)).length, 2);
+
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-media-delete-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+    const result = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-media-delete-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    );
+
+    assert.equal(result.status, "completed");
+    assert.equal(await fixtureStore.getRecord(recordId), null);
+    assert.deepEqual(
+      await mediaStore.listObjectVersions(binaryMedia.objectKey),
+      [],
+      "BOTH versions of the media object must be gone, not just the one the MediaRef was pinned to",
+    );
+    assert.deepEqual(await mediaStore.listObjectVersions(active.record.mediaRefs[0].objectKey), []);
+  },
+);
+
+test(
+  "completeDeletion without a mediaStore leaves media-tracked copies outstanding — never silently skipped (media-aware deletion)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, recordId } = await setupActiveWithMedia();
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-media-noMediaStore-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    // No mediaStore passed — must block exactly like any other outstanding
+    // copy, not silently proceed as if media had nothing to reconcile.
+    const blocked = await completeDeletion(fixtureStore, registerStore, {
+      requestId: "req-media-noMediaStore-complete",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+      deletionRequestId: startResult.requestId,
+    });
+    assert.equal(blocked.status, "in-progress");
+    assert.ok(await fixtureStore.getRecord(recordId), "must not delete the record while media copies are untouched");
+
+    // Retrying the SAME request, now WITH the mediaStore, finishes the job.
+    const done = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-media-noMediaStore-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    );
+    assert.equal(done.status, "completed");
+    assert.equal(await fixtureStore.getRecord(recordId), null);
+  },
+);
+
+class FlakyOnceMediaStore extends InMemoryMediaStore {
+  private failedFor = new Set<string>();
+  flakyKey: string | null = null;
+  override async deleteObjectVersion(key: string, versionId: string): Promise<void> {
+    if (key === this.flakyKey && !this.failedFor.has(key)) {
+      this.failedFor.add(key);
+      throw new Error("simulated transient S3 failure");
+    }
+    return super.deleteObjectVersion(key, versionId);
+  }
+}
+
+test(
+  "completeDeletion resumes correctly when a media purge partially fails — the failed object stays outstanding, others don't block on it (media-aware deletion)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const [active] = buildSeedFixtures();
+    const flaky = new FlakyOnceMediaStore();
+    await bindSeedMedia(flaky, active);
+    const binaryMedia = active.record.mediaRefs[1];
+    flaky.flakyKey = binaryMedia.objectKey; // now that the real key is known
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-media-flaky-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    const firstAttempt = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-media-flaky-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      flaky,
+    );
+    assert.equal(firstAttempt.status, "in-progress", "a transient purge failure must stay retryable, not deny or crash");
+    assert.ok(await fixtureStore.getRecord(recordId), "the record must still exist after a partial media-purge failure");
+
+    const secondAttempt = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-media-flaky-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      flaky,
+    );
+    assert.equal(secondAttempt.status, "completed", "retrying must finish once the transient failure has passed");
+    assert.equal(await fixtureStore.getRecord(recordId), null);
   },
 );

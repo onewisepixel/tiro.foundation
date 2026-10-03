@@ -7,6 +7,7 @@
 // rather than trusting anything in the export. An old export is expected to
 // contain old, possibly since-revoked, state.
 import type {
+  AuditReceipt,
   AuthorityClaim,
   ConsentGrant,
   CustodyCopy,
@@ -15,9 +16,18 @@ import type {
   Purpose,
 } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import type { MediaStore } from "../store/mediaStore";
 import { evaluatePermission } from "./permissions";
 
 export type ExportScope = "complete-preservation" | "public-redacted";
+
+// base64 bytes of exactly the version each MediaRef is pinned to — present
+// only for complete-preservation exports (media is content, so public
+// exports omit it the same way they redact consentGrants) and only for
+// refs that are actually version-bound; a legacy (versionId: null)
+// reference has nothing fetchable to include and is simply absent, named
+// in `skipped`.
+export type ExportedMediaObject = { mediaId: string; base64: string };
 
 export type ExportedRecordEnvelope = {
   record: FixtureRecord;
@@ -29,6 +39,12 @@ export type ExportedRecordEnvelope = {
   // without its permissions and lifecycle history is incomplete."
   consentGrants: ConsentGrant[] | "redacted-for-public-export";
   custodyCopies: CustodyCopy[];
+  // Safe lifecycle history per §3.10/§12 — AuditReceipt is minimal and
+  // non-sensitive by type design (domain/types.ts), never testimony or
+  // consent-document content.
+  auditReceipts: AuditReceipt[];
+  mediaObjects: ExportedMediaObject[] | "omitted-for-public-export";
+  mediaObjectsSkipped: { mediaId: string; reason: string }[];
   controlStateAtExport: {
     publicationStatus: string;
     custodyStatus: string;
@@ -66,6 +82,12 @@ export async function exportFixtureSet(
   scope: ExportScope,
   fixtureSetId: string,
   destinationAudience: ConsentGrant["audience"],
+  // Optional: without it, mediaObjects is simply omitted with a reason —
+  // existing callers that never touch media keep working unchanged. Pass it
+  // to actually include authorized media bytes in a complete-preservation
+  // export, per docs/ethos.txt §3.10's "media package ... is incomplete"
+  // without them.
+  mediaStore?: MediaStore,
 ): Promise<PreservationExport> {
   const records: ExportedRecordEnvelope[] = [];
   const purpose: Purpose = scope === "public-redacted" ? "publication" : "preservation";
@@ -89,6 +111,32 @@ export async function exportFixtureSet(
       continue;
     }
 
+    const mediaObjectsSkipped: { mediaId: string; reason: string }[] = [];
+    let mediaObjects: ExportedMediaObject[] | "omitted-for-public-export" = "omitted-for-public-export";
+    if (scope === "complete-preservation") {
+      if (!mediaStore) {
+        for (const media of record.mediaRefs) {
+          mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "No mediaStore provided to exportFixtureSet." });
+        }
+        mediaObjects = [];
+      } else {
+        const fetched: ExportedMediaObject[] = [];
+        for (const media of record.mediaRefs) {
+          if (!media.versionId) {
+            mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Legacy reference has no bound S3 version." });
+            continue;
+          }
+          const object = await mediaStore.getObject(media.objectKey, media.versionId);
+          if (!object) {
+            mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Bound version no longer exists in storage." });
+            continue;
+          }
+          fetched.push({ mediaId: media.mediaId, base64: object.body.toString("base64") });
+        }
+        mediaObjects = fetched;
+      }
+    }
+
     records.push({
       record,
       authorityClaims: await fixtureStore.listAuthorityClaims(recordId),
@@ -96,6 +144,9 @@ export async function exportFixtureSet(
       consentGrants:
         scope === "public-redacted" ? "redacted-for-public-export" : await fixtureStore.listConsentGrants(recordId),
       custodyCopies: await fixtureStore.listCustodyCopies(recordId),
+      auditReceipts: await fixtureStore.listAuditReceipts(recordId),
+      mediaObjects,
+      mediaObjectsSkipped,
       controlStateAtExport: control
         ? {
             publicationStatus: control.currentPublicationStatus,

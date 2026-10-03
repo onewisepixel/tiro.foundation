@@ -21,6 +21,7 @@ import {
   type FixtureStore,
   type RestrictionRegisterStore,
 } from "../store/store";
+import type { MediaStore } from "../store/mediaStore";
 
 export type LifecycleActionInput = {
   requestId: string;
@@ -338,10 +339,59 @@ export type CompleteDeletionInput = LifecycleActionInput & {
 // the write, this throws before anything is written.
 class StaleCustodyStatusError extends Error {}
 
+// Attempts to actually purge each media-backed custody copy's S3 object —
+// EVERY version and delete marker under its exact key, not just whichever
+// one the MediaRef happens to be pinned to (an old, superseded version left
+// behind is still real stored bytes, and a bare delete-marker removal alone
+// would leave all of them fully intact). A copy is reconciled only once
+// listing the key again confirms it is actually empty — attempted is never
+// treated as done. Tolerant of partial progress: a copy already reconciled
+// is skipped, a record already gone means nothing left to purge, and
+// deleting an already-gone version is a no-op in S3 — so calling this
+// again after a prior partial failure safely resumes exactly where it left
+// off, without redoing completed work or erroring on it.
+async function purgeMediaCustody(
+  fixtureStore: FixtureStore,
+  mediaStore: MediaStore,
+  recordId: string,
+): Promise<void> {
+  const record = await fixtureStore.getRecord(recordId);
+  if (!record) {
+    return;
+  }
+  const copies = await fixtureStore.listCustodyCopies(recordId);
+  for (const copy of copies) {
+    if (copy.reconciledAt !== null || !copy.mediaId) {
+      continue;
+    }
+    const media = record.mediaRefs.find((m) => m.mediaId === copy.mediaId);
+    if (!media || !media.objectKey) {
+      continue;
+    }
+    try {
+      const versions = await mediaStore.listObjectVersions(media.objectKey);
+      for (const version of versions) {
+        await mediaStore.deleteObjectVersion(media.objectKey, version.versionId);
+      }
+      const remaining = await mediaStore.listObjectVersions(media.objectKey);
+      if (remaining.length > 0) {
+        continue; // Still not actually empty — leave unreconciled, retryable.
+      }
+      await fixtureStore.putCustodyCopy({ ...copy, reconciledAt: new Date().toISOString() });
+    } catch {
+      // Leave unreconciled on any failure (network error, permission
+      // denial, etc.) — the outstanding-copies check below naturally keeps
+      // the overall request retryable; nothing here is a terminal failure.
+      continue;
+    }
+  }
+}
+
 export async function completeDeletion(
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
   input: CompleteDeletionInput,
+  mediaStore?: MediaStore,
 ): Promise<LifecycleRequest> {
   const request = await getOrCreateRequest(fixtureStore, "complete-deletion", input, {
     deletionRequestId: input.deletionRequestId,
@@ -362,6 +412,15 @@ export async function completeDeletion(
       request,
       "No completed deletion request matches this record and deletionRequestId; startDeletion() must run first — completion is not a substitute for the deletion workflow.",
     );
+  }
+
+  // Reconcile tracked media custody copies only after their S3 objects are
+  // ACTUALLY confirmed removed (see purgeMediaCustody) — never assumed from
+  // merely attempting it. Without a mediaStore, this is skipped entirely;
+  // any media-tracked copy simply stays unreconciled and correctly blocks
+  // below, same as any other outstanding copy — no special-casing needed.
+  if (mediaStore) {
+    await purgeMediaCustody(fixtureStore, mediaStore, input.recordId);
   }
 
   const copies = await fixtureStore.listCustodyCopies(input.recordId);

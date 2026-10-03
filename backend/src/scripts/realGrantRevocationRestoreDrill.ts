@@ -212,6 +212,9 @@ async function main() {
     legalRights: [],
     consentGrants: [restoredGrant],
     custodyCopies: [],
+    auditReceipts: [],
+    mediaObjects: [],
+    mediaObjectsSkipped: [],
     controlStateAtExport: {
       publicationStatus: "published",
       custodyStatus: "preserved",

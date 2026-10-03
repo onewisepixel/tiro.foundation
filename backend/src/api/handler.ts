@@ -4,13 +4,16 @@
 // caller's identity from the JWT authorizer's claims, hand off to
 // router.ts, and format the response. No logic lives here.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
+import { S3MediaStore } from "../store/s3MediaStore";
 import { routeRequest, type ApiRequest } from "./router";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
 const REGISTER_TABLE = requireEnv("TIRO_REGISTER_TABLE");
 const STATUS_INDEX = process.env.TIRO_STATUS_INDEX ?? "GSI1-status-index";
+const MEDIA_BUCKET = requireEnv("TIRO_MEDIA_BUCKET");
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -22,10 +25,12 @@ function requireEnv(name: string): string {
 
 // Constructed once per Lambda execution environment (cold start), reused
 // across warm invocations — the standard Lambda pattern for avoiding a new
-// DynamoDBClient (and its connection pool) on every request.
+// client (and its connection pool) on every request.
 const client = new DynamoDBClient({ region: REGION });
 const fixtureStore = new DynamoFixtureStore({ client, primaryTableName: PRIMARY_TABLE, statusIndexName: STATUS_INDEX });
 const registerStore = new DynamoRestrictionRegisterStore({ client, tableName: REGISTER_TABLE });
+const s3Client = new S3Client({ region: REGION });
+const mediaStore = new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET });
 
 // Minimal shape of what we read from an API Gateway HTTP API (payload
 // format 2.0) event — not the full AWS type, just the fields this handler
@@ -45,6 +50,7 @@ type HttpApiResponse = {
   statusCode: number;
   headers: Record<string, string>;
   body: string;
+  isBase64Encoded?: boolean;
 };
 
 export function extractCallerIdentity(event: HttpApiEvent): string {
@@ -90,7 +96,19 @@ export async function handler(event: HttpApiEvent): Promise<HttpApiResponse> {
       queryParams: event.queryStringParameters ?? {},
       body: parseBody(event),
     };
-    const response = await routeRequest(fixtureStore, registerStore, callerIdentity, request);
+    const response = await routeRequest(fixtureStore, registerStore, mediaStore, callerIdentity, request);
+    if (response.binary) {
+      // Media bytes: private/no-store so neither a browser nor any
+      // intermediary caches a response whose authorization could change on
+      // the very next request (a withdrawal or revocation a moment later
+      // must deny the next fetch, not serve a cached "allowed" copy).
+      return {
+        statusCode: response.statusCode,
+        headers: { "content-type": response.binary.contentType, "cache-control": "private, no-store" },
+        body: response.binary.base64Body,
+        isBase64Encoded: true,
+      };
+    }
     return { statusCode: response.statusCode, headers, body: JSON.stringify(response.body) };
   } catch (error) {
     // Deliberately minimal — never echo internal error details (table

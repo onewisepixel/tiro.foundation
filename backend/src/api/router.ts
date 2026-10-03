@@ -15,6 +15,7 @@ import type { LifecycleRequestStatus } from "../domain/types";
 import { uuidv7 } from "../domain/id";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import { IdempotencyKeyConflictError, VersionConflictError } from "../store/store";
+import type { MediaStore } from "../store/mediaStore";
 import {
   withdraw,
   restrict,
@@ -25,6 +26,7 @@ import {
 } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
 import { exportFixtureSet } from "../services/export";
+import { fetchAuthorizedMedia } from "../services/media";
 import {
   validateLifecycleActionBody,
   validateRestrictActionBody,
@@ -47,6 +49,11 @@ export type ApiRequest = {
 export type ApiResponse = {
   statusCode: number;
   body: unknown;
+  // Present only for the media-download route — handler.ts emits this as a
+  // base64 body with isBase64Encoded:true instead of JSON-stringifying
+  // `body`. Kept as a separate field (rather than overloading `body`) so
+  // every other route stays simple, untyped JSON exactly as before.
+  binary?: { contentType: string; base64Body: string };
 };
 
 const LIFECYCLE_STATUSES: LifecycleRequestStatus[] = ["pending", "in-progress", "completed", "denied"];
@@ -75,10 +82,46 @@ async function withConflictHandling(work: () => Promise<ApiResponse>): Promise<A
 export async function routeRequest(
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
+  mediaStore: MediaStore,
   callerIdentity: string,
   request: ApiRequest,
 ): Promise<ApiResponse> {
   const { method, pathSegments, queryParams, body } = request;
+
+  // GET /records/:recordId/media/:mediaId?purpose=...&audience=...
+  //
+  // Same hard rule as the record-detail route: evaluatePermission runs on
+  // EVERY fetch, not just the first one — a denial returns no bytes and no
+  // reusable download capability (no presigned URL is ever handed out), so
+  // access revoked a moment ago denies the very next fetch too. See
+  // services/media.ts.
+  if (method === "GET" && pathSegments.length === 4 && pathSegments[0] === "records" && pathSegments[2] === "media") {
+    const recordId = pathSegments[1];
+    const mediaId = pathSegments[3];
+    const purpose = queryParams.purpose;
+    const audience = queryParams.audience;
+    if (!isPurpose(purpose)) {
+      return badRequest('"purpose" query parameter is required and must be a valid Purpose value.');
+    }
+    if (!isAudience(audience)) {
+      return badRequest('"audience" query parameter is required and must be one of "public", "staff", "research-partner".');
+    }
+    const result = await fetchAuthorizedMedia(fixtureStore, registerStore, mediaStore, {
+      recordId,
+      mediaId,
+      purpose,
+      audience,
+      now: new Date(),
+    });
+    if (!result.ok) {
+      return { statusCode: result.statusCode, body: { error: result.reason } };
+    }
+    return {
+      statusCode: 200,
+      body: null,
+      binary: { contentType: result.contentType, base64Body: result.body.toString("base64") },
+    };
+  }
 
   // GET /lifecycle-requests?status=pending
   if (method === "GET" && pathSegments.length === 1 && pathSegments[0] === "lifecycle-requests") {
@@ -229,13 +272,18 @@ export async function routeRequest(
         return badRequest(validated.error);
       }
       return withConflictHandling(async () => {
-        const result = await completeDeletion(fixtureStore, registerStore, {
-          requestId: validated.value.requestId ?? uuidv7(),
-          recordId,
-          requesterCapacity: callerIdentity,
-          reason: validated.value.reason,
-          deletionRequestId: validated.value.deletionRequestId,
-        });
+        const result = await completeDeletion(
+          fixtureStore,
+          registerStore,
+          {
+            requestId: validated.value.requestId ?? uuidv7(),
+            recordId,
+            requesterCapacity: callerIdentity,
+            reason: validated.value.reason,
+            deletionRequestId: validated.value.deletionRequestId,
+          },
+          mediaStore,
+        );
         return { statusCode: 200, body: result };
       });
     }
@@ -273,6 +321,7 @@ export async function routeRequest(
       validated.value.scope,
       validated.value.fixtureSetId,
       validated.value.destinationAudience,
+      mediaStore,
     );
     return { statusCode: 200, body: result };
   }

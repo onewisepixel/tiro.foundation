@@ -7,15 +7,20 @@
 // this restore is replaying an old backup taken before a later withdrawal,
 // still reflects that withdrawal, because nothing in this file ever touched
 // it. An old grant is never treated as current authorization.
+import { createHash } from "node:crypto";
 import type { ExportedRecordEnvelope, PreservationExport } from "./export";
 import type { ConsentGrant, Purpose } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import type { MediaStore } from "../store/mediaStore";
 import { evaluatePermission } from "./permissions";
 
 export type ImportValidationResult =
   | { ok: true }
   | { ok: false; reason: string };
 
+// Synchronous/pure on purpose (base64 decode + hashing need no I/O) — this
+// is the single gate importExport always runs before writing anything,
+// whether or not a targetMediaStore is involved.
 export function validateExport(exportData: PreservationExport): ImportValidationResult {
   if (exportData.manifest.manifestVersion !== 1) {
     return { ok: false, reason: `Unsupported manifest version ${exportData.manifest.manifestVersion}.` };
@@ -28,11 +33,7 @@ export function validateExport(exportData: PreservationExport): ImportValidation
   }
   for (const envelope of exportData.records) {
     for (const media of envelope.record.mediaRefs) {
-      // Format-only check: 64 hex characters. This does NOT verify the
-      // checksum against actual media bytes — no media bytes flow through
-      // export/import in this pass (validateExport is synchronous/pure, no
-      // I/O), so byte-level verification remains a separate, unclosed gap.
-      // See Finding 5b / docs/backend/evidence-matrix.md.
+      // Format check: 64 hex characters.
       if (!/^[0-9a-f]{64}$/i.test(media.checksumSha256)) {
         return {
           ok: false,
@@ -42,6 +43,41 @@ export function validateExport(exportData: PreservationExport): ImportValidation
     }
     if (!envelope.record.isSynthetic) {
       return { ok: false, reason: `Record ${envelope.record.recordId} is not marked synthetic; refusing import in fixture-only mode.` };
+    }
+    // Byte-level check (Finding 5b, closed): for every media object this
+    // envelope actually carries bytes for, decode and re-hash them and
+    // compare against the record's own recorded length/checksum — a
+    // mismatch means the package was tampered with (or corrupted) between
+    // export and import, and is rejected outright rather than imported.
+    if (envelope.mediaObjects !== "omitted-for-public-export") {
+      for (const object of envelope.mediaObjects) {
+        const media = envelope.record.mediaRefs.find((m) => m.mediaId === object.mediaId);
+        if (!media) {
+          return {
+            ok: false,
+            reason: `Media object ${object.mediaId} on record ${envelope.record.recordId} does not correspond to any MediaRef on the record.`,
+          };
+        }
+        let decoded: Buffer;
+        try {
+          decoded = Buffer.from(object.base64, "base64");
+        } catch {
+          return { ok: false, reason: `Media object ${object.mediaId} on record ${envelope.record.recordId} is not valid base64.` };
+        }
+        if (decoded.length !== media.bytes) {
+          return {
+            ok: false,
+            reason: `Media object ${object.mediaId} on record ${envelope.record.recordId} is ${decoded.length} bytes, but the record declares ${media.bytes} — possible tampering.`,
+          };
+        }
+        const actualSha256 = createHash("sha256").update(decoded).digest("hex");
+        if (actualSha256 !== media.checksumSha256) {
+          return {
+            ok: false,
+            reason: `Media object ${object.mediaId} on record ${envelope.record.recordId} fails its SHA-256 check — possible tampering.`,
+          };
+        }
+      }
     }
   }
   return { ok: true };
@@ -69,26 +105,59 @@ export type RestoredRecordStatus = {
 };
 
 // Writes record data into the target store. Deliberately takes only a
-// FixtureStore — there is no RestrictionRegisterStore parameter here,
-// because this function must be structurally incapable of writing to it.
+// FixtureStore (plus an OPTIONAL target MediaStore) — there is no
+// RestrictionRegisterStore parameter here, because this function must be
+// structurally incapable of writing to it.
+export type ImportResult = {
+  imported: number;
+  // Per-record media rebinding outcome, only populated when
+  // targetMediaStore is provided — otherwise every record's media stays
+  // bound to whatever versionId the export recorded, which is meaningless
+  // once restored into an isolated target that was never uploaded to.
+  mediaRebound: { recordId: string; mediaId: string; versionId: string }[];
+};
+
 export async function importExport(
   target: FixtureStore,
   exportData: PreservationExport,
-): Promise<{ imported: number }> {
+  targetMediaStore?: MediaStore,
+): Promise<ImportResult> {
   const validation = validateExport(exportData);
   if (!validation.ok) {
     throw new Error(`Rejecting import: ${validation.reason}`);
   }
 
   let imported = 0;
+  const mediaRebound: ImportResult["mediaRebound"] = [];
   for (const envelope of exportData.records) {
+    // Re-upload each exported media object into the ISOLATED target's own
+    // media store and rebind the record's MediaRef to the version THAT
+    // upload produced — the export's original versionId means nothing in a
+    // target that never received that upload. A restored record's media
+    // is only ever servable via a version this exact import created.
+    const record = { ...envelope.record, mediaRefs: envelope.record.mediaRefs.map((m) => ({ ...m })) };
+    if (targetMediaStore && envelope.mediaObjects !== "omitted-for-public-export") {
+      for (const object of envelope.mediaObjects) {
+        const media = record.mediaRefs.find((m) => m.mediaId === object.mediaId);
+        if (!media) continue; // validateExport already rejects this case; defensive only.
+        const uploaded = await targetMediaStore.putObject(
+          media.objectKey,
+          Buffer.from(object.base64, "base64"),
+          media.contentType,
+        );
+        media.versionId = uploaded.versionId;
+        mediaRebound.push({ recordId: record.recordId, mediaId: media.mediaId, versionId: uploaded.versionId });
+      }
+    }
+
     // Upsert: a fresh target has no existing record (existing is
     // undefined, matching putRecord's "must not already exist" contract);
     // restoring into a store that already has the record overwrites it at
     // its current version instead. Either way, only the target FixtureStore
-    // is touched — never the restriction register.
-    const existingRecord = await target.getRecord(envelope.record.recordId);
-    await target.putRecord(envelope.record, existingRecord?.version);
+    // (and, now, its media store) is touched — never the restriction
+    // register.
+    const existingRecord = await target.getRecord(record.recordId);
+    await target.putRecord(record, existingRecord?.version);
     for (const claim of envelope.authorityClaims) {
       await target.putAuthorityClaim(claim);
     }
@@ -108,7 +177,7 @@ export async function importExport(
     }
     imported += 1;
   }
-  return { imported };
+  return { imported, mediaRebound };
 }
 
 // The reconciliation step. Call this before permitting ANY serving of

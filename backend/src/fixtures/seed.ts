@@ -43,12 +43,19 @@ function activeAuthorizedFixture(): Fixture {
       custodyStatus: "preserved",
       reviewedAt: now(),
       redactionApplied: false,
+      // Placeholder-shaped: this builder is pure/sync, so it cannot produce a
+      // real S3 version. versionId: null correctly marks this as not yet
+      // bound — see fixtures/media.ts's bindSeedMedia, which uploads real
+      // bytes and rebinds this to a real version wherever media actually
+      // needs to be exercised (not every test needs that).
       mediaRefs: [
         {
           mediaId: uuidv7(),
           objectKey: "fixtures/active-authorized/dummy.txt",
           bytes: 128,
           checksumSha256: "0".repeat(64),
+          contentType: "text/plain",
+          versionId: null,
         },
       ],
       createdAt: now(),
@@ -90,6 +97,10 @@ function activeAuthorizedFixture(): Fixture {
         copyId: uuidv7(),
         location: "primary",
         objectVersionId: null,
+        // Generic bookkeeping copy, not tied to the media object above —
+        // see fixtures/media.ts's bindSeedMedia for the SEPARATE,
+        // media-tracking copy it adds when a test actually needs one.
+        mediaId: null,
         createdAt: now(),
         reconciledAt: now(),
       },

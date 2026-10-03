@@ -61,6 +61,15 @@ export type MediaRef = {
   objectKey: string;
   bytes: number;
   checksumSha256: string;
+  contentType: string;
+  // The EXACT S3 object version this reference is bound to — retrieval
+  // always requests this specific VersionId, never "latest". Pinning this at
+  // approval time means a later re-upload to the same key (a new version)
+  // can never silently change what an already-approved reference serves.
+  // null means a legacy reference created before version binding existed
+  // (or one not yet migrated) — see services/media.ts, which fails closed
+  // for these rather than guessing a version.
+  versionId: string | null;
 };
 
 export type AuthorityClaim = {
@@ -144,8 +153,16 @@ export type CustodyCopy = {
   location: "primary" | "backup" | "partner-export";
   // For S3-versioned media copies.
   objectVersionId: string | null;
+  // Which MediaRef (by mediaId) this copy tracks, when it represents an
+  // S3-backed media object specifically — null for non-media bookkeeping
+  // copies. completeDeletion (services/lifecycle.ts) uses this to find the
+  // exact owned S3 key/version to purge before reconciling the copy.
+  mediaId: string | null;
   createdAt: string;
-  // Set once propagation of a lifecycle action to this copy is confirmed.
+  // Set once propagation of a lifecycle action to this copy is confirmed —
+  // for a media copy, only after its S3 versions/delete markers are
+  // confirmed actually removed (or a documented retention/expiry exception
+  // applies), never merely attempted.
   reconciledAt: string | null;
 };
 

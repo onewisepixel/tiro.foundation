@@ -8,8 +8,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryFixtureStore, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
+import { InMemoryMediaStore } from "../store/mediaStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
+import { bindSeedMedia } from "../fixtures/media";
 import { exportFixtureSet } from "./export";
 import { importExport, reconcileRestoredRecords, validateExport } from "./restore";
 import { withdraw, startDeletion, revokeConsentGrant } from "./lifecycle";
@@ -340,4 +342,77 @@ test("validateExport rejects a non-empty checksum that is not valid SHA-256 hex 
   const result = validateExport(backupExport);
   assert.equal(result.ok, false);
   assert.match(result.ok === false ? result.reason : "", /invalid or missing SHA-256/);
+});
+
+test("validateExport rejects a tampered media object whose bytes don't match the record's recorded checksum/length", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const mediaStore = new InMemoryMediaStore();
+  const [active] = buildSeedFixtures();
+  await bindSeedMedia(mediaStore, active);
+  await seedStore(fixtureStore, registerStore, [active]);
+
+  const backupExport = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    [active.record.recordId],
+    "complete-preservation",
+    "tamper-test",
+    "public",
+    mediaStore,
+  );
+  const objects = backupExport.records[0].mediaObjects as { mediaId: string; base64: string }[];
+  assert.ok(objects.length > 0, "sanity check: the export must actually carry media bytes to tamper with");
+  objects[0].base64 = Buffer.from("[SYNTHETIC] tampered replacement bytes").toString("base64");
+
+  const result = validateExport(backupExport);
+  assert.equal(result.ok, false);
+  assert.match(result.ok === false ? result.reason : "", /tamper/i);
+
+  await assert.rejects(() => importExport(new InMemoryFixtureStore(), backupExport), /Rejecting import/);
+});
+
+test("importExport with a targetMediaStore re-uploads media into the isolated target and rebinds to its own new version", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const sourceMediaStore = new InMemoryMediaStore();
+  const [active] = buildSeedFixtures();
+  await bindSeedMedia(sourceMediaStore, active);
+  await seedStore(fixtureStore, registerStore, [active]);
+  const originalVersionId = active.record.mediaRefs[0].versionId;
+
+  const backupExport = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    [active.record.recordId],
+    "complete-preservation",
+    "rebind-test",
+    "public",
+    sourceMediaStore,
+  );
+
+  const targetFixtureStore = new InMemoryFixtureStore();
+  const targetMediaStore = new InMemoryMediaStore();
+  const textMedia = active.record.mediaRefs[0];
+  assert.ok(originalVersionId, "sanity check: the source reference really was bound before export");
+  // Sanity check: the ISOLATED target's own media store starts with
+  // nothing at this key — proving any version found there after import was
+  // actually produced by THIS import, not pre-existing.
+  assert.deepEqual(await targetMediaStore.listObjectVersions(textMedia.objectKey), []);
+
+  const importResult = await importExport(targetFixtureStore, backupExport, targetMediaStore);
+
+  assert.equal(importResult.mediaRebound.length, active.record.mediaRefs.length);
+  const restoredRecord = await targetFixtureStore.getRecord(active.record.recordId);
+  const restoredMedia = restoredRecord!.mediaRefs[0];
+
+  const targetVersions = await targetMediaStore.listObjectVersions(restoredMedia.objectKey);
+  assert.equal(targetVersions.length, 1, "the import must have uploaded exactly one new version into the target");
+  assert.equal(restoredMedia.versionId, targetVersions[0].versionId, "the rebound reference must point at THAT new version");
+
+  // The restored target's media store must actually serve those exact bytes
+  // under the new binding.
+  const fetched = await targetMediaStore.getObject(restoredMedia.objectKey, restoredMedia.versionId!);
+  assert.ok(fetched);
+  assert.equal(fetched?.sha256, restoredMedia.checksumSha256);
 });

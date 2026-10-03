@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryFixtureStore, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
+import { InMemoryMediaStore } from "../store/mediaStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
+import { bindSeedMedia } from "../fixtures/media";
 import { VersionConflictError, type RestrictionRegisterStore } from "../store/store";
 import type { RestrictionRegisterEntry } from "../domain/types";
 import { routeRequest, type ApiRequest } from "./router";
@@ -12,9 +14,11 @@ const STAFF_IDENTITY = "staff:test@example.invalid";
 async function setup() {
   const fixtureStore = new InMemoryFixtureStore();
   const registerStore = new InMemoryRestrictionRegisterStore();
+  const mediaStore = new InMemoryMediaStore();
   const [active, expired, disputed, preservationOnly] = buildSeedFixtures();
+  await bindSeedMedia(mediaStore, active);
   await seedStore(fixtureStore, registerStore, [active, expired, disputed, preservationOnly]);
-  return { fixtureStore, registerStore, active, expired, disputed, preservationOnly };
+  return { fixtureStore, registerStore, mediaStore, active, expired, disputed, preservationOnly };
 }
 
 function req(partial: Partial<ApiRequest> & Pick<ApiRequest, "method" | "pathSegments">): ApiRequest {
@@ -22,14 +26,14 @@ function req(partial: Partial<ApiRequest> & Pick<ApiRequest, "method" | "pathSeg
 }
 
 test("GET /records/:id requires valid purpose and audience query params", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const missing = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const missing = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["records", active.record.recordId],
   }));
   assert.equal(missing.statusCode, 400);
 
-  const invalid = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const invalid = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["records", active.record.recordId],
     queryParams: { purpose: "not-a-purpose", audience: "public" },
@@ -38,8 +42,8 @@ test("GET /records/:id requires valid purpose and audience query params", async 
 });
 
 test("GET /records/:id returns the FULL detail bundle (content + evidence) when evaluatePermission allows it", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["records", active.record.recordId],
     queryParams: { purpose: "publication", audience: "public" },
@@ -61,9 +65,9 @@ test("GET /records/:id returns the FULL detail bundle (content + evidence) when 
 test(
   "GET /records/:id returns a LIMITED metadata view — no content, no evidence contents — when evaluatePermission denies it (Finding 1)",
   async () => {
-    const { fixtureStore, registerStore, expired, disputed } = await setup();
+    const { fixtureStore, registerStore, mediaStore, expired, disputed } = await setup();
     for (const fixture of [expired, disputed]) {
-      const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+      const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
         method: "GET",
         pathSegments: ["records", fixture.record.recordId],
         queryParams: { purpose: "publication", audience: "public" },
@@ -90,8 +94,8 @@ test(
 );
 
 test("GET /records/:id's limited view still carries enough register/lifecycle state for an operator to act", async () => {
-  const { fixtureStore, registerStore, disputed } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, disputed } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["records", disputed.record.recordId],
     queryParams: { purpose: "publication", audience: "public" },
@@ -103,8 +107,8 @@ test("GET /records/:id's limited view still carries enough register/lifecycle st
 });
 
 test("GET /records/:id returns 404 for an unknown record", async () => {
-  const { fixtureStore, registerStore } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["records", "does-not-exist"],
     queryParams: { purpose: "publication", audience: "public" },
@@ -113,14 +117,14 @@ test("GET /records/:id returns 404 for an unknown record", async () => {
 });
 
 test("GET /lifecycle-requests requires a valid status query param", async () => {
-  const { fixtureStore, registerStore } = await setup();
-  const missing = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore } = await setup();
+  const missing = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["lifecycle-requests"],
   }));
   assert.equal(missing.statusCode, 400);
 
-  const invalid = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const invalid = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["lifecycle-requests"],
     queryParams: { status: "not-a-real-status" },
@@ -129,8 +133,8 @@ test("GET /lifecycle-requests requires a valid status query param", async () => 
 });
 
 test("POST /records/:id/withdraw performs the action and attributes it to the authenticated caller, not the request body", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "withdraw"],
     body: { reason: "[SYNTHETIC] api test", requesterCapacity: "someone-else-entirely" },
@@ -149,22 +153,22 @@ test("POST /records/:id/withdraw performs the action and attributes it to the au
 });
 
 test("POST /records/:id/restrict requires a non-empty purposes array", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const missing = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const missing = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "restrict"],
     body: { reason: "[SYNTHETIC] test" },
   }));
   assert.equal(missing.statusCode, 400);
 
-  const invalidPurpose = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const invalidPurpose = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "restrict"],
     body: { reason: "[SYNTHETIC] test", purposes: ["not-a-real-purpose"] },
   }));
   assert.equal(invalidPurpose.statusCode, 400);
 
-  const ok = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const ok = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "restrict"],
     body: { reason: "[SYNTHETIC] test", purposes: ["model-training"] },
@@ -173,17 +177,17 @@ test("POST /records/:id/restrict requires a non-empty purposes array", async () 
 });
 
 test("POST /records/:id/revoke-consent requires a consentId, then revokes it", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
   const consentId = active.consentGrants[0].consentId;
 
-  const missing = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const missing = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "revoke-consent"],
     body: { reason: "[SYNTHETIC] test" },
   }));
   assert.equal(missing.statusCode, 400);
 
-  const ok = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const ok = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "revoke-consent"],
     body: { reason: "[SYNTHETIC] test", consentId },
@@ -200,15 +204,15 @@ test("POST /records/:id/revoke-consent requires a consentId, then revokes it", a
 });
 
 test("POST /records/:id/complete-deletion requires deletionRequestId, then reports outstanding custody copies, then succeeds once reconciled", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const startResponse = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const startResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "start-deletion"],
     body: { reason: "[SYNTHETIC] test" },
   }));
   const deletionRequestId = (startResponse.body as { requestId: string }).requestId;
 
-  const missingLink = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const missingLink = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "complete-deletion"],
     body: { reason: "[SYNTHETIC] test" },
@@ -220,11 +224,12 @@ test("POST /records/:id/complete-deletion requires deletionRequestId, then repor
     copyId: "outstanding",
     location: "backup",
     objectVersionId: null,
+    mediaId: null,
     createdAt: new Date().toISOString(),
     reconciledAt: null,
   });
 
-  const blocked = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const blocked = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "complete-deletion"],
     body: { reason: "[SYNTHETIC] test", deletionRequestId },
@@ -236,11 +241,12 @@ test("POST /records/:id/complete-deletion requires deletionRequestId, then repor
     copyId: "outstanding",
     location: "backup",
     objectVersionId: null,
+    mediaId: null,
     createdAt: new Date().toISOString(),
     reconciledAt: new Date().toISOString(),
   });
 
-  const done = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const done = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "complete-deletion"],
     body: { reason: "[SYNTHETIC] test", deletionRequestId, requestId: "req-complete-explicit" },
@@ -252,9 +258,9 @@ test("POST /records/:id/complete-deletion requires deletionRequestId, then repor
 test(
   "POST /records/:id/complete-deletion refuses a record that never went through startDeletion (Finding 3)",
   async () => {
-    const { fixtureStore, registerStore, active } = await setup();
+    const { fixtureStore, registerStore, mediaStore, active } = await setup();
     // active is "published"/"preserved" — never had start-deletion called.
-    const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       pathSegments: ["records", active.record.recordId, "complete-deletion"],
       body: { reason: "[SYNTHETIC] attack test", deletionRequestId: "does-not-exist" },
@@ -270,15 +276,15 @@ test(
 test(
   "POST /records/:id/complete-deletion refuses a deletionRequestId that belongs to a DIFFERENT record",
   async () => {
-    const { fixtureStore, registerStore, active, expired } = await setup();
-    const startOnExpired = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const { fixtureStore, registerStore, mediaStore, active, expired } = await setup();
+    const startOnExpired = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       pathSegments: ["records", expired.record.recordId, "start-deletion"],
       body: { reason: "[SYNTHETIC] test" },
     }));
     const expiredDeletionRequestId = (startOnExpired.body as { requestId: string }).requestId;
 
-    const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       // Attempting to complete ACTIVE's deletion using EXPIRED's deletion request id.
       pathSegments: ["records", active.record.recordId, "complete-deletion"],
@@ -290,8 +296,8 @@ test(
 );
 
 test("POST /records/:id/permission-check evaluates without mutating anything", async () => {
-  const { fixtureStore, registerStore, disputed } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, disputed } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", disputed.record.recordId, "permission-check"],
     body: { purpose: "publication", audience: "public" },
@@ -301,8 +307,8 @@ test("POST /records/:id/permission-check evaluates without mutating anything", a
 });
 
 test("POST /records/:id/permission-check rejects an invalid purpose/audience", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "permission-check"],
     body: { purpose: "not-a-purpose", audience: "public" },
@@ -311,8 +317,8 @@ test("POST /records/:id/permission-check rejects an invalid purpose/audience", a
 });
 
 test("POST /export runs the real scoped export and excludes denied records", async () => {
-  const { fixtureStore, registerStore, active, expired } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active, expired } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["export"],
     body: {
@@ -329,8 +335,8 @@ test("POST /export runs the real scoped export and excludes denied records", asy
 });
 
 test("POST /export rejects a missing/invalid scope", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["export"],
     body: { recordIds: [active.record.recordId], fixtureSetId: "x", destinationAudience: "public" },
@@ -356,9 +362,9 @@ class AlwaysConflictingRegisterStore implements RestrictionRegisterStore {
 }
 
 test("a version conflict from the service layer surfaces as 409, not a 500 or a silent success", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
   const conflicting = new AlwaysConflictingRegisterStore(registerStore);
-  const response = await routeRequest(fixtureStore, conflicting, STAFF_IDENTITY, req({
+  const response = await routeRequest(fixtureStore, conflicting, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "withdraw"],
     body: { reason: "[SYNTHETIC] test" },
@@ -369,10 +375,10 @@ test("a version conflict from the service layer surfaces as 409, not a 500 or a 
 test(
   "reusing a requestId for a DIFFERENT record returns 409 and leaves the second record untouched (Finding 2)",
   async () => {
-    const { fixtureStore, registerStore, active, expired } = await setup();
+    const { fixtureStore, registerStore, mediaStore, active, expired } = await setup();
     const reusedId = "req-reused-across-records";
 
-    const first = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const first = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       pathSegments: ["records", active.record.recordId, "withdraw"],
       body: { reason: "[SYNTHETIC] first operation", requestId: reusedId },
@@ -380,7 +386,7 @@ test(
     assert.equal(first.statusCode, 200);
     assert.equal((first.body as { status: string }).status, "completed");
 
-    const second = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const second = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       pathSegments: ["records", expired.record.recordId, "withdraw"],
       body: { reason: "[SYNTHETIC] second operation, different record, same id", requestId: reusedId },
@@ -399,17 +405,17 @@ test(
 test(
   "reusing a requestId for the SAME record and action but a DIFFERENT payload (different purposes) returns 409",
   async () => {
-    const { fixtureStore, registerStore, active } = await setup();
+    const { fixtureStore, registerStore, mediaStore, active } = await setup();
     const reusedId = "req-reused-same-record-different-payload";
 
-    const first = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const first = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       pathSegments: ["records", active.record.recordId, "restrict"],
       body: { reason: "[SYNTHETIC] first", purposes: ["research"], requestId: reusedId },
     }));
     assert.equal(first.statusCode, 200);
 
-    const second = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+    const second = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
       method: "POST",
       pathSegments: ["records", active.record.recordId, "restrict"],
       body: { reason: "[SYNTHETIC] second", purposes: ["model-training"], requestId: reusedId },
@@ -426,15 +432,15 @@ test(
 );
 
 test("replaying the exact SAME requestId, record, and payload is still a safe idempotent no-op", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
   const input = { reason: "[SYNTHETIC] replay test", purposes: ["research"], requestId: "req-safe-replay" };
 
-  const first = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const first = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "restrict"],
     body: input,
   }));
-  const second = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const second = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "restrict"],
     body: input,
@@ -445,8 +451,8 @@ test("replaying the exact SAME requestId, record, and payload is still a safe id
 });
 
 test("an unknown route returns 404, not a crash", async () => {
-  const { fixtureStore, registerStore } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "GET",
     pathSegments: ["not", "a", "real", "route"],
   }));
@@ -454,10 +460,82 @@ test("an unknown route returns 404, not a crash", async () => {
 });
 
 test("an unknown action under /records/:id returns 404", async () => {
-  const { fixtureStore, registerStore, active } = await setup();
-  const response = await routeRequest(fixtureStore, registerStore, STAFF_IDENTITY, req({
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "not-a-real-action"],
   }));
   assert.equal(response.statusCode, 404);
+});
+
+test("GET /records/:id/media/:mediaId requires purpose and audience query params", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId, "media", active.record.mediaRefs[0].mediaId],
+  }));
+  assert.equal(response.statusCode, 400);
+});
+
+test("GET /records/:id/media/:mediaId returns the exact bytes as a base64 binary body when allowed", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const textMedia = active.record.mediaRefs[0];
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId, "media", textMedia.mediaId],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.binary, "a successful media fetch must use the binary response path, not JSON");
+  assert.equal(response.binary?.contentType, "text/plain");
+  const decoded = Buffer.from(response.binary!.base64Body, "base64");
+  assert.equal(decoded.toString("utf8"), `[SYNTHETIC] dummy text content for record ${active.record.recordId}.\n`);
+});
+
+test("GET /records/:id/media/:mediaId denies with no bytes and no binary payload when evaluatePermission denies (Finding-1-style gate, applied to media)", async () => {
+  const { fixtureStore, registerStore, mediaStore, disputed } = await setup();
+  // disputed has no mediaRefs seeded by default; attach one directly so a
+  // denial can be proven even though a real bound reference exists.
+  const record = await fixtureStore.getRecord(disputed.record.recordId);
+  const uploaded = await mediaStore.putObject("fixtures/disputed/x.txt", Buffer.from("secret-ish"), "text/plain");
+  record!.mediaRefs.push({
+    mediaId: "disputed-media",
+    objectKey: "fixtures/disputed/x.txt",
+    bytes: 10,
+    checksumSha256: uploaded.sha256,
+    contentType: "text/plain",
+    versionId: uploaded.versionId,
+  });
+  await fixtureStore.putRecord(record!, record!.version);
+
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", disputed.record.recordId, "media", "disputed-media"],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.binary, undefined, "a denial must never carry a binary payload");
+  assert.match((response.body as { error: string }).error, /disputed/i);
+});
+
+test("GET /records/:id/media/:mediaId returns 409 for a legacy reference with no bound version", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const record = await fixtureStore.getRecord(active.record.recordId);
+  record!.mediaRefs.push({
+    mediaId: "legacy-media",
+    objectKey: "fixtures/legacy/x.txt",
+    bytes: 5,
+    checksumSha256: "0".repeat(64),
+    contentType: "text/plain",
+    versionId: null,
+  });
+  await fixtureStore.putRecord(record!, record!.version);
+
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId, "media", "legacy-media"],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.binary, undefined);
 });
