@@ -19,6 +19,20 @@ seeded the full four-fixture set into the live deployed stack and re-ran the gra
 concurrency, and export-authorization checks against real DynamoDB. All 9 checks passed on the
 first run. See "What was proven, and how" below.
 
+**Update, a third review round the same day:** CI was red (a Turbopack/Google-Fonts build failure
+plus 6 high-severity `npm audit` findings — both root-caused and fixed/documented), the grant-
+revocation restoration claim was still overstated (closed by a dedicated real-AWS drill,
+`realGrantRevocationRestoreDrill.ts`, which passed), and one assertion could falsely pass on a
+missing grant (`undefined !== null`). All three fixed; see `docs/backend/status.md`.
+
+**Update, authenticated API + staff UI:** built `backend/src/api/` (router + Lambda handler), wired
+an HTTP API with a Cognito JWT authorizer and a Hosted-UI OAuth app client into
+`infra/lib/fixture-backend-stack.ts`, and built `staff-ui/` (a standalone static page). Deployed and
+smoke-tested against the real stack — unauthenticated calls get 401, a real Cognito token succeeds,
+and a lifecycle action correctly attributes itself to the authenticated caller even when the request
+body tries to spoof a different one. 76 tests pass (up from 55). See the evidence matrix's "Real
+staff API smoke test."
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
@@ -45,11 +59,19 @@ the frontend's typecheck):
 - `services/` — permission evaluation, lifecycle operations (restrict/withdraw/retain/delete),
   preservation export (JSONL), and restoration with reconciliation against the live control state.
 - `fixtures/` — synthetic, clearly-labeled (`isSynthetic: true`) test data.
-- `scripts/realBackupRestoreDrill.ts` — the manually-invoked real-AWS drill (below).
+- `scripts/realBackupRestoreDrill.ts`, `realFullFixtureChecks.ts`, `realGrantRevocationRestoreDrill.ts`
+  — the manually-invoked real-AWS drills (below).
+- `api/` — added for the authenticated-API slice: a transport-agnostic `router.ts` (every route
+  re-runs `evaluatePermission`/the lifecycle functions unchanged — Cognito authentication only gates
+  who may call the API at all) and the real Lambda entrypoint, `handler.ts`.
 
 **Infrastructure** (`infra/`, CDK/TypeScript): two DynamoDB tables, a private versioned-encrypted S3
-bucket, a Cognito staff pool (self-signup disabled), bounded-retention logging, and a billing alarm
-wired to a real SNS email subscription.
+bucket, a Cognito staff pool (self-signup disabled, Hosted-UI OAuth2+PKCE app client), an HTTP API
+with a Cognito JWT authorizer fronting the Lambda above, bounded-retention logging, and a billing
+alarm wired to a real SNS email subscription.
+
+**`staff-ui/`** (new, standalone — not part of the Next.js app): a minimal static page using
+Cognito Hosted UI to sign in, then calling every route on the API above. See `staff-ui/README.md`.
 
 ## What was proven, and how
 
@@ -153,12 +175,11 @@ cap) is live, subscribed to `onewisepixel@gmail.com`.
 
 ## Explicitly not done — not a vague "more to do" list
 
-- Lambda/API Gateway/Cognito-JWT-authorizer wiring. The permission/lifecycle logic they'd call is
-  built and tested; no HTTP surface calls it yet.
-- The minimal staging-only staff UI.
 - Authorized-media S3 routes (presigned URLs, withdrawal-invalidation handling).
-- Real S3 object-version inventory, real Cognito-gated request denial, real TTL-deletion timing —
-  all blocked on the engineering above, not on anything organizational.
+- Real S3 media/version handling, byte-level checksums, versioned correction, redaction.
+- Real S3 object-version inventory and real TTL-deletion timing — real Cognito-gated request
+  denial IS now demonstrated (see the evidence matrix's "Real staff API smoke test"), but these two
+  remain blocked on the media/TTL engineering above, not on anything organizational.
 - A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction) — each real-AWS
   correctness case so far has been checked in isolation, not combined with another.
 - **Organizational, not engineering, and not something this document can resolve:** a named

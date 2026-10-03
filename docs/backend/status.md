@@ -35,6 +35,14 @@ involved) grant-revocation check, against the live deployed stack instead of the
    when the grant is simply missing (`undefined !== null` is `true`). Fixed to require the grant to
    exist and have a populated `revokedAt`.
 
+**2026-10-03, authenticated API + staff UI:** built and deployed `backend/src/api/` (router +
+Lambda handler), an HTTP API with a Cognito JWT authorizer, and `staff-ui/` (a standalone static
+page, not part of the public Next.js site). 76 tests pass (up from 55). Smoke-tested against the
+real deployed stack: unauthenticated calls get 401, a real Cognito token succeeds, and a lifecycle
+action correctly attributes itself to the authenticated caller even when the request body tries to
+claim a different identity. See `docs/backend/evidence-matrix.md`'s "Real staff API smoke test" for
+the full sequence.
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a
@@ -112,13 +120,23 @@ and documented rather than chased further; revisit when either upstream ships a 
   same fonts self-hosted under `src/fonts/` (see "CI: self-hosted fonts and the dependency audit"
   above). Same 45-then-55-test backend baseline either way (18 pre-existing `recordKind` frontend
   checks; the rest are backend tests).
+- New `backend/src/api/`: a transport-agnostic router (`router.ts`, 14 tests) and the real Lambda
+  entrypoint (`handler.ts`, 7 tests for its pure parsing logic) — every route re-runs
+  `evaluatePermission`/the lifecycle functions unchanged; Cognito authentication only gates who may
+  call the API and whose identity lands in the audit trail. New `staff-ui/`: a standalone static
+  page (not part of the Next.js app) using Cognito Hosted UI OAuth2 + PKCE. 76 tests total.
+- `infra/lib/fixture-backend-stack.ts` grew an HTTP API, a Lambda (bundled via esbuild through
+  CDK's `NodejsFunction` — no Docker needed, matching this environment's constraints), a Cognito
+  Hosted UI domain + OAuth app-client config, and `AdminInitiateAuth` enabled on that client
+  (IAM-gated, used for scripted sign-in/smoke-testing without implementing SRP by hand). Deployed
+  and smoke-tested against the real stack — see the evidence matrix.
 
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-Lambda/API Gateway/Cognito-authorizer wiring, the staff UI, authorized-media S3 routes, real S3
-object-version inventory, and a combinatorial real-AWS case or two (e.g. a revocation racing a
-concurrent restriction) once the above exist to make that worth scripting.
+Authorized-media S3 routes, real S3 object-version inventory, byte-level checksums, versioned
+correction, redaction, and a combinatorial real-AWS case or two (e.g. a revocation racing a
+concurrent restriction).
 
 **Organizational, not engineering — this document cannot close these:**
 A named operator. Adopted (not proposed) consent/retention response-window numbers. Both are

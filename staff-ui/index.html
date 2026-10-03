@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TIRO fixture backend — staff</title>
+  <script src="config.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 920px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.3rem; }
+    h2 { font-size: 1.05rem; margin-top: 2.5rem; border-bottom: 1px solid #ddd; padding-bottom: 0.3rem; }
+    section { margin-top: 1rem; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+    pre { background: #f5f5f5; padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+    button { cursor: pointer; }
+    .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .actions button { margin: 0.2rem; }
+    .banner { background: #fff3cd; border: 1px solid #e0c26a; padding: 0.6rem 0.9rem; font-size: 0.85rem; }
+    .error { color: #a40000; }
+    .muted { color: #666; font-size: 0.8rem; }
+    form.inline { display: inline-block; border: 1px solid #ddd; padding: 0.6rem; margin: 0.3rem 0; }
+    form.inline label { display: block; font-size: 0.8rem; margin-top: 0.3rem; }
+    form.inline input, form.inline select { width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>TIRO fixture-preservation backend — staff workflow</h1>
+  <p class="banner">
+    Synthetic fixtures only. Every record here is invented and labeled <code>isSynthetic: true</code> —
+    see <code>docs/ethos.txt</code> §6.0/§6.1. This tool is staging-only, not a public or production surface.
+  </p>
+
+  <div id="auth-bar" class="row"></div>
+
+  <div id="app" hidden>
+    <section>
+      <h2>Pending lifecycle requests</h2>
+      <div class="row">
+        <label for="status-filter">Status:</label>
+        <select id="status-filter">
+          <option value="pending" selected>pending</option>
+          <option value="in-progress">in-progress</option>
+          <option value="completed">completed</option>
+          <option value="denied">denied</option>
+        </select>
+        <button id="refresh-requests">Refresh</button>
+      </div>
+      <div id="requests-output"></div>
+    </section>
+
+    <section>
+      <h2>Look up a record</h2>
+      <div class="row">
+        <input id="record-id-input" placeholder="recordId (UUIDv7)" size="40" />
+        <button id="load-record">Load</button>
+      </div>
+      <div id="record-output"></div>
+    </section>
+
+    <section>
+      <h2>Export</h2>
+      <form id="export-form" class="inline" style="display:block; max-width: 480px;">
+        <label>Record IDs (comma-separated)<input name="recordIds" required /></label>
+        <label>Scope
+          <select name="scope">
+            <option value="public-redacted">public-redacted</option>
+            <option value="complete-preservation">complete-preservation</option>
+          </select>
+        </label>
+        <label>Fixture set id<input name="fixtureSetId" required /></label>
+        <label>Destination audience
+          <select name="destinationAudience">
+            <option value="public">public</option>
+            <option value="staff">staff</option>
+            <option value="research-partner">research-partner</option>
+          </select>
+        </label>
+        <button type="submit" style="margin-top: 0.6rem;">Run export</button>
+      </form>
+      <div id="export-output"></div>
+    </section>
+  </div>
+
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

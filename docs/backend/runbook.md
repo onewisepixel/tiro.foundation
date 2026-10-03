@@ -41,9 +41,48 @@ billing alerts actually notify anyone.
 Cost: see `docs/backend/decision-and-cost.md`. At fixture scale this should land near $0/month
 (DynamoDB provisioned capacity is set well inside the always-free 25/25 allowance).
 
-Already deployed as of 2026-10-02: `TiroFixtureBackend-drill-20261002`, account `440744257823`,
-`us-east-1`. Table names: `tiro-fixture-primary-drill-20261002`,
-`tiro-restriction-register-drill-20261002`.
+Already deployed as of 2026-10-02 (updated 2026-10-03 with the staff API): `TiroFixtureBackend-drill-20261002`,
+account `440744257823`, `us-east-1`. Table names: `tiro-fixture-primary-drill-20261002`,
+`tiro-restriction-register-drill-20261002`. `cdk deploy` also prints `StaffApiUrl`,
+`StaffUserPoolId`, `StaffUserPoolClientId`, and `StaffUserPoolDomain` — needed for the staff API/UI
+below.
+
+## Staff API and staff UI
+
+The authenticated staff API (`backend/src/api/`) is deployed as part of the same stack: an HTTP API
+with a Cognito JWT authorizer in front of one Lambda. Nothing about it is in CI (it's exercised by
+`router.test.ts`/`handler.test.ts` locally, and by hand against the real stack — see
+`docs/backend/evidence-matrix.md`'s "Real staff API smoke test").
+
+**Creating a staff user** (self-signup is disabled on purpose — invited test staff only):
+
+```bash
+aws cognito-idp admin-create-user --user-pool-id <StaffUserPoolId> --username <email> \
+  --user-attributes Name=email,Value=<email> Name=email_verified,Value=true \
+  --message-action SUPPRESS --profile <your-profile>
+aws cognito-idp admin-set-user-password --user-pool-id <StaffUserPoolId> --username <email> \
+  --password '<temporary-password>' --permanent --profile <your-profile>
+```
+
+**Calling the API directly** (e.g. for scripting/smoke-testing, without the staff UI): the app
+client has `ADMIN_USER_PASSWORD_AUTH` enabled specifically for this — IAM-gated, never reachable
+from the public internet:
+
+```bash
+aws cognito-idp admin-initiate-auth --user-pool-id <StaffUserPoolId> --client-id <StaffUserPoolClientId> \
+  --auth-flow ADMIN_USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=<email>,PASSWORD=<password> \
+  --profile <your-profile> --query AuthenticationResult.IdToken --output text
+# then: curl -H "Authorization: Bearer <that token>" <StaffApiUrl>/lifecycle-requests?status=pending
+```
+
+**Running the staff UI** (a standalone static page, see `staff-ui/README.md` for full setup):
+
+```bash
+cp staff-ui/config.example.js staff-ui/config.js   # fill in the four cdk deploy outputs above
+npx serve -l 4300 staff-ui
+# open http://localhost:4300/, sign in via Cognito Hosted UI
+```
 
 ## Seeding fixtures into real DynamoDB
 

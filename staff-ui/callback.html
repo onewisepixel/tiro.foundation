@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Signing in… — TIRO staff</title>
+  <script src="config.js"></script>
+  <script src="auth.js"></script>
+</head>
+<body style="font-family: system-ui, sans-serif; padding: 2rem;">
+  <p id="status">Completing sign-in…</p>
+  <script>
+    completeSignIn()
+      .then(() => {
+        window.location.href = "index.html";
+      })
+      .catch((error) => {
+        document.getElementById("status").textContent = "Sign-in failed: " + error.message;
+      });
+  </script>
+</body>
+</html>

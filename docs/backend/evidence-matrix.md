@@ -42,13 +42,23 @@ review: a check in
 pass) when the grant is simply missing, since `undefined !== null`. Fixed to require the grant to
 exist AND have a populated `revokedAt`.
 
+**2026-10-03, authenticated API + staff UI:** added `backend/src/api/` (a transport-agnostic
+`router.ts` plus the real Lambda `handler.ts`), an HTTP API with a Cognito JWT authorizer, and
+`staff-ui/` (a standalone static page — not part of the public Next.js site). Deployed and smoke-
+tested against the live stack — see "Real staff API smoke test" below. 76 passing tests (up from
+55: 14 router tests, 7 handler-parsing tests). The hard rule carries over unchanged: Cognito
+authentication gates who may call the API at all and whose identity lands in the audit trail; it is
+never a substitute for `evaluatePermission`'s own scoped checks, which run exactly as before
+regardless of caller.
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
 | Scoped permission checks | `permissions.test.ts`: 10 cases — wrong purpose, wrong audience, expired, disputed, unverified capacity, missing control state, staff-role-is-not-a-grant | **Demonstrated (local)** | None at logic level. |
 | Restricted records absent from public pages, search, API, and media | `export.ts`'s `public-redacted` scope omits non-published records entirely (not redacted — absent) | **Demonstrated (local, export path only)** | No actual public page/search/API/media surface exists yet — only the export-filtering logic is proven. |
 | Sensitivity review and redaction | `FixtureRecord.redactionApplied` field exists | **Not demonstrated** | No redaction workflow or UI built. |
-| Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts` | **Demonstrated (local)** | "Dependent views" don't exist yet (no staff UI, no public surface reading this data) — only the state transition and copy-tracking are proven. |
+| Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts`; `staff-ui/` now reads this data live via the API | **Demonstrated (local); the staff UI reads post-withdrawal state correctly, smoke-tested against real AWS** | No PUBLIC-facing surface reads this data yet (only the staff UI does) — only the state transition, copy-tracking, and staff-facing read path are proven. |
+| **Authenticated staff API, Cognito-gated** | `backend/src/api/router.test.ts` (14 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real smoke test against the deployed stack (below) | **Demonstrated, local and real AWS.** An unauthenticated call returns 401; a real Cognito-issued ID token (via `AdminInitiateAuth`, a test user created and deleted for this check) succeeds; a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; the GSI1-status-index lifecycle queue, record-detail read, permission-check, and export routes all work against real DynamoDB. | Every route was exercised individually, not as a sustained multi-user session; no automated real-AWS test for this (manual smoke test only, not scripted into a reusable drill the way the other real-AWS checks are). Rate limiting, CORS-in-practice-from-a-real-browser, and token refresh/expiry handling are unexercised. |
 | Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled | **Demonstrated (local)** | Real backup-expiry timing (actual DynamoDB PITR/backup lifecycle, actual S3 noncurrent-version expiration) not exercised — needs real AWS. |
 | **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases) | **Demonstrated, local and real AWS, for both the record-level and grant-level restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case: backup taken while a grant is active → that one grant revoked (record left otherwise fully publishable) → restored from the pre-revocation backup → both `evaluatePermission` and `reconcileRestoredRecords` deny, against the restored store plus the LIVE register — passed on its first run; see "Real grant-revocation restore drill" below. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2, both a direct store-level race and a full `startDeletion`/`restrict` integration race), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). Also still not exercised: actual S3 versioned-media restore (no media was in any drill fixture), actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry), and real Lambda/API-surface enforcement (doesn't exist yet). |
 | Assigned operators | — | **Not demonstrated, not evidenced** | Organizational, not engineering. No name to put here. |
@@ -161,23 +171,53 @@ temporary table + backup) — this script only writes a handful of small synthet
 already-deployed primary/register tables, left in place afterward as part of the real-AWS fixture
 baseline, same precedent as the restore drill's one surviving `active` record.
 
+## Real staff API smoke test — what actually happened
+
+Dated 2026-10-03. Deployed the new Lambda + HTTP API + Cognito JWT authorizer to the same stack
+(`TiroFixtureBackend-drill-20261002`) and manually exercised it against real AWS — not scripted into
+a reusable drill (unlike the three above), run by hand via the AWS CLI and PowerShell:
+
+1. Created a synthetic test staff user (`admin-create-user` + `admin-set-user-password`), authenticated
+   via `admin-initiate-auth` (`ADMIN_USER_PASSWORD_AUTH` — added to the app client specifically to make
+   this kind of scripted check possible without implementing SRP by hand; gated by IAM, never reachable
+   from the public internet).
+2. `GET /lifecycle-requests` with no `Authorization` header → **401**, confirming the Cognito authorizer
+   actually rejects unauthenticated requests (the one real-AWS check that was explicitly pending — see
+   the previous revision of this document).
+3. The same call with a real ID token → **200**, `{"requests":[]}`, reading the real GSI1-status-index.
+4. `GET /records/:id` on a real disputed-authority fixture → full detail bundle (record, control,
+   claims, grants, copies, receipts) read correctly from live DynamoDB.
+5. `POST /records/:id/permission-check` on the same record → `{"allowed":false,"reason":"Authority
+   claim ... is \"disputed\"."}` — the real `evaluatePermission` path, unchanged by any of this.
+6. `POST /records/:id/restrict`, with the request body attempting to set `requesterCapacity` to
+   `"someone-else-entirely"` → the real response's `requesterCapacity` was
+   `"staff:staff-smoke-test@example.invalid"` — the spoofed value was silently ignored, exactly as
+   designed (`handler.ts`'s `extractCallerIdentity` never reads the body). The action itself landed
+   correctly (`restrictedPurposes: ["model-training"]` on a live table scan afterward).
+7. `POST /export` (`public-redacted` scope) against an expired-consent record and a
+   since-restricted record → `recordCount: 0`, correctly excluding both.
+
+All seven checks passed. The test user was deleted immediately afterward
+(`admin-delete-user`); the one mutated fixture record (step 6) was left in place, same precedent as
+every other synthetic fixture mutation in this milestone.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
 | --- | --- |
 | Inventory S3 object versions after delete | No media was involved in any real-AWS run so far (seeded fixtures' `mediaRefs` are non-empty but nothing has been uploaded to S3). `aws s3api list-object-versions --bucket <bucket>` before/after a real media delete, confirming noncurrent versions are tracked and expire per the 30-day lifecycle rule. |
-| Verify Cognito-gated access actually denies unauthenticated requests | Needs a Lambda/API Gateway surface first (not built — see below). |
-| Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed. |
+| Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed — now with real Lambda/API Gateway invocations to reconcile too, not just DynamoDB. |
 | A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` is the place to extend. |
+| Script the staff API smoke test into a reusable drill | Currently manual (AWS CLI + PowerShell, not committed as a script) — write a `realStaffApiSmokeTest.ts` mirroring the other drill scripts' structure if this needs to be re-run repeatably rather than by hand. |
 
 ## Explicitly not built in this pass
 
-- Lambda handlers, API Gateway routes, and the Cognito JWT authorizer wiring (§3's "service layer" /
-  "authenticated routes"). The permission/lifecycle logic they'd call is built and tested; the HTTP
-  surface calling it is not.
-- The minimal staging-only staff UI (§3).
+- The minimal staging-only staff UI's styling/polish beyond "usable" — it is genuinely minimal by
+  design (see `staff-ui/README.md`), not a production admin console.
 - Presigned-URL-after-withdrawal handling for media (§3) — `MediaRef` exists in the domain model;
   the S3 GET-route authorization logic does not yet.
+- Real S3 media/version handling, byte-level checksums, versioned correction, and redaction — the
+  next slice per the reviewer's own ordering.
 
 These are the next concrete slice of work, not a vague "more to do" — each is independently scoped
 and none of them block what's already demonstrated above.

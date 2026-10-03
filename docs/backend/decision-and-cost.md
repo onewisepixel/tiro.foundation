@@ -57,6 +57,14 @@ Rejected: Aurora Serverless v2 PostgreSQL. Nothing above needs relational joins 
 
 Explicitly **not** provisioned: idle NAT gateways, read replicas, DAX, OpenSearch, vector databases, or reserved Lambda concurrency — none are needed for a fixture exercise, all were on the brief's "avoid" list, and all would move this from near-zero to a real recurring bill.
 
+### Update, 2026-10-03: Lambda/API Gateway/Cognito actually deployed
+
+The authenticated staff API (`backend/src/api/`, `infra/lib/fixture-backend-stack.ts`) deployed and
+exercised the Lambda, HTTP API, and Cognito rows in the table above for real — a handful of
+invocations for smoke-testing, well under any meaningful threshold either way. No surprises: the
+Lambda (256MB, 10s timeout, Node 22.x) and HTTP API costs at this call volume round to the same
+"sub-cent" estimate above; nothing here changes the monthly estimate.
+
 ### Alerting, not a cap
 
 Billing alerts will be configured (CloudWatch billing alarm at a low threshold, e.g. $5 and $20) as a notification tripwire. Per the brief: this is a notification, not an enforced spending cap — nothing in this architecture auto-shuts-down on alarm.
