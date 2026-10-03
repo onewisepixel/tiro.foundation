@@ -22,6 +22,21 @@ export class VersionConflictError extends Error {
   }
 }
 
+// Thrown when a lifecycle requestId is reused for a DIFFERENT operation
+// (different record, action, caller, or payload) than the one it was first
+// created for. An idempotency key is a promise that replaying it replays the
+// SAME request — reusing it for something else is a client error, never a
+// safe "replay" of the earlier result. See services/lifecycle.ts's
+// getOrCreateRequest.
+export class IdempotencyKeyConflictError extends Error {
+  constructor(requestId: string) {
+    super(
+      `Request id ${requestId} was already used for a different operation (different record, action, caller, or payload).`,
+    );
+    this.name = "IdempotencyKeyConflictError";
+  }
+}
+
 // Primary fixture data — records, their sub-entities, lifecycle work, and
 // custody copies. Everything EXCEPT the restriction register (see below).
 export interface FixtureStore {

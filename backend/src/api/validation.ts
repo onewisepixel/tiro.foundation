@@ -91,6 +91,20 @@ export function validateRestrictActionBody(body: unknown): ValidationResult<Rest
   return { ok: true, value: { ...base.value, purposes: record.purposes } };
 }
 
+export type CompleteDeletionActionBody = LifecycleActionBody & { deletionRequestId: string };
+
+export function validateCompleteDeletionActionBody(body: unknown): ValidationResult<CompleteDeletionActionBody> {
+  const base = validateLifecycleActionBody(body);
+  if (!base.ok) {
+    return base;
+  }
+  const record = asRecord(body) as Record<string, unknown>;
+  if (!isNonEmptyString(record.deletionRequestId)) {
+    return { ok: false, error: "\"deletionRequestId\" is required and must be a non-empty string — the requestId startDeletion() returned." };
+  }
+  return { ok: true, value: { ...base.value, deletionRequestId: record.deletionRequestId } };
+}
+
 export type RevokeConsentActionBody = LifecycleActionBody & { consentId: string };
 
 export function validateRevokeConsentActionBody(body: unknown): ValidationResult<RevokeConsentActionBody> {

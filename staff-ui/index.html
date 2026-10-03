@@ -51,8 +51,24 @@
 
     <section>
       <h2>Look up a record</h2>
+      <p class="muted">
+        Content and consent/authority evidence are only returned if the record is currently
+        servable for the purpose/audience below — otherwise you get a limited metadata view
+        (register state, lifecycle history, counts only). See <code>router.ts</code>'s GET
+        /records/:id — this is <em>not</em> bypassable by being signed in as staff.
+      </p>
       <div class="row">
         <input id="record-id-input" placeholder="recordId (UUIDv7)" size="40" />
+        <label>Purpose
+          <select id="record-purpose">
+            <option>publication</option><option>preservation</option><option>collection</option>
+            <option>research</option><option>derivatives</option><option>model-training</option>
+            <option>synthetic-reproduction</option><option>commercial-use</option>
+          </select>
+        </label>
+        <label>Audience
+          <select id="record-audience"><option>public</option><option>staff</option><option>research-partner</option></select>
+        </label>
         <button id="load-record">Load</button>
       </div>
       <div id="record-output"></div>

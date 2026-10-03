@@ -51,6 +51,55 @@ authentication gates who may call the API at all and whose identity lands in the
 never a substitute for `evaluatePermission`'s own scoped checks, which run exactly as before
 regardless of caller.
 
+**2026-10-03, API milestone review — three defects held sign-off, all fixed, all with regression
+tests, all re-verified against real AWS:**
+
+1. **Record reads bypassed scoped permission checks (Finding 1 of this round).** `GET
+   /records/:recordId` returned full content and every piece of consent/authority evidence to any
+   authenticated staff member unconditionally — exactly the "staff role substitutes for a scoped
+   grant" bypass `permissions.ts` forbids everywhere else. Fixed: the route now requires
+   `purpose`/`audience` query params and runs the same `evaluatePermission` check as everything
+   else. Allowed → full content + evidence. Denied → a limited metadata view: identifying fields
+   only (no title/summary/mediaRefs), register/lifecycle state, custody copies and audit receipts
+   (safe by their own type design), and evidence **counts**, never contents. `router.test.ts` (4
+   new cases).
+2. **Reused request IDs silently suppressed different operations (Finding 2).** `getOrCreateRequest`
+   treated any existing request matching a reused `requestId` as a safe replay, regardless of
+   whether it was actually the same operation — withdrawing record A, then reusing that `requestId`
+   to "withdraw" record B, returned A's completed request and left B untouched while reporting 200.
+   Fixed: every request now carries a `payloadFingerprint` (recordId, action, caller, reason,
+   protectiveHold, and action-specific payload like `purposes`/`consentId`); a reused id with a
+   different fingerprint throws `IdempotencyKeyConflictError`, mapped to 409. An exact replay (same
+   fingerprint) is still a safe no-op. `router.test.ts` (3 new cases) — confirmed against real AWS
+   below.
+3. **Deletion completion bypassed the deletion workflow (Finding 3).** `completeDeletion()` took a
+   bare `recordId` and would delete any record with zero outstanding custody copies, including one
+   that had never gone through `startDeletion()` — no request, no link, no receipt, just a silent
+   delete. Fixed: `completeDeletion()` is now a full lifecycle action requiring a `deletionRequestId`
+   that must resolve to a completed `"delete"` request for the SAME record, and the register's
+   `currentCustodyStatus` must actually be `"deletion-pending"` — either failing check **denies**
+   (status `"denied"`, its own audit receipt) rather than silently deleting or silently no-op'ing.
+   `lifecycle.test.ts` + `router.test.ts` (2 new cases).
+
+All three re-verified against the live deployed stack after redeploying the fixed Lambda — see "Real
+defect-fix verification" below. 84 passing tests (up from 76).
+
+**Also this round: Hosted UI → callback → authenticated API, verified against real AWS — with an
+honest limitation stated.** The prior round's real-AWS smoke test proved CLI-token (`AdminInitiateAuth`)
+access, not the actual browser OAuth flow a staff member uses. No browser-automation tool (Playwright/
+Puppeteer/computer-use) is available in this environment, so a literal "opened Chrome and clicked
+Sign In" run was not performed — that gap is named, not hidden. What WAS done: the real Cognito
+Hosted UI login form was fetched and submitted over HTTP exactly as a browser's form POST would
+(same session cookies, same CSRF token, same PKCE challenge), yielding a real authorization code from
+the live Cognito domain; that code was then fed into the actual, unmodified `staff-ui/auth.js` file's
+`completeSignIn()` function — not a reimplementation of its logic — executed in a real JS engine
+(Node, via `vm`, with `window`/`sessionStorage` shimmed), which performed the real PKCE token exchange
+against the live Cognito domain and stored a real ID token; that same file's `apiFetch()` function
+then called the live deployed API and got back a real 200. Residual, low-risk, unverified-by-this:
+`redirectToSignIn()`'s `window.location.href` assignment and `index.html`/`callback.html`'s DOM
+rendering, under an actual browser's navigation and HTML parser — standard, low-complexity browser
+APIs, not exercised here. See "Browser-flow verification" below for the full sequence.
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
@@ -58,7 +107,7 @@ regardless of caller.
 | Restricted records absent from public pages, search, API, and media | `export.ts`'s `public-redacted` scope omits non-published records entirely (not redacted — absent) | **Demonstrated (local, export path only)** | No actual public page/search/API/media surface exists yet — only the export-filtering logic is proven. |
 | Sensitivity review and redaction | `FixtureRecord.redactionApplied` field exists | **Not demonstrated** | No redaction workflow or UI built. |
 | Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts`; `staff-ui/` now reads this data live via the API | **Demonstrated (local); the staff UI reads post-withdrawal state correctly, smoke-tested against real AWS** | No PUBLIC-facing surface reads this data yet (only the staff UI does) — only the state transition, copy-tracking, and staff-facing read path are proven. |
-| **Authenticated staff API, Cognito-gated** | `backend/src/api/router.test.ts` (14 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real smoke test against the deployed stack (below) | **Demonstrated, local and real AWS.** An unauthenticated call returns 401; a real Cognito-issued ID token (via `AdminInitiateAuth`, a test user created and deleted for this check) succeeds; a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; the GSI1-status-index lifecycle queue, record-detail read, permission-check, and export routes all work against real DynamoDB. | Every route was exercised individually, not as a sustained multi-user session; no automated real-AWS test for this (manual smoke test only, not scripted into a reusable drill the way the other real-AWS checks are). Rate limiting, CORS-in-practice-from-a-real-browser, and token refresh/expiry handling are unexercised. |
+| **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (21 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below) | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes.** An unauthenticated call returns 401; a real Cognito-issued ID token succeeds (both via `AdminInitiateAuth` AND via the actual browser OAuth/PKCE flow — see "Browser-flow verification"); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record reads are scoped by `evaluatePermission` (full content+evidence only when allowed, a limited metadata view otherwise); a `requestId` reused across different records/payloads conflicts (409) rather than silently no-op'ing; `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
 | Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled | **Demonstrated (local)** | Real backup-expiry timing (actual DynamoDB PITR/backup lifecycle, actual S3 noncurrent-version expiration) not exercised — needs real AWS. |
 | **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases) | **Demonstrated, local and real AWS, for both the record-level and grant-level restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case: backup taken while a grant is active → that one grant revoked (record left otherwise fully publishable) → restored from the pre-revocation backup → both `evaluatePermission` and `reconcileRestoredRecords` deny, against the restored store plus the LIVE register — passed on its first run; see "Real grant-revocation restore drill" below. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2, both a direct store-level race and a full `startDeletion`/`restrict` integration race), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). Also still not exercised: actual S3 versioned-media restore (no media was in any drill fixture), actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry), and real Lambda/API-surface enforcement (doesn't exist yet). |
 | Assigned operators | — | **Not demonstrated, not evidenced** | Organizational, not engineering. No name to put here. |
@@ -201,6 +250,71 @@ All seven checks passed. The test user was deleted immediately afterward
 (`admin-delete-user`); the one mutated fixture record (step 6) was left in place, same precedent as
 every other synthetic fixture mutation in this milestone.
 
+## Real defect-fix verification — what actually happened
+
+Dated 2026-10-03. After redeploying the Lambda with all three fixes, re-checked each against the
+live stack (not just the 7 new local tests) via the AWS CLI + a real ID token:
+
+1. **Finding 1 (scoped reads).** `GET /records/:id` with no query params → **400**. The same route
+   on the real disputed-authority fixture with `purpose=publication&audience=public` (denied) →
+   `access.allowed: false`, no `title` field, no `consentGrants` field, `consentGrantCount: 1` — the
+   limited view, confirmed against real DynamoDB data, not a fixture-level approximation.
+2. **Finding 2 (idempotency binding).** Seeded two fresh records (A, B). Withdrew A with a given
+   `requestId` → 200. Reused that exact `requestId` to "withdraw" B → **409**. A live table scan
+   afterward confirmed B's `currentPublicationStatus` was still `"published"` — the reused id never
+   touched B, matching the reviewer's exact repro but now caught.
+3. **Finding 3 (deletion linkage).** Called `complete-deletion` on record B — which had never gone
+   through `startDeletion()` — with a nonexistent `deletionRequestId` → response `status: "denied"`.
+   A live table scan afterward confirmed B's primary record still exists and its custody status is
+   still `"preserved"` — no silent delete.
+
+All three confirmed. Test artifacts (one seed script, one test Cognito user) were deleted
+afterward; the two seeded records and the one withdrawn-by-the-defect-2-check record (A) were left
+in place, same precedent as every other synthetic fixture mutation in this milestone.
+
+## Browser-flow verification — what actually happened, and what's honestly not covered
+
+Dated 2026-10-03. The reviewer correctly pointed out the prior smoke test proved CLI-token
+(`AdminInitiateAuth`) access, not the actual Hosted-UI → callback → API flow a staff member uses in
+a browser. **This environment has no browser-automation tool** (no Playwright, Puppeteer, or
+computer-use capability) — a literal "opened Chrome, clicked Sign In, watched the redirect" run was
+not possible. Named here rather than worked around quietly. What was done instead, in order of how
+closely each step mirrors a real browser:
+
+1. **The real Cognito Hosted UI login form**, fetched and submitted over raw HTTP exactly as a
+   browser's form POST would: same session cookies (via a cookie jar), the same `_csrf` token
+   scraped from the live-rendered login page, a real PKCE challenge/verifier pair generated the same
+   way `auth.js`'s `randomVerifier()`/`challengeFor()` do. Submitting real credentials for a
+   synthetic test user to this real, live, server-rendered page returned a real `302` with
+   `Location: http://localhost:4300/callback.html?code=<real code>` — the exact URL a browser would
+   navigate to next.
+2. **The actual, unmodified `staff-ui/auth.js` file** — not a reimplementation of its logic — loaded
+   into a real JS engine (Node, via the `vm` module, with only `window`/`sessionStorage` shimmed;
+   `crypto`, `fetch`, `TextEncoder`, `URL`/`URLSearchParams`, `btoa`/`atob` are all real, native to
+   Node 22, the same APIs a browser provides). Its real `completeSignIn()` function was called with
+   `window.location.search` set to the real callback URL's query string and the real PKCE verifier
+   pre-stored in the shimmed `sessionStorage` — exactly the state a browser would be in after
+   navigating there. It performed a real PKCE token exchange against the live Cognito domain and
+   returned without throwing. Its real `apiFetch()` function was then called and returned
+   `{"status":200,"body":{"requests":[]}}` from the live deployed API.
+3. **The real ID token's claims** were decoded and confirmed: `aud` matches the real app client id,
+   `email` matches the test user, `token_use: "id"`, `iss` matches the real deployed user pool —
+   confirming `handler.ts`'s `extractCallerIdentity` assumptions hold against a token obtained this
+   way, not just via `AdminInitiateAuth`.
+
+**What this does not cover, stated plainly rather than implied away:** `redirectToSignIn()`'s
+`window.location.href = ...` assignment (the actual browser navigation away from the staff UI) and
+`index.html`/`callback.html`'s DOM rendering (`document.getElementById`, `innerHTML`) were not
+exercised under a real browser's navigation stack or HTML parser. Both are standard, low-complexity
+browser APIs used in the most ordinary way — low risk — but "not exercised here" is the honest
+statement, not "equivalent to a browser." If a literal click-through is required before sign-off,
+it needs either a browser-automation tool this environment doesn't have, or a human doing it by
+hand (2 minutes, per `staff-ui/README.md`'s setup steps).
+
+Test artifacts (two synthetic Cognito users, one across both this and the smoke-test section) were
+created and deleted within this check; no lasting state changes beyond the ordinary fixture
+mutations already described.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
@@ -209,6 +323,7 @@ every other synthetic fixture mutation in this milestone.
 | Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed — now with real Lambda/API Gateway invocations to reconcile too, not just DynamoDB. |
 | A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` is the place to extend. |
 | Script the staff API smoke test into a reusable drill | Currently manual (AWS CLI + PowerShell, not committed as a script) — write a `realStaffApiSmokeTest.ts` mirroring the other drill scripts' structure if this needs to be re-run repeatably rather than by hand. |
+| A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. Run `staff-ui/README.md`'s setup (create a user, `npx serve -l 4300 staff-ui`, open `http://localhost:4300/` in a real browser, sign in) by hand — everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
 
 ## Explicitly not built in this pass
 

@@ -43,6 +43,27 @@ action correctly attributes itself to the authenticated caller even when the req
 claim a different identity. See `docs/backend/evidence-matrix.md`'s "Real staff API smoke test" for
 the full sequence.
 
+**2026-10-03, API milestone review — three defects held sign-off, all fixed:**
+1. **Record reads bypassed scoped permission checks.** `GET /records/:id` returned full
+   content+evidence to any authenticated staff member regardless of `evaluatePermission` — now
+   requires `purpose`/`audience` and returns a limited metadata view (counts, not evidence
+   contents) when denied.
+2. **Reused request IDs silently suppressed different operations.** Withdrawing record A, then
+   reusing that `requestId` for record B, used to return A's result and leave B untouched while
+   reporting 200. `getOrCreateRequest` now fingerprints the full operation (record, action, caller,
+   payload); a mismatch is a 409, not a silent no-op.
+3. **Deletion completion bypassed the deletion workflow.** `completeDeletion()` took a bare
+   `recordId` and would delete a record with zero custody copies even if `startDeletion()` was
+   never called. Now requires a `deletionRequestId` linking to a completed `"delete"` request and
+   the register's `currentCustodyStatus` actually being `"deletion-pending"` — either missing link
+   denies, never silently deletes.
+
+All three fixed with regression tests (84 tests, up from 76) and re-verified against the live
+deployed stack. Also this round: the Hosted UI → callback → API flow was verified using the real
+`auth.js` file executed in a real JS engine against live Cognito/API — with an honestly-stated gap
+(no browser-automation tool here, so no literal click-through) — see the evidence matrix's
+"Browser-flow verification."
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a

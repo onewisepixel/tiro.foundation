@@ -156,15 +156,21 @@ test("deletion stays deletion-pending until custody copies are reconciled", asyn
     reconciledAt: null,
   });
 
-  await startDeletion(fixtureStore, registerStore, {
+  const startResult = await startDeletion(fixtureStore, registerStore, {
     requestId: "req-delete-pending",
     recordId,
     requesterCapacity: "[SYNTHETIC] steward",
     reason: "[SYNTHETIC] test",
   });
 
-  const firstAttempt = await completeDeletion(fixtureStore, registerStore, recordId);
-  assert.equal(firstAttempt.deleted, false);
+  const firstAttempt = await completeDeletion(fixtureStore, registerStore, {
+    requestId: "req-complete-delete-pending",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] steward",
+    reason: "[SYNTHETIC] complete test",
+    deletionRequestId: startResult.requestId,
+  });
+  assert.equal(firstAttempt.status, "in-progress", "outstanding copies must leave it retryable, not denied or completed");
 
   await fixtureStore.putCustodyCopy({
     recordId,
@@ -175,8 +181,16 @@ test("deletion stays deletion-pending until custody copies are reconciled", asyn
     reconciledAt: new Date().toISOString(),
   });
 
-  const secondAttempt = await completeDeletion(fixtureStore, registerStore, recordId);
-  assert.equal(secondAttempt.deleted, true);
+  // Same requestId as the first attempt — retrying the SAME completion
+  // request once its precondition (reconciled copies) is actually met.
+  const secondAttempt = await completeDeletion(fixtureStore, registerStore, {
+    requestId: "req-complete-delete-pending",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] steward",
+    reason: "[SYNTHETIC] complete test",
+    deletionRequestId: startResult.requestId,
+  });
+  assert.equal(secondAttempt.status, "completed");
 
   const current = await registerStore.getCurrent(recordId);
   assert.equal(current?.currentCustodyStatus, "deleted");
@@ -185,15 +199,21 @@ test("deletion stays deletion-pending until custody copies are reconciled", asyn
 test("completeDeletion actually removes the primary record, not just a status flag (Finding 5a)", async () => {
   const { fixtureStore, registerStore, recordId } = await setupActive();
 
-  await startDeletion(fixtureStore, registerStore, {
+  const startResult = await startDeletion(fixtureStore, registerStore, {
     requestId: "req-delete-full",
     recordId,
     requesterCapacity: "[SYNTHETIC] steward",
     reason: "[SYNTHETIC] test",
   });
 
-  const result = await completeDeletion(fixtureStore, registerStore, recordId);
-  assert.equal(result.deleted, true);
+  const result = await completeDeletion(fixtureStore, registerStore, {
+    requestId: "req-complete-delete-full",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] steward",
+    reason: "[SYNTHETIC] complete test",
+    deletionRequestId: startResult.requestId,
+  });
+  assert.equal(result.status, "completed");
 
   const record = await fixtureStore.getRecord(recordId);
   assert.equal(record, null, "the primary record must actually be gone, not merely flagged deleted in the register");

@@ -15,7 +15,12 @@ import type {
   RestrictionRegisterEntry,
 } from "../domain/types";
 import { uuidv7 } from "../domain/id";
-import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "../store/store";
+import {
+  IdempotencyKeyConflictError,
+  VersionConflictError,
+  type FixtureStore,
+  type RestrictionRegisterStore,
+} from "../store/store";
 
 export type LifecycleActionInput = {
   requestId: string;
@@ -25,15 +30,44 @@ export type LifecycleActionInput = {
   protectiveHold?: boolean;
 };
 
+// Everything that defines "this is the same operation" beyond requestId
+// itself. Order-independent (JSON.stringify of a fixed key order) so two
+// equivalent calls always fingerprint the same way regardless of how the
+// caller built the payload object.
+function fingerprintFor(
+  action: LifecycleAction,
+  input: LifecycleActionInput,
+  payload: Record<string, unknown>,
+): string {
+  return JSON.stringify({
+    recordId: input.recordId,
+    action,
+    requesterCapacity: input.requesterCapacity,
+    reason: input.reason,
+    protectiveHold: Boolean(input.protectiveHold),
+    payload,
+  });
+}
+
 async function getOrCreateRequest(
   store: FixtureStore,
   action: LifecycleAction,
   input: LifecycleActionInput,
+  payload: Record<string, unknown> = {},
 ): Promise<LifecycleRequest> {
+  const fingerprint = fingerprintFor(action, input, payload);
   const existing = await store.getLifecycleRequest(input.requestId);
   if (existing) {
-    // Idempotent replay: same requestId, return what's there (possibly
-    // already completed — callers should treat that as success, not redo).
+    if (existing.payloadFingerprint !== fingerprint) {
+      // Reusing a requestId for a DIFFERENT record/action/caller/payload is
+      // never a safe replay — returning the stale request here would (and
+      // did) let an unrelated operation silently no-op while reporting
+      // success. Reject instead; the caller must use a fresh requestId.
+      throw new IdempotencyKeyConflictError(input.requestId);
+    }
+    // Idempotent replay: same requestId AND same operation, return what's
+    // there (possibly already completed — callers should treat that as
+    // success, not redo).
     return existing;
   }
   const request: LifecycleRequest = {
@@ -44,6 +78,7 @@ async function getOrCreateRequest(
     requesterCapacity: input.requesterCapacity,
     reason: input.reason,
     protectiveHold: Boolean(input.protectiveHold),
+    payloadFingerprint: fingerprint,
     createdAt: new Date().toISOString(),
     completedAt: null,
     receiptSummary: null,
@@ -89,6 +124,34 @@ async function recordFailure(
     safeNote,
     at: new Date().toISOString(),
   });
+}
+
+// Distinct from recordFailure: used when a request is not merely "not yet
+// possible" (retryable, stays in-progress) but definitively not going to
+// happen under its current preconditions — e.g. completeDeletion() called
+// without a valid prior deletion request. Terminal, like completeRequest,
+// but with outcome "failed" rather than "completed".
+async function denyRequest(
+  store: FixtureStore,
+  request: LifecycleRequest,
+  safeNote: string,
+): Promise<LifecycleRequest> {
+  const denied: LifecycleRequest = {
+    ...request,
+    status: "denied",
+    completedAt: new Date().toISOString(),
+    receiptSummary: safeNote,
+  };
+  await store.updateLifecycleRequest(denied);
+  await store.putAuditReceipt({
+    recordId: request.recordId,
+    receiptId: uuidv7(),
+    action: request.action,
+    outcome: "failed",
+    safeNote,
+    at: denied.completedAt as string,
+  });
+  return denied;
 }
 
 type ControlPatch = Partial<
@@ -163,7 +226,7 @@ export async function restrict(
   input: LifecycleActionInput,
   purposes: Purpose[],
 ): Promise<LifecycleRequest> {
-  const request = await getOrCreateRequest(fixtureStore, "restrict", input);
+  const request = await getOrCreateRequest(fixtureStore, "restrict", input, { purposes });
   return runGuarded(fixtureStore, request, async () => {
     let merged: Purpose[] = [];
     await transitionControl(registerStore, input.recordId, (current) => {
@@ -224,7 +287,7 @@ export async function revokeConsentGrant(
   registerStore: RestrictionRegisterStore,
   input: LifecycleActionInput & { consentId: string },
 ): Promise<LifecycleRequest> {
-  const request = await getOrCreateRequest(fixtureStore, "revoke-consent", input);
+  const request = await getOrCreateRequest(fixtureStore, "revoke-consent", input, { consentId: input.consentId });
   return runGuarded(fixtureStore, request, async () => {
     await transitionControl(registerStore, input.recordId, (current) => ({
       revokedConsentIds: [...new Set([...(current?.revokedConsentIds ?? []), input.consentId])],
@@ -241,31 +304,88 @@ export async function revokeConsentGrant(
   });
 }
 
+// completeDeletion is itself a full lifecycle action now, not a bare helper —
+// it used to take just a recordId and would happily delete ANY record with
+// no outstanding custody copies, including one that had never gone through
+// startDeletion() at all: no LifecycleRequest, no audit receipt, no link
+// back to a deletion request, just a silent delete. Three things fix that:
+// 1. It requires a completed "delete" (startDeletion) request matching this
+//    record (deletionRequestId) — completion can never happen without a
+//    real prior start.
+// 2. It requires the register's currentCustodyStatus to actually be
+//    "deletion-pending" — a record that's merely "preserved" is refused.
+// 3. It goes through getOrCreateRequest/runGuarded like every other action,
+//    so it has its own tracked request, requesterCapacity, and receipt.
+export type CompleteDeletionInput = LifecycleActionInput & {
+  // The requestId startDeletion() returned when deletion was started for
+  // this record. Required, not inferred from register state alone — an
+  // explicit link, not just an implicit "custodyStatus happens to match".
+  deletionRequestId: string;
+};
+
 export async function completeDeletion(
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
-  recordId: string,
-): Promise<{ deleted: boolean; reason: string }> {
-  const copies = await fixtureStore.listCustodyCopies(recordId);
+  input: CompleteDeletionInput,
+): Promise<LifecycleRequest> {
+  const request = await getOrCreateRequest(fixtureStore, "complete-deletion", input, {
+    deletionRequestId: input.deletionRequestId,
+  });
+  if (request.status === "completed" || request.status === "denied") {
+    return request;
+  }
+
+  const deletionRequest = await fixtureStore.getLifecycleRequest(input.deletionRequestId);
+  if (
+    !deletionRequest ||
+    deletionRequest.recordId !== input.recordId ||
+    deletionRequest.action !== "delete" ||
+    deletionRequest.status !== "completed"
+  ) {
+    return denyRequest(
+      fixtureStore,
+      request,
+      "No completed deletion request matches this record and deletionRequestId; startDeletion() must run first — completion is not a substitute for the deletion workflow.",
+    );
+  }
+
+  const current = await registerStore.getCurrent(input.recordId);
+  if (current?.currentCustodyStatus !== "deletion-pending") {
+    return denyRequest(
+      fixtureStore,
+      request,
+      `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — startDeletion() must run first.`,
+    );
+  }
+
+  const copies = await fixtureStore.listCustodyCopies(input.recordId);
   const outstanding = copies.filter((copy) => copy.reconciledAt === null);
   if (outstanding.length > 0) {
-    return {
-      deleted: false,
-      reason: `${outstanding.length} custody cop${outstanding.length === 1 ? "y" : "ies"} not yet reconciled.`,
-    };
+    // Retryable (unlike the two denials above) — leave the request
+    // in-progress so a later call, once copies ARE reconciled, can still
+    // complete it under the same requestId.
+    await recordFailure(
+      fixtureStore,
+      request,
+      `${outstanding.length} custody cop${outstanding.length === 1 ? "y" : "ies"} not yet reconciled.`,
+    );
+    return request;
   }
-  await transitionControl(registerStore, recordId, () => ({ currentCustodyStatus: "deleted" }));
-  // The register entry is the authoritative "may this be served" answer and
-  // is set to deleted FIRST (above) — if the record removal below fails, the
-  // record is still correctly denied. Only once that's durable do we remove
-  // the primary record itself; a status flag alone (the old behavior) left
-  // completeDeletion() reporting success while the record stayed present and
-  // exportable, which is Finding 5a.
-  const record = await fixtureStore.getRecord(recordId);
-  if (record) {
-    await fixtureStore.deleteRecord(recordId, record.version);
-  }
-  return { deleted: true, reason: "All custody copies reconciled; custody status is deleted and the record removed." };
+
+  return runGuarded(fixtureStore, request, async () => {
+    // The register entry is the authoritative "may this be served" answer
+    // and is set to deleted FIRST — if the record removal below fails, the
+    // record is still correctly denied. Only once that's durable do we
+    // remove the primary record itself; a status flag alone (the old
+    // behavior) left completion reporting success while the record stayed
+    // present and exportable, which was Finding 5a.
+    await transitionControl(registerStore, input.recordId, () => ({ currentCustodyStatus: "deleted" }));
+    const record = await fixtureStore.getRecord(input.recordId);
+    if (record) {
+      await fixtureStore.deleteRecord(input.recordId, record.version);
+    }
+    return "All custody copies reconciled; custody status is deleted and the record removed.";
+  });
 }
 
 export type { PublicationStatus, CustodyStatus };

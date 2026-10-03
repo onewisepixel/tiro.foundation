@@ -95,24 +95,39 @@ function actionForm(recordId, action, extraFields, onDone) {
 }
 
 async function loadRecord(recordId) {
+  const purpose = document.getElementById("record-purpose").value;
+  const audience = document.getElementById("record-audience").value;
   const output = document.getElementById("record-output");
   output.textContent = "Loading…";
-  const { status, body } = await apiFetch(`/records/${encodeURIComponent(recordId)}`);
+  const { status, body } = await apiFetch(
+    `/records/${encodeURIComponent(recordId)}?purpose=${encodeURIComponent(purpose)}&audience=${encodeURIComponent(audience)}`,
+  );
   if (status !== 200) {
     output.innerHTML = `<p class="error">${escapeHtml(body?.error ?? `HTTP ${status}`)}</p>`;
     return;
   }
+  // access.allowed decides what's in the response at all — see router.ts's
+  // GET /records/:id. allowed: full content + evidence; denied: a limited
+  // metadata view (no title/summary/mediaRefs, counts instead of
+  // authorityClaims/legalRights/consentGrants contents).
+  const accessNote = body.access.allowed
+    ? `<p>Access: <strong>allowed</strong> for ${escapeHtml(purpose)}/${escapeHtml(audience)} — ${escapeHtml(body.access.reason)}</p>`
+    : `<p class="banner">Access: <strong>denied</strong> for ${escapeHtml(purpose)}/${escapeHtml(audience)} — ${escapeHtml(body.access.reason)}. Showing the limited metadata view only (no content, no consent/authority evidence).</p>`;
+  const evidenceHtml = body.access.allowed
+    ? `<h3>Authority claims</h3><pre>${escapeHtml(JSON.stringify(body.authorityClaims, null, 2))}</pre>
+       <h3>Legal rights</h3><pre>${escapeHtml(JSON.stringify(body.legalRights, null, 2))}</pre>
+       <h3>Consent grants</h3><pre>${escapeHtml(JSON.stringify(body.consentGrants, null, 2))}</pre>`
+    : `<h3>Evidence (limited view — counts only)</h3>
+       <pre>authorityClaimCount: ${body.authorityClaimCount}
+legalRightCount: ${body.legalRightCount}
+consentGrantCount: ${body.consentGrantCount}</pre>`;
   output.innerHTML = `
+    ${accessNote}
     <h3>Record</h3>
     <pre>${escapeHtml(JSON.stringify(body.record, null, 2))}</pre>
     <h3>Control (restriction register)</h3>
     <pre>${escapeHtml(JSON.stringify(body.control, null, 2))}</pre>
-    <h3>Authority claims</h3>
-    <pre>${escapeHtml(JSON.stringify(body.authorityClaims, null, 2))}</pre>
-    <h3>Legal rights</h3>
-    <pre>${escapeHtml(JSON.stringify(body.legalRights, null, 2))}</pre>
-    <h3>Consent grants</h3>
-    <pre>${escapeHtml(JSON.stringify(body.consentGrants, null, 2))}</pre>
+    ${evidenceHtml}
     <h3>Custody copies</h3>
     <pre>${escapeHtml(JSON.stringify(body.custodyCopies, null, 2))}</pre>
     <h3>Audit receipts</h3>
@@ -126,7 +141,7 @@ async function loadRecord(recordId) {
   actions.append(actionForm(recordId, "withdraw", [], reload));
   actions.append(actionForm(recordId, "retain", [], reload));
   actions.append(actionForm(recordId, "start-deletion", [], reload));
-  actions.append(actionForm(recordId, "complete-deletion", [], reload));
+  actions.append(actionForm(recordId, "complete-deletion", [{ name: "deletionRequestId", label: "Deletion requestId (from start-deletion's response)", required: true }], reload));
   actions.append(actionForm(recordId, "revoke-consent", [{ name: "consentId", label: "Consent id", required: true }], reload));
 
   // Permission-check isn't a lifecycle action (no reason/mutation), so it

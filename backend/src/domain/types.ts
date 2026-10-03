@@ -106,7 +106,14 @@ export type ConsentGrant = {
   withdrawalContact: string;
 };
 
-export type LifecycleAction = "restrict" | "withdraw" | "revoke-consent" | "correct" | "retain" | "delete";
+export type LifecycleAction =
+  | "restrict"
+  | "withdraw"
+  | "revoke-consent"
+  | "correct"
+  | "retain"
+  | "delete"
+  | "complete-deletion";
 export type LifecycleRequestStatus = "pending" | "in-progress" | "completed" | "denied";
 
 export type LifecycleRequest = {
@@ -117,6 +124,13 @@ export type LifecycleRequest = {
   requesterCapacity: string;
   reason: string;
   protectiveHold: boolean;
+  // A stable fingerprint of everything that defines "this operation" beyond
+  // requestId itself (recordId, action, requesterCapacity, reason,
+  // protectiveHold, and any action-specific payload like `purposes` or
+  // `consentId`). getOrCreateRequest (services/lifecycle.ts) compares this
+  // on every lookup — a requestId reused for a DIFFERENT operation is a
+  // conflict, never a silent replay of the wrong thing.
+  payloadFingerprint: string;
   createdAt: string;
   completedAt: string | null;
   // Minimal non-sensitive receipt only — never testimony, contact info, or

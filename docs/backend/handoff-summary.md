@@ -33,6 +33,20 @@ and a lifecycle action correctly attributes itself to the authenticated caller e
 body tries to spoof a different one. 76 tests pass (up from 55). See the evidence matrix's "Real
 staff API smoke test."
 
+**Update, API milestone review — three defects held sign-off, all fixed and re-verified against
+real AWS:** (1) record reads bypassed scoped permission checks — `GET /records/:id` now requires
+`purpose`/`audience` and returns a limited metadata view (no content, no evidence contents, counts
+only) when `evaluatePermission` denies; (2) reused request IDs silently suppressed different
+operations — `getOrCreateRequest` now fingerprints the full operation and a mismatched reuse is a
+409, confirmed against live DynamoDB (second record provably untouched); (3) deletion completion
+bypassed the deletion workflow — `completeDeletion()` now requires a `deletionRequestId` linking to
+a completed `startDeletion()` request and the register actually showing `"deletion-pending"`, or it
+denies rather than silently deleting, confirmed against a live record that was never deleted. 84
+tests pass (up from 76). Also verified: Hosted UI → callback → API, using the real `auth.js` file
+executed in a real JS engine against the live Cognito domain and API — honestly short of a literal
+browser click-through, since no browser-automation tool is available here; see the evidence
+matrix's "Browser-flow verification" for exactly what that does and doesn't prove.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

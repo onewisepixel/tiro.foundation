@@ -14,7 +14,7 @@
 import type { LifecycleRequestStatus } from "../domain/types";
 import { uuidv7 } from "../domain/id";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
-import { VersionConflictError } from "../store/store";
+import { IdempotencyKeyConflictError, VersionConflictError } from "../store/store";
 import {
   withdraw,
   restrict,
@@ -28,9 +28,12 @@ import { exportFixtureSet } from "../services/export";
 import {
   validateLifecycleActionBody,
   validateRestrictActionBody,
+  validateCompleteDeletionActionBody,
   validateRevokeConsentActionBody,
   validatePermissionCheckBody,
   validateExportBody,
+  isPurpose,
+  isAudience,
 } from "./validation";
 
 export type ApiRequest = {
@@ -62,7 +65,7 @@ async function withConflictHandling(work: () => Promise<ApiResponse>): Promise<A
   try {
     return await work();
   } catch (error) {
-    if (error instanceof VersionConflictError) {
+    if (error instanceof VersionConflictError || error instanceof IdempotencyKeyConflictError) {
       return { statusCode: 409, body: { error: error.message } };
     }
     throw error;
@@ -87,9 +90,29 @@ export async function routeRequest(
     return { statusCode: 200, body: { requests } };
   }
 
-  // GET /records/:recordId
+  // GET /records/:recordId?purpose=...&audience=...
+  //
+  // Finding 1 fix: this used to return full record content and every piece
+  // of consent/authority evidence to any authenticated staff member,
+  // unconditionally — exactly the "a login/staff role substitutes for a
+  // scoped grant" bypass permissions.ts's own docstring forbids elsewhere.
+  // Now it runs the SAME evaluatePermission check as everything else, for
+  // the purpose/audience the caller is asking about: allowed -> full detail
+  // (content + evidence); denied -> a limited metadata view (identifying
+  // fields, register/lifecycle state, custody copies, audit receipts — safe
+  // by their own type design — plus COUNTS, not contents, of claims/rights/
+  // grants) so lifecycle operators can still see enough to act without that
+  // being a backdoor into evidence they aren't separately authorized to see.
   if (method === "GET" && pathSegments.length === 2 && pathSegments[0] === "records") {
     const recordId = pathSegments[1];
+    const purpose = queryParams.purpose;
+    const audience = queryParams.audience;
+    if (!isPurpose(purpose)) {
+      return badRequest('"purpose" query parameter is required and must be a valid Purpose value.');
+    }
+    if (!isAudience(audience)) {
+      return badRequest('"audience" query parameter is required and must be one of "public", "staff", "research-partner".');
+    }
     const record = await fixtureStore.getRecord(recordId);
     if (!record) {
       return notFound(`No record with id "${recordId}".`);
@@ -102,9 +125,35 @@ export async function routeRequest(
       fixtureStore.listCustodyCopies(recordId),
       fixtureStore.listAuditReceipts(recordId),
     ]);
+    const decision = await evaluatePermission(fixtureStore, registerStore, { recordId, purpose, audience, now: new Date() });
+    if (!decision.allowed) {
+      return {
+        statusCode: 200,
+        body: {
+          access: decision,
+          record: {
+            recordId: record.recordId,
+            isSynthetic: record.isSynthetic,
+            fixtureSetId: record.fixtureSetId,
+            publicationStatus: record.publicationStatus,
+            custodyStatus: record.custodyStatus,
+            reviewedAt: record.reviewedAt,
+            redactionApplied: record.redactionApplied,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+          },
+          control,
+          authorityClaimCount: authorityClaims.length,
+          legalRightCount: legalRights.length,
+          consentGrantCount: consentGrants.length,
+          custodyCopies,
+          auditReceipts,
+        },
+      };
+    }
     return {
       statusCode: 200,
-      body: { record, control, authorityClaims, legalRights, consentGrants, custodyCopies, auditReceipts },
+      body: { access: decision, record, control, authorityClaims, legalRights, consentGrants, custodyCopies, auditReceipts },
     };
   }
 
@@ -175,8 +224,18 @@ export async function routeRequest(
     }
 
     if (action === "complete-deletion") {
+      const validated = validateCompleteDeletionActionBody(body);
+      if (!validated.ok) {
+        return badRequest(validated.error);
+      }
       return withConflictHandling(async () => {
-        const result = await completeDeletion(fixtureStore, registerStore, recordId);
+        const result = await completeDeletion(fixtureStore, registerStore, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          deletionRequestId: validated.value.deletionRequestId,
+        });
         return { statusCode: 200, body: result };
       });
     }
