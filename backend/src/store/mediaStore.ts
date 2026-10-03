@@ -29,8 +29,16 @@ export type GetObjectResult = { body: Buffer; contentType: string; bytes: number
 
 export interface MediaStore {
   putObject(key: string, body: Buffer, contentType: string): Promise<PutObjectResult>;
+  // The object's real size WITHOUT downloading any of its body — the real
+  // adapter uses HeadObject, never GetObject, specifically so a caller can
+  // enforce a size cap before ever buffering anything. Returns null if the
+  // key/version pair doesn't exist. See services/media.ts and
+  // services/export.ts, both of which check this BEFORE calling getObject.
+  headObjectSize(key: string, versionId: string): Promise<number | null>;
   // Returns null if the key/version pair doesn't exist (never found) — never
   // throws for a plain not-found, so callers can fail closed deliberately.
+  // Buffers the FULL object — callers that need a size cap must check
+  // headObjectSize first, not rely on this to reject after the fact.
   getObject(key: string, versionId: string): Promise<GetObjectResult | null>;
   // All versions AND delete markers for this exact key, oldest-version-safe
   // (the real adapter paginates internally — S3 caps ListObjectVersions
@@ -72,6 +80,11 @@ export class InMemoryMediaStore implements MediaStore {
     list.push({ versionId, body: Buffer.from(body), contentType, lastModified: new Date().toISOString(), isDeleteMarker: false });
     this.versions.set(key, list);
     return { versionId, sha256, bytes: body.length };
+  }
+
+  async headObjectSize(key: string, versionId: string): Promise<number | null> {
+    const entry = (this.versions.get(key) ?? []).find((v) => v.versionId === versionId);
+    return entry ? entry.body.length : null;
   }
 
   async getObject(key: string, versionId: string): Promise<GetObjectResult | null> {

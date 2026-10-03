@@ -416,3 +416,116 @@ test("importExport with a targetMediaStore re-uploads media into the isolated ta
   assert.ok(fetched);
   assert.equal(fetched?.sha256, restoredMedia.checksumSha256);
 });
+
+test(
+  "validateExport rejects a package whose mediaObjects was stripped to [] while its record still claims version-bound media (reviewer-caught finding)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const [active] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await seedStore(fixtureStore, registerStore, [active]);
+
+    const backupExport = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [active.record.recordId],
+      "complete-preservation",
+      "strip-test",
+      "public",
+      mediaStore,
+    );
+    assert.ok((backupExport.records[0].mediaObjects as unknown[]).length > 0, "sanity check: the honest export really did carry media");
+
+    // The exact repro: empty mediaObjects while record.mediaRefs still
+    // claims real version bindings, WITHOUT updating mediaObjectsSkipped to
+    // match — the mismatch itself is what must be caught.
+    backupExport.records[0].mediaObjects = [];
+
+    const result = validateExport(backupExport);
+    assert.equal(result.ok, false);
+    assert.match(result.ok === false ? result.reason : "", /neither included nor recorded as skipped|incomplete/i);
+
+    await assert.rejects(() => importExport(new InMemoryFixtureStore(), backupExport), /Rejecting import/);
+  },
+);
+
+test(
+  "importExport clears the versionId of media the export honestly recorded as skipped, so a restored fetch fails closed instead of 404ing confusingly",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const [active] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await seedStore(fixtureStore, registerStore, [active]);
+    const textMedia = active.record.mediaRefs[0];
+
+    // Force a legitimate skip: delete the bound version out from under the
+    // export so exportFixtureSet records it in mediaObjectsSkipped rather
+    // than failing outright (the "bound version no longer exists" path).
+    await mediaStore.deleteObjectVersion(textMedia.objectKey, textMedia.versionId!);
+
+    const backupExport = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [active.record.recordId],
+      "complete-preservation",
+      "skip-test",
+      "public",
+      mediaStore,
+    );
+    const skipped = backupExport.records[0].mediaObjectsSkipped.find((s) => s.mediaId === textMedia.mediaId);
+    assert.ok(skipped, "sanity check: the export must have actually recorded this as skipped, not failed");
+
+    assert.equal(validateExport(backupExport).ok, true, "an HONEST skip must still validate — completeness means accounted-for, not exhaustive");
+
+    const targetFixtureStore = new InMemoryFixtureStore();
+    const importResult = await importExport(targetFixtureStore, backupExport);
+    assert.equal(importResult.mediaBindingsCleared.some((c) => c.mediaId === textMedia.mediaId), true);
+
+    const restoredRecord = await targetFixtureStore.getRecord(active.record.recordId);
+    const restoredMedia = restoredRecord!.mediaRefs.find((m) => m.mediaId === textMedia.mediaId);
+    assert.equal(restoredMedia?.versionId, null, "the cleared binding must be null, not the meaningless source versionId");
+  },
+);
+
+test(
+  "importExport restores audit receipts — previously dropped entirely (reviewer-caught finding)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    await fixtureStore.putAuditReceipt({
+      recordId: active.record.recordId,
+      receiptId: "receipt-restore-test",
+      action: "restrict",
+      outcome: "completed",
+      safeNote: "[SYNTHETIC] test receipt",
+      at: new Date().toISOString(),
+    });
+
+    const backupExport = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [active.record.recordId],
+      "complete-preservation",
+      "receipt-restore-test",
+      "public",
+    );
+    assert.equal(backupExport.records[0].auditReceipts.length, 1, "sanity check: the export really does carry the receipt");
+
+    const restoredTarget = new InMemoryFixtureStore();
+    await importExport(restoredTarget, backupExport);
+    const restoredReceipts = await restoredTarget.listAuditReceipts(active.record.recordId);
+    assert.equal(restoredReceipts.length, 1, "the restored store must actually contain the receipt, not zero");
+    assert.equal(restoredReceipts[0].receiptId, "receipt-restore-test");
+
+    // Safe replay: importing the SAME export again must not duplicate it.
+    await importExport(restoredTarget, backupExport);
+    const afterReplay = await restoredTarget.listAuditReceipts(active.record.recordId);
+    assert.equal(afterReplay.length, 1, "replaying the same import must not duplicate the receipt");
+  },
+);

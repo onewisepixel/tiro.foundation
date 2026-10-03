@@ -145,6 +145,44 @@ test("a reference claiming more than the 256 KiB cap is rejected before any buff
   assert.equal(mediaStore.getObjectCalls, 0, "the size cap must reject before ever calling getObject");
 });
 
+test(
+  "a reference whose RECORDED size looks fine but whose REAL stored object is oversized is still rejected before buffering (bounded reads)",
+  async () => {
+    // Reviewer-caught gap: trusting only the recorded `media.bytes` metadata
+    // means a real object that's larger than recorded (drift, or a crafted
+    // upload) would sail past that check and get fully buffered by
+    // getObject before the post-fetch size check ever ran. headObjectSize
+    // must catch this via a bodyless HEAD, before getObject is called at all.
+    class DriftingMediaStore extends InMemoryMediaStore {
+      getObjectCalls = 0;
+      override async headObjectSize(): Promise<number> {
+        return MAX_MEDIA_BYTES + 999_999; // real size, far larger than recorded
+      }
+      override async getObject(key: string, versionId: string) {
+        this.getObjectCalls += 1;
+        return super.getObject(key, versionId);
+      }
+    }
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new DriftingMediaStore();
+    const [active] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await seedStore(fixtureStore, registerStore, [active]);
+    const textMedia = active.record.mediaRefs[0]; // recorded bytes well under the cap
+
+    const result = await fetchAuthorizedMedia(fixtureStore, registerStore, mediaStore, {
+      recordId: active.record.recordId,
+      mediaId: textMedia.mediaId,
+      purpose: "publication",
+      audience: "public",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.statusCode, 413);
+    assert.equal(mediaStore.getObjectCalls, 0, "a bounded HEAD check must reject drift before ever buffering the body");
+  },
+);
+
 test("a bound reference whose object no longer exists in storage returns 404, not a crash", async () => {
   const { fixtureStore, registerStore, mediaStore, active } = await setup();
   const binaryMedia = active.record.mediaRefs[1];

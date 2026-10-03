@@ -18,8 +18,19 @@ import type {
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import { evaluatePermission } from "./permissions";
+import { MAX_MEDIA_BYTES } from "./media";
 
 export type ExportScope = "complete-preservation" | "public-redacted";
+
+// Total media bytes a single exportFixtureSet call will ever include,
+// across every record it's asked for — a reviewer reproduced a 7MB export
+// from one legitimate-looking call by repeating one record id 20 times
+// (closed below by deduping recordIds too); this is the second,
+// independent backstop for a call that legitimately names many distinct
+// records with real media. Once exceeded, further objects are recorded in
+// mediaObjectsSkipped (not silently dropped) rather than growing the
+// response further.
+export const MAX_EXPORT_AGGREGATE_MEDIA_BYTES = 5 * 1024 * 1024;
 
 // base64 bytes of exactly the version each MediaRef is pinned to — present
 // only for complete-preservation exports (media is content, so public
@@ -91,8 +102,15 @@ export async function exportFixtureSet(
 ): Promise<PreservationExport> {
   const records: ExportedRecordEnvelope[] = [];
   const purpose: Purpose = scope === "public-redacted" ? "publication" : "preservation";
+  // Deduplicate: repeating one id N times must never embed that record's
+  // (and its media's) content N times in the response — a reviewer
+  // reproduced a multi-megabyte export this way from a single real record.
+  const uniqueRecordIds = [...new Set(recordIds)];
+  // Shared across every record in this call, not reset per record — the
+  // aggregate budget below.
+  let aggregateMediaBytes = 0;
 
-  for (const recordId of recordIds) {
+  for (const recordId of uniqueRecordIds) {
     const record = await fixtureStore.getRecord(recordId);
     if (!record) {
       continue;
@@ -126,11 +144,37 @@ export async function exportFixtureSet(
             mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Legacy reference has no bound S3 version." });
             continue;
           }
+          // Bounded read: check the REAL size via a bodyless HEAD before
+          // ever calling getObject — the same reasoning as
+          // services/media.ts's retrieval route. Trusting only the
+          // recorded `media.bytes` would let a drifted or oversized real
+          // object get fully buffered before any size check could reject
+          // it.
+          const actualSize = await mediaStore.headObjectSize(media.objectKey, media.versionId);
+          if (actualSize === null) {
+            mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Bound version no longer exists in storage." });
+            continue;
+          }
+          if (actualSize > MAX_MEDIA_BYTES) {
+            mediaObjectsSkipped.push({
+              mediaId: media.mediaId,
+              reason: `Exceeds the ${MAX_MEDIA_BYTES}-byte per-object export cap (${actualSize} bytes).`,
+            });
+            continue;
+          }
+          if (aggregateMediaBytes + actualSize > MAX_EXPORT_AGGREGATE_MEDIA_BYTES) {
+            mediaObjectsSkipped.push({
+              mediaId: media.mediaId,
+              reason: `Skipped: including it would exceed this export's ${MAX_EXPORT_AGGREGATE_MEDIA_BYTES}-byte aggregate media budget.`,
+            });
+            continue;
+          }
           const object = await mediaStore.getObject(media.objectKey, media.versionId);
           if (!object) {
             mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Bound version no longer exists in storage." });
             continue;
           }
+          aggregateMediaBytes += object.bytes;
           fetched.push({ mediaId: media.mediaId, base64: object.body.toString("base64") });
         }
         mediaObjects = fetched;

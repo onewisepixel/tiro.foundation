@@ -83,13 +83,34 @@ export async function fetchAuthorizedMedia(
     };
   }
 
+  // Bounded read: ask the REAL size via a bodyless HEAD before ever calling
+  // getObject, which buffers the entire object into memory. Our own
+  // recorded `media.bytes` is trusted metadata we wrote ourselves, but
+  // trusting it alone would mean a drifted or tampered real object could
+  // still get fully buffered before the (then-too-late) size check below —
+  // a real memory-exhaustion vector a reviewer caught. HeadObject transfers
+  // no body at all, so this check is bounded regardless of the real size.
+  const actualSize = await mediaStore.headObjectSize(media.objectKey, media.versionId);
+  if (actualSize === null) {
+    return { ok: false, statusCode: 404, reason: "The bound media version no longer exists in storage." };
+  }
+  if (actualSize > MAX_MEDIA_BYTES) {
+    return {
+      ok: false,
+      statusCode: 413,
+      reason: `Stored object is ${actualSize} bytes, exceeding the ${MAX_MEDIA_BYTES}-byte retrieval cap — refusing to buffer it.`,
+    };
+  }
+
   const object = await mediaStore.getObject(media.objectKey, media.versionId);
   if (!object) {
     return { ok: false, statusCode: 404, reason: "The bound media version no longer exists in storage." };
   }
-  // Defense in depth: our own recorded `bytes` is what gated above, before
-  // any buffering happened; re-checking the ACTUALLY retrieved size catches
-  // any drift between that recorded metadata and reality.
+  // Belt-and-suspenders: confirm what was actually buffered still matches
+  // the bounded HEAD check above (should always hold barring a concurrent
+  // overwrite of the exact same immutable version, which S3 versioning
+  // makes essentially impossible — this is a consistency assertion, not
+  // the primary enforcement point).
   if (object.bytes > MAX_MEDIA_BYTES) {
     return {
       ok: false,

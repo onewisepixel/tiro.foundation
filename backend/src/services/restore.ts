@@ -78,6 +78,27 @@ export function validateExport(exportData: PreservationExport): ImportValidation
           };
         }
       }
+      // Completeness check (reviewer-caught gap): the checks above only
+      // validate objects that ARE present — emptying mediaObjects entirely
+      // (or dropping just some entries) previously still passed, because
+      // there was nothing left to check. A version-bound MediaRef
+      // (versionId !== null) must be accounted for — either genuinely
+      // included (mediaObjects) or HONESTLY recorded as skipped during
+      // export (mediaObjectsSkipped, e.g. legacy/missing/over-cap). If it's
+      // in NEITHER, the package is incomplete or tampered and the whole
+      // import is rejected, exactly like a checksum mismatch above.
+      const accountedFor = new Set([
+        ...envelope.mediaObjects.map((o) => o.mediaId),
+        ...envelope.mediaObjectsSkipped.map((s) => s.mediaId),
+      ]);
+      for (const media of envelope.record.mediaRefs) {
+        if (media.versionId !== null && !accountedFor.has(media.mediaId)) {
+          return {
+            ok: false,
+            reason: `Record ${envelope.record.recordId}'s media ${media.mediaId} is version-bound but was neither included nor recorded as skipped — incomplete or tampered package.`,
+          };
+        }
+      }
     }
   }
   return { ok: true };
@@ -115,6 +136,13 @@ export type ImportResult = {
   // bound to whatever versionId the export recorded, which is meaningless
   // once restored into an isolated target that was never uploaded to.
   mediaRebound: { recordId: string; mediaId: string; versionId: string }[];
+  // Media the export itself honestly recorded as skipped (legacy/missing/
+  // over-cap — see mediaObjectsSkipped) — their restored MediaRef gets its
+  // versionId explicitly cleared to null rather than keeping the source's
+  // original (meaningless-here) version, so a later fetch fails closed
+  // (409, "legacy") instead of 404ing confusingly against a binding that
+  // was never actually carried through.
+  mediaBindingsCleared: { recordId: string; mediaId: string; reason: string }[];
 };
 
 export async function importExport(
@@ -129,6 +157,7 @@ export async function importExport(
 
   let imported = 0;
   const mediaRebound: ImportResult["mediaRebound"] = [];
+  const mediaBindingsCleared: ImportResult["mediaBindingsCleared"] = [];
   for (const envelope of exportData.records) {
     // Re-upload each exported media object into the ISOLATED target's own
     // media store and rebind the record's MediaRef to the version THAT
@@ -147,6 +176,21 @@ export async function importExport(
         );
         media.versionId = uploaded.versionId;
         mediaRebound.push({ recordId: record.recordId, mediaId: media.mediaId, versionId: uploaded.versionId });
+      }
+    }
+    // Any media the export itself honestly recorded as skipped never had
+    // its bytes carried through at all (even without a targetMediaStore) —
+    // clear its versionId so the restored record fails closed (legacy,
+    // 409) rather than keeping a binding from the source that nothing here
+    // ever actually resolved, which would otherwise 404 confusingly later.
+    // validateExport already guarantees every bound ref is accounted for
+    // in mediaObjects OR mediaObjectsSkipped, so this is exactly the
+    // "accounted for by being skipped" half of that guarantee.
+    for (const skipped of envelope.mediaObjectsSkipped) {
+      const media = record.mediaRefs.find((m) => m.mediaId === skipped.mediaId);
+      if (media && media.versionId !== null) {
+        media.versionId = null;
+        mediaBindingsCleared.push({ recordId: record.recordId, mediaId: media.mediaId, reason: skipped.reason });
       }
     }
 
@@ -175,9 +219,17 @@ export async function importExport(
     for (const copy of envelope.custodyCopies) {
       await target.putCustodyCopy(copy);
     }
+    // Safe lifecycle history (§3.10/§12) — previously never written at all,
+    // so a restored store always showed zero audit receipts even though
+    // the export carried them. putAuditReceipt is idempotent by receiptId
+    // (see memoryStore.ts/dynamoStore.ts), so replaying the same import
+    // twice reproduces the same receipts rather than duplicating them.
+    for (const receipt of envelope.auditReceipts) {
+      await target.putAuditReceipt(receipt);
+    }
     imported += 1;
   }
-  return { imported, mediaRebound };
+  return { imported, mediaRebound, mediaBindingsCleared };
 }
 
 // The reconciliation step. Call this before permitting ANY serving of

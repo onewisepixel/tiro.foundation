@@ -339,6 +339,14 @@ export type CompleteDeletionInput = LifecycleActionInput & {
 // the write, this throws before anything is written.
 class StaleCustodyStatusError extends Error {}
 
+// Shared by the pre-purge guard below and the final write's computePatch —
+// "deletion-pending" (the normal case) or "deleted" (resuming after a
+// partial failure — see completeDeletion's write step) are the only two
+// states in which either destroying media or writing "deleted" is valid.
+function isDeletionEligibleCustody(status: string | undefined): boolean {
+  return status === "deletion-pending" || status === "deleted";
+}
+
 // Attempts to actually purge each media-backed custody copy's S3 object —
 // EVERY version and delete marker under its exact key, not just whichever
 // one the MediaRef happens to be pinned to (an old, superseded version left
@@ -414,12 +422,31 @@ export async function completeDeletion(
     );
   }
 
-  // Reconcile tracked media custody copies only after their S3 objects are
-  // ACTUALLY confirmed removed (see purgeMediaCustody) — never assumed from
-  // merely attempting it. Without a mediaStore, this is skipped entirely;
-  // any media-tracked copy simply stays unreconciled and correctly blocks
-  // below, same as any other outstanding copy — no special-casing needed.
+  // Reviewer-caught bug: purgeMediaCustody used to run unconditionally here,
+  // with custody status validated only inside the FINAL write's computePatch
+  // — many steps later. A real retention action (startDeletion ->
+  // retainForPreservationOnly -> completeDeletion) left custody "preserved"
+  // long before this point, so completeDeletion still destroyed every S3
+  // version before ever reaching the check that would deny it: the request
+  // correctly ended up "denied", but the media was already gone — exactly
+  // backwards for an action that's supposed to be retained. Media deletion
+  // is irreversible and must never run on a stale/invalid precondition, so
+  // it gets its OWN fresh guard, checked BEFORE anything is purged — not
+  // deferred to the final register write the way the (reversible,
+  // version-guarded) register/record write safely can be. This narrows but
+  // does not fully close the race: a retention action landing in the exact
+  // gap between this read and the purge starting could still interleave —
+  // a documented combinatorial case, not silently ignored (see
+  // docs/backend/evidence-matrix.md's "AWS checks still not run").
   if (mediaStore) {
+    const custodyBeforePurge = await registerStore.getCurrent(input.recordId);
+    if (!isDeletionEligibleCustody(custodyBeforePurge?.currentCustodyStatus)) {
+      return denyRequest(
+        fixtureStore,
+        request,
+        `Custody status is "${custodyBeforePurge?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — refusing to purge media or complete deletion. If a retention action ran after startDeletion(), this is correct: retained media must not be destroyed.`,
+      );
+    }
     await purgeMediaCustody(fixtureStore, mediaStore, input.recordId);
   }
 
@@ -457,7 +484,7 @@ export async function completeDeletion(
       // removing the still-present record, instead of being permanently
       // denied for no longer being "deletion-pending".
       await transitionControl(registerStore, input.recordId, (current) => {
-        if (current?.currentCustodyStatus !== "deletion-pending" && current?.currentCustodyStatus !== "deleted") {
+        if (!isDeletionEligibleCustody(current?.currentCustodyStatus)) {
           throw new StaleCustodyStatusError(
             `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — it changed after the prerequisite check (e.g. a retention action), so completion cannot proceed.`,
           );

@@ -122,9 +122,15 @@ export class InMemoryFixtureStore implements FixtureStore {
   }
 
   async putAuditReceipt(receipt: AuditReceipt): Promise<void> {
+    // Upsert by receiptId, matching every other entity-put in this file
+    // (putAuthorityClaim, putCustodyCopy, etc.) and the real DynamoDB
+    // adapter's Put-by-key semantics — without this, replaying the same
+    // receipt (e.g. restore.ts's importExport re-run) duplicated it on
+    // every call instead of being a safe no-op.
     const list = this.auditReceipts.get(receipt.recordId) ?? [];
-    list.push({ ...receipt });
-    this.auditReceipts.set(receipt.recordId, list);
+    const next = list.filter((r) => r.receiptId !== receipt.receiptId);
+    next.push({ ...receipt });
+    this.auditReceipts.set(receipt.recordId, next);
   }
 
   async listAuditReceipts(recordId: string): Promise<AuditReceipt[]> {

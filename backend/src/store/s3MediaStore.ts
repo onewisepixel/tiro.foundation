@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectVersionsCommand,
   NoSuchKey,
   PutObjectCommand,
@@ -37,6 +38,25 @@ export class S3MediaStore implements MediaStore {
       throw new Error(`PutObject for "${key}" returned no VersionId — is the bucket versioned?`);
     }
     return { versionId: result.VersionId, sha256: sha256Of(body), bytes: body.length };
+  }
+
+  async headObjectSize(key: string, versionId: string): Promise<number | null> {
+    try {
+      const result = await this.config.client.send(
+        new HeadObjectCommand({ Bucket: this.config.bucketName, Key: key, VersionId: versionId }),
+      );
+      // ContentLength is always present on a successful HeadObject response
+      // for a real object; falling back to 0 would be actively misleading
+      // (it would pass any size cap), so an absent value is treated as
+      // "unknown, not found" rather than "empty".
+      return result.ContentLength ?? null;
+    } catch (error) {
+      const name = error instanceof NoSuchKey ? "NoSuchKey" : (error as { name?: string }).name;
+      if (name === "NoSuchKey" || name === "NoSuchVersion" || name === "NotFound") {
+        return null;
+      }
+      throw error;
+    }
   }
 
   async getObject(key: string, versionId: string): Promise<GetObjectResult | null> {

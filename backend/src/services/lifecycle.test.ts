@@ -611,3 +611,60 @@ test(
     assert.equal(await fixtureStore.getRecord(recordId), null);
   },
 );
+
+test(
+  "completeDeletion refuses to purge media when retention ran after startDeletion — a denial must never destroy the media it was supposed to retain (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, recordId, active } = await setupActiveWithMedia();
+    const textMedia = active.record.mediaRefs[0];
+    const binaryMedia = active.record.mediaRefs[1];
+    const versionsBefore = await mediaStore.listObjectVersions(binaryMedia.objectKey);
+    assert.equal(versionsBefore.length, 2, "sanity check: the binary object really does have real versions to destroy");
+
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-retain-media-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+    // A real retention action runs AFTER startDeletion but BEFORE
+    // completeDeletion — exactly the reviewer's repro.
+    await retainForPreservationOnly(fixtureStore, registerStore, {
+      requestId: "req-retain-media-retain",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] retention overrides deletion",
+    });
+
+    const result = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-retain-media-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    );
+
+    assert.equal(result.status, "denied", "retention must deny completion, same as the non-media stale-precondition case");
+    assert.ok(await fixtureStore.getRecord(recordId), "the record must still exist");
+
+    // The actual point of this test: the media must be COMPLETELY untouched,
+    // not just "the record survived". A denial must never have irreversible
+    // side effects.
+    const versionsAfter = await mediaStore.listObjectVersions(binaryMedia.objectKey);
+    assert.deepEqual(
+      versionsAfter.map((v) => v.versionId).sort(),
+      versionsBefore.map((v) => v.versionId).sort(),
+      "every version of the binary media object must still be present — retention must not be destroyed by a denied deletion",
+    );
+    const textVersions = await mediaStore.listObjectVersions(textMedia.objectKey);
+    assert.equal(textVersions.length, 1, "the text media object must also be untouched");
+
+    const current = await registerStore.getCurrent(recordId);
+    assert.equal(current?.currentCustodyStatus, "preserved", "custody must remain preserved, not flip toward deletion");
+  },
+);

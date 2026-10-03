@@ -10,7 +10,8 @@ import { InMemoryMediaStore } from "../store/mediaStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
-import { exportFixtureSet } from "./export";
+import { exportFixtureSet, MAX_EXPORT_AGGREGATE_MEDIA_BYTES } from "./export";
+import { MAX_MEDIA_BYTES } from "./media";
 
 test("public-redacted export omits a record whose authority is disputed, even though publicationStatus alone looks published", async () => {
   const fixtureStore = new InMemoryFixtureStore();
@@ -185,4 +186,116 @@ test("complete-preservation export also carries safe lifecycle history (audit re
 
   assert.equal(result.records[0].auditReceipts.length, 1);
   assert.equal(result.records[0].auditReceipts[0].receiptId, "receipt-1");
+});
+
+test(
+  "repeating one recordId many times does not duplicate it in the export (reviewer-reproduced amplification)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const [active] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await seedStore(fixtureStore, registerStore, [active]);
+
+    const result = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      Array(20).fill(active.record.recordId),
+      "complete-preservation",
+      "export-test-dedup",
+      "public",
+      mediaStore,
+    );
+
+    assert.equal(result.records.length, 1, "the record must appear exactly once, not 20 times");
+    assert.equal(result.manifest.recordCount, 1);
+  },
+);
+
+test("a media object exceeding the per-object export cap is skipped, not embedded", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const mediaStore = new InMemoryMediaStore();
+  const [active] = buildSeedFixtures();
+  await bindSeedMedia(mediaStore, active);
+  // Replace the text media's bound version with an oversized object at the
+  // same key, re-binding the MediaRef to the new (too-large) version.
+  const textMedia = active.record.mediaRefs[0];
+  const oversized = await mediaStore.putObject(
+    textMedia.objectKey,
+    Buffer.alloc(MAX_MEDIA_BYTES + 1, "x"),
+    "text/plain",
+  );
+  textMedia.versionId = oversized.versionId;
+  textMedia.bytes = oversized.bytes;
+  textMedia.checksumSha256 = oversized.sha256;
+  await seedStore(fixtureStore, registerStore, [active]);
+
+  const result = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    [active.record.recordId],
+    "complete-preservation",
+    "export-test-per-object-cap",
+    "public",
+    mediaStore,
+  );
+
+  const envelope = result.records[0];
+  const objects = envelope.mediaObjects as { mediaId: string; base64: string }[];
+  assert.equal(objects.some((o) => o.mediaId === textMedia.mediaId), false, "the oversized object must not be embedded");
+  const skipped = envelope.mediaObjectsSkipped.find((s) => s.mediaId === textMedia.mediaId);
+  assert.ok(skipped, "the oversized object must be reported as skipped, not silently dropped");
+  assert.match(skipped!.reason, /cap/i);
+});
+
+test("an aggregate media budget bounds total exported bytes across many distinct records, skipping the rest rather than growing forever", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const mediaStore = new InMemoryMediaStore();
+  const recordIds: string[] = [];
+  const perObjectBytes = 200 * 1024; // under the 256 KiB per-object cap
+  // MAX_EXPORT_AGGREGATE_MEDIA_BYTES is 5 MiB; 30 distinct records at
+  // ~200 KiB each sums to ~6 MiB — enough to force the budget to actually
+  // bind without needing a single huge object (which the per-object cap
+  // would reject first, testing the wrong limit).
+  for (let i = 0; i < 30; i++) {
+    const [fixture] = buildSeedFixtures();
+    fixture.record.mediaRefs = []; // drop the placeholder text ref; use one real sized object below
+    const uploaded = await mediaStore.putObject(`fixtures/aggregate-test/${i}.bin`, Buffer.alloc(perObjectBytes, i % 256), "application/octet-stream");
+    fixture.record.mediaRefs.push({
+      mediaId: `media-${i}`,
+      objectKey: `fixtures/aggregate-test/${i}.bin`,
+      bytes: uploaded.bytes,
+      checksumSha256: uploaded.sha256,
+      contentType: "application/octet-stream",
+      versionId: uploaded.versionId,
+    });
+    await seedStore(fixtureStore, registerStore, [fixture]);
+    recordIds.push(fixture.record.recordId);
+  }
+
+  const result = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    recordIds,
+    "complete-preservation",
+    "export-test-aggregate-cap",
+    "public",
+    mediaStore,
+  );
+
+  const totalIncludedBytes = result.records.reduce((sum, envelope) => {
+    const objects = envelope.mediaObjects === "omitted-for-public-export" ? [] : envelope.mediaObjects;
+    return sum + objects.reduce((s, o) => s + Buffer.from(o.base64, "base64").length, 0);
+  }, 0);
+  assert.ok(
+    totalIncludedBytes <= MAX_EXPORT_AGGREGATE_MEDIA_BYTES,
+    `total included media bytes (${totalIncludedBytes}) must never exceed the aggregate budget (${MAX_EXPORT_AGGREGATE_MEDIA_BYTES})`,
+  );
+  const anySkippedForBudget = result.records.some((envelope) =>
+    envelope.mediaObjectsSkipped.some((s) => /aggregate/i.test(s.reason)),
+  );
+  assert.ok(anySkippedForBudget, "at least one object must actually be skipped for the aggregate budget — proving it bound, not just happened to fit");
 });
