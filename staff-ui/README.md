@@ -15,6 +15,9 @@ dependencies.
   revoke-consent) and a permission-check preview, against `backend/src/api/router.ts` via the
   deployed API.
 - Runs a preservation export.
+- Downloads a record's media, when the signed-in caller's purpose/audience selection is actually
+  authorized for it — a legacy (pre-version-binding) reference shows as not retrievable, with no
+  download button, rather than erroring.
 
 Every mutating action is attributed to the signed-in staff member's Cognito identity — the API
 reads that from the ID token, never from anything this page sends in a request body (see
@@ -39,6 +42,17 @@ reads that from the ID token, never from anything this page sends in a request b
    the Cognito app client — `staffUiCallbackUrls` in the CDK stack):
    ```bash
    npx serve -l 4300 staff-ui
+   ```
+   `serve.json` (committed, do not remove) sets `"cleanUrls": false`. Without it, `serve`'s default
+   behavior 301-redirects `callback.html?code=...&state=...` to `/callback` and **drops the query
+   string in the redirect's `Location` header** — so the browser lands on a `code`-less URL and
+   `completeSignIn()` (auth.js) has nothing to read, failing sign-in silently. This isn't a corner
+   case: it is the normal Hosted-UI redirect, every time. Verify it's actually working after any
+   change to this directory or its serving command:
+   ```bash
+   curl -i "http://localhost:4300/callback.html?code=test&state=test"
+   # must return 200 directly (not a 301 to /callback) — if you see a 301,
+   # serve.json isn't being picked up (wrong working directory, or it was removed).
    ```
 5. Open `http://localhost:4300/`, sign in, go.
 

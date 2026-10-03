@@ -142,3 +142,33 @@ async function apiFetch(path, options = {}) {
   }
   return { status: response.status, body };
 }
+
+// Media download is a SEPARATE helper, not a mode of apiFetch() — a
+// successful media response is raw bytes with a content-type the router
+// chose (router.ts's `binary` field), never JSON, so parsing it as JSON
+// would be wrong even on success. Still goes through the same bearer-token
+// auth and still re-runs evaluatePermission server-side on every call —
+// nothing here is a cached or reusable download link; each click is a
+// fresh, freshly-authorized fetch.
+async function apiFetchBinary(path) {
+  const session = currentIdToken();
+  if (!session) {
+    throw new Error("Not signed in.");
+  }
+  const cfg = config();
+  const response = await fetch(cfg.apiBaseUrl + path, {
+    headers: { authorization: `Bearer ${session.token}` },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let body;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    return { status: response.status, ok: false, body };
+  }
+  const blob = await response.blob();
+  return { status: response.status, ok: true, blob };
+}

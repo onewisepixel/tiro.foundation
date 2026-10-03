@@ -121,6 +121,32 @@ async function loadRecord(recordId) {
        <pre>authorityClaimCount: ${body.authorityClaimCount}
 legalRightCount: ${body.legalRightCount}
 consentGrantCount: ${body.consentGrantCount}</pre>`;
+  // Media is listed with its own Download buttons only when the record's
+  // full detail (not the limited view) is present — mediaRefs metadata only
+  // exists on the allowed branch of GET /records/:id. The actual bytes are
+  // never fetched here or cached; each click below is its own fresh,
+  // separately-authorized call to GET /records/:id/media/:mediaId — see
+  // router.ts / services/media.ts. A denied record simply has no download
+  // buttons to show, by construction.
+  const mediaHtml =
+    body.access.allowed && Array.isArray(body.record.mediaRefs) && body.record.mediaRefs.length > 0
+      ? `<h3>Media</h3>
+         <table><thead><tr><th>mediaId</th><th>contentType</th><th>bytes</th><th>bound version</th><th></th></tr></thead><tbody>
+           ${body.record.mediaRefs
+             .map(
+               (m) => `<tr>
+                 <td><code>${escapeHtml(m.mediaId)}</code></td>
+                 <td>${escapeHtml(m.contentType ?? "")}</td>
+                 <td>${escapeHtml(String(m.bytes))}</td>
+                 <td>${m.versionId ? escapeHtml(m.versionId) : '<span class="muted">legacy — not retrievable</span>'}</td>
+                 <td>${m.versionId ? `<button data-download-media="${escapeHtml(m.mediaId)}">Download</button>` : ""}</td>
+               </tr>`,
+             )
+             .join("")}
+         </tbody></table>
+         <div id="media-download-result"></div>`
+      : "";
+
   output.innerHTML = `
     ${accessNote}
     <h3>Record</h3>
@@ -128,6 +154,7 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
     <h3>Control (restriction register)</h3>
     <pre>${escapeHtml(JSON.stringify(body.control, null, 2))}</pre>
     ${evidenceHtml}
+    ${mediaHtml}
     <h3>Custody copies</h3>
     <pre>${escapeHtml(JSON.stringify(body.custodyCopies, null, 2))}</pre>
     <h3>Audit receipts</h3>
@@ -135,6 +162,33 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
     <h3>Actions</h3>
     <div class="actions" id="actions-container"></div>
   `;
+  output.querySelectorAll("[data-download-media]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const mediaId = button.dataset.downloadMedia;
+      const resultEl = document.getElementById("media-download-result");
+      resultEl.textContent = "Downloading…";
+      const result = await apiFetchBinary(
+        `/records/${encodeURIComponent(recordId)}/media/${encodeURIComponent(mediaId)}?purpose=${encodeURIComponent(purpose)}&audience=${encodeURIComponent(audience)}`,
+      );
+      if (!result.ok) {
+        resultEl.innerHTML = `<p class="error">${escapeHtml(result.body?.error ?? `HTTP ${result.status}`)}</p>`;
+        return;
+      }
+      // Standard client-side save-as: a Blob URL + a transient anchor click.
+      // The API enforcement above is what's authoritative — this is purely
+      // how an already-authorized response reaches the browser's save
+      // dialog, same as any ordinary file download.
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = mediaId;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      resultEl.innerHTML = `<p class="muted">Downloaded ${escapeHtml(String(result.blob.size))} bytes.</p>`;
+    });
+  });
   const actions = document.getElementById("actions-container");
   const reload = () => loadRecord(recordId);
   actions.append(actionForm(recordId, "restrict", [{ name: "purposes", label: "Purposes (comma-separated)", required: true, array: true }], reload));
