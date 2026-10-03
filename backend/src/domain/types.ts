@@ -75,7 +75,7 @@ export type AuthorityClaim = {
 };
 
 export type LegalRight = {
-  recordId: string;
+  recordId: string; 
   rightId: string;
   status: LegalRightStatus;
   holder: string;
