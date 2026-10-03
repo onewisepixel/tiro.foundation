@@ -82,7 +82,10 @@ test("restoring a pre-withdrawal backup does not revive access (T0-T3)", async (
   // --- T3: reconcile against the CURRENT (post-T1) restriction register —
   // NOT the register bundled in the export, and NOT a new one derived from
   // the restored target — before permitting any serving.
-  const reconciliation = await reconcileRestoredRecords(registerStore, backupExport.records);
+  const reconciliation = await reconcileRestoredRecords(restoredTarget, registerStore, backupExport.records, {
+    purpose: "publication",
+    audience: "public",
+  });
   assert.equal(reconciliation.length, 1);
   assert.equal(reconciliation[0].servable, false, "restored content must not be servable after a later withdrawal");
   assert.equal(reconciliation[0].exportedPublicationStatus, "published", "the export itself is confirmed to carry the old, now-stale status");
@@ -121,7 +124,10 @@ test("restoring a backup for a record with NO later changes remains servable", a
   const restoredTarget = new InMemoryFixtureStore();
   await importExport(restoredTarget, backupExport);
 
-  const reconciliation = await reconcileRestoredRecords(registerStore, backupExport.records);
+  const reconciliation = await reconcileRestoredRecords(restoredTarget, registerStore, backupExport.records, {
+    purpose: "publication",
+    audience: "public",
+  });
   assert.equal(reconciliation[0].servable, true);
 });
 
@@ -140,6 +146,8 @@ test("concurrent restriction during a restore still wins — reconciliation read
     "race-backup",
     "public",
   );
+  const restoredTarget = new InMemoryFixtureStore();
+  await importExport(restoredTarget, backupExport);
 
   // Simulate a restriction landing WHILE a restore is "in flight" — i.e.
   // between taking the export and calling reconcile.
@@ -150,7 +158,10 @@ test("concurrent restriction during a restore still wins — reconciliation read
     reason: "[SYNTHETIC] race condition test",
   });
 
-  const reconciliation = await reconcileRestoredRecords(registerStore, backupExport.records);
+  const reconciliation = await reconcileRestoredRecords(restoredTarget, registerStore, backupExport.records, {
+    purpose: "publication",
+    audience: "public",
+  });
   assert.equal(reconciliation[0].servable, false);
 });
 
@@ -168,6 +179,8 @@ test("repeated reconciliation replay is safe and consistent", async () => {
     "replay-backup",
     "public",
   );
+  const restoredTarget = new InMemoryFixtureStore();
+  await importExport(restoredTarget, backupExport);
 
   await withdraw(fixtureStore, registerStore, {
     requestId: "req-replay-withdraw",
@@ -176,8 +189,9 @@ test("repeated reconciliation replay is safe and consistent", async () => {
     reason: "[SYNTHETIC] replay test",
   });
 
-  const first = await reconcileRestoredRecords(registerStore, backupExport.records);
-  const second = await reconcileRestoredRecords(registerStore, backupExport.records);
+  const query = { purpose: "publication" as const, audience: "public" as const };
+  const first = await reconcileRestoredRecords(restoredTarget, registerStore, backupExport.records, query);
+  const second = await reconcileRestoredRecords(restoredTarget, registerStore, backupExport.records, query);
   assert.deepEqual(first, second);
   assert.equal(first[0].servable, false);
 });
@@ -243,6 +257,65 @@ test(
       postRestoreDecision.allowed,
       false,
       "the register must deny even though the restored grant row looks unrevoked",
+    );
+  },
+);
+
+test(
+  "reconcileRestoredRecords and evaluatePermission never disagree after a grant-level revocation restore",
+  async () => {
+    // Regression for a reviewer-reported disagreement: after revoking a
+    // grant and restoring its old (pre-revocation) backup, evaluatePermission
+    // correctly denied access, but reconcileRestoredRecords still returned
+    // servable: true — because it only checked record-level
+    // publicationStatus/custodyStatus, never the register's
+    // revokedConsentIds or the restored grant data. reconcileRestoredRecords
+    // now delegates to evaluatePermission directly, so the two cannot
+    // disagree — this test would have failed before that fix.
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+    const consentId = active.consentGrants[0].consentId;
+
+    const backupExport = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [recordId],
+      "complete-preservation",
+      "reconcile-revoke-backup",
+      "public",
+    );
+
+    await revokeConsentGrant(fixtureStore, registerStore, {
+      requestId: "req-reconcile-revoke-1",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] source authority",
+      reason: "[SYNTHETIC] reconciliation disagreement regression",
+      consentId,
+    });
+
+    const restoredTarget = new InMemoryFixtureStore();
+    await importExport(restoredTarget, backupExport);
+
+    const query = { purpose: "publication" as const, audience: "public" as const };
+    const reconciliation = await reconcileRestoredRecords(restoredTarget, registerStore, backupExport.records, query);
+    const decision = await evaluatePermission(restoredTarget, registerStore, {
+      recordId,
+      ...query,
+      now: new Date(),
+    });
+
+    assert.equal(
+      reconciliation[0].servable,
+      decision.allowed,
+      "reconciliation's servable flag and evaluatePermission's decision must never disagree",
+    );
+    assert.equal(
+      reconciliation[0].servable,
+      false,
+      "a grant-level revocation must deny reconciliation, not just evaluatePermission",
     );
   },
 );

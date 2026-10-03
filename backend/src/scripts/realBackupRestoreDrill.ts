@@ -201,8 +201,13 @@ async function main() {
     },
   };
   // Critically: registerStore here is the SAME live register used in T0/T1 —
-  // never restored, never touched by anything above.
-  const reconciliation = await reconcileRestoredRecords(registerStore, [envelope]);
+  // never restored, never touched by anything above. restoredStore is
+  // passed so servable reflects the real evaluatePermission decision
+  // (grant-level data included), not just record-state.
+  const reconciliation = await reconcileRestoredRecords(restoredStore, registerStore, [envelope], {
+    purpose: "publication",
+    audience: "public",
+  });
   log("T3", "Reconciliation against the CURRENT (live, untouched) restriction register", reconciliation);
 
   const finalDecision = await evaluatePermission(restoredStore, registerStore, {

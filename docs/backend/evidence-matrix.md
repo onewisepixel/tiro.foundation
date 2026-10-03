@@ -17,6 +17,16 @@ guarantee has been reworded accordingly: it was previously overclaimed as proven
 case when it had only been exercised for the one specific record-level withdrawal/deletion scenario
 the real-AWS drill walks through. See "What the real-AWS drill does and does not cover" below.
 
+**Same-day follow-up:** verifying the Finding 1 fix (grant-level revocation) surfaced a sixth gap —
+`reconcileRestoredRecords()` still returned `servable: true` for a restored record whose grant had
+been revoked, because it computed `servable` from `currentPublicationStatus`/`currentCustodyStatus`
+alone, never consulting `revokedConsentIds` or the restored grant data. It could disagree with
+`evaluatePermission()`'s correct denial on the same record. Fixed by having reconciliation delegate
+`servable` directly to `evaluatePermission()` (now takes the restored `FixtureStore` plus a
+purpose/audience to evaluate) — the two can no longer disagree, because one is the other. Regression
+test added: `restore.test.ts`, "reconcileRestoredRecords and evaluatePermission never disagree after
+a grant-level revocation restore." 55 passing tests.
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |

@@ -91,7 +91,10 @@ const jsonl = toJsonl(backup);
 // ... later, after some lifecycle action has run against the ORIGINAL registerStore ...
 const restoredTarget = new InMemoryFixtureStore();
 await importExport(restoredTarget, backup);
-const reconciliation = await reconcileRestoredRecords(registerStore, backup.records); // note: the ORIGINAL registerStore, never the restored target's
+const reconciliation = await reconcileRestoredRecords(restoredTarget, registerStore, backup.records, { purpose: "publication", audience: "public" });
+// note: registerStore here is the ORIGINAL live register, never one derived from the restored
+// target — but restoredTarget itself IS passed, since servable is now evaluatePermission's real
+// decision (grant-level revocation included), not a record-state-only approximation of it.
 ```
 
 Real AWS (run three times against the deployed stack above — see

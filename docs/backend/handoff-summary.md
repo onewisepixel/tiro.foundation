@@ -5,10 +5,14 @@ and `93427f7` (real-AWS verification), on top of `3de6d66`. 29 files changed, ~3
 yet merged to `main`.
 
 **Update, same day:** review of `93427f7` found five real correctness gaps (listed below, under
-"Correctness fixes after review"). All five are now fixed with regression tests; 54 tests pass (up
-from 45). The PR was held for these fixes before merge, per the reviewer's request. The real-AWS
-drill's result (below) is accurate for the one scenario it tests; it was not, and is not, evidence
-for the three gaps the reviewer additionally found by testing cases the drill doesn't exercise.
+"Correctness fixes after review"). All five are now fixed with regression tests. A same-day
+follow-up review of the first fix found a sixth: `reconcileRestoredRecords()` could disagree with
+`evaluatePermission()` on the same restored record, because it never accounted for grant-level
+revocation — fixed by having reconciliation delegate directly to `evaluatePermission()` instead of
+re-deriving its own, looser approximation. 55 tests pass (up from 45). The PR was held for these
+fixes before merge, per the reviewer's request. The real-AWS drill's result (below) is accurate for
+the one scenario it tests; it was not, and is not, evidence for the gaps the reviewer additionally
+found by testing cases the drill doesn't exercise.
 
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it

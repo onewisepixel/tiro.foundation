@@ -8,7 +8,9 @@
 // still reflects that withdrawal, because nothing in this file ever touched
 // it. An old grant is never treated as current authorization.
 import type { ExportedRecordEnvelope, PreservationExport } from "./export";
+import type { ConsentGrant, Purpose } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import { evaluatePermission } from "./permissions";
 
 export type ImportValidationResult =
   | { ok: true }
@@ -49,11 +51,19 @@ export type RestoredRecordStatus = {
   recordId: string;
   // What the export said at the time it was taken.
   exportedPublicationStatus: string | null;
-  // What the CURRENT restriction register says right now.
+  // What the CURRENT restriction register says right now — diagnostic only;
+  // NOT what servable is computed from (see below).
   currentPublicationStatus: string | null;
   currentCustodyStatus: string | null;
-  // Whether this restored record may actually be served, per current
-  // control state — NEVER per the exported snapshot.
+  // The actual, scoped evaluatePermission() decision for the requested
+  // purpose/audience, run against the RESTORED store + the CURRENT register —
+  // never a looser record-state-only approximation of it. This is the same
+  // decision a live permission check would produce; the two can never
+  // disagree, because this IS that decision, not a separate reimplementation
+  // of it. (Previously this field was computed from publicationStatus/
+  // custodyStatus alone, which missed grant-level revocation — a revoked
+  // consent grant's restored row still looked unrevoked, so reconciliation
+  // said servable:true while evaluatePermission correctly said denied.)
   servable: boolean;
   reason: string;
 };
@@ -103,42 +113,40 @@ export async function importExport(
 
 // The reconciliation step. Call this before permitting ANY serving of
 // restored content — never rely on a successful import alone.
+//
+// restoredStore MUST be the store the restored content was actually imported
+// into (importExport's target) — servable is evaluatePermission's decision
+// against THAT data plus the live register, so it reflects exactly what
+// would happen if this restored content were served, including grant-level
+// revocation that a record-state-only check would miss.
 export async function reconcileRestoredRecords(
+  restoredStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
   envelopes: ExportedRecordEnvelope[],
+  query: { purpose: Purpose; audience: ConsentGrant["audience"]; now?: Date },
 ): Promise<RestoredRecordStatus[]> {
+  const now = query.now ?? new Date();
   const results: RestoredRecordStatus[] = [];
 
   for (const envelope of envelopes) {
     const recordId = envelope.record.recordId;
     const current = await registerStore.getCurrent(recordId);
-
-    if (!current) {
-      results.push({
-        recordId,
-        exportedPublicationStatus: envelope.controlStateAtExport?.publicationStatus ?? null,
-        currentPublicationStatus: null,
-        currentCustodyStatus: null,
-        servable: false,
-        reason: "No current restriction-register entry; missing control state denies serving.",
-      });
-      continue;
-    }
-
-    const blockedByCustody = current.currentCustodyStatus === "deleted" || current.currentCustodyStatus === "deletion-pending";
-    const blockedByPublication = current.currentPublicationStatus !== "published";
-
-    const servable = !blockedByCustody && !blockedByPublication;
+    const decision = await evaluatePermission(restoredStore, registerStore, {
+      recordId,
+      purpose: query.purpose,
+      audience: query.audience,
+      now,
+    });
 
     results.push({
       recordId,
       exportedPublicationStatus: envelope.controlStateAtExport?.publicationStatus ?? null,
-      currentPublicationStatus: current.currentPublicationStatus,
-      currentCustodyStatus: current.currentCustodyStatus,
-      servable,
-      reason: servable
-        ? "Current control state permits serving."
-        : `Current control state denies serving (publication: ${current.currentPublicationStatus}, custody: ${current.currentCustodyStatus}), regardless of exported state.`,
+      currentPublicationStatus: current?.currentPublicationStatus ?? null,
+      currentCustodyStatus: current?.currentCustodyStatus ?? null,
+      servable: decision.allowed,
+      reason: decision.allowed
+        ? decision.reason
+        : `${decision.reason} (regardless of exported state).`,
     });
   }
 

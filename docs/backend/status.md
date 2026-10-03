@@ -8,10 +8,13 @@ evidence.
 correctness gaps — grant-level consent revocation wasn't protected against restore, concurrent
 lifecycle actions could silently clobber each other, export bypassed scoped permission checks,
 legal-rights disputes were never checked, and `completeDeletion()` didn't actually delete the
-record (plus a too-weak checksum check). Each has a regression test now. 54 tests pass (up from 45).
-See `docs/backend/evidence-matrix.md` for the corrected claim on what the real-AWS drill does and
-does not establish — the PR implementing this fix pass was held for these corrections before merge,
-per the reviewer's explicit request.
+record (plus a too-weak checksum check). Each has a regression test now. A same-day follow-up review
+found a sixth gap in the first fix: `reconcileRestoredRecords()` could disagree with
+`evaluatePermission()` on the same restored record (it didn't account for grant-level revocation at
+all). Fixed by having reconciliation delegate directly to `evaluatePermission()`. 55 tests pass (up
+from 45). See `docs/backend/evidence-matrix.md` for the corrected claim on what the real-AWS drill
+does and does not establish — the PR implementing this fix pass was held for these corrections
+before merge, per the reviewer's explicit request.
 
 ## Three distinct things, kept distinct
 
