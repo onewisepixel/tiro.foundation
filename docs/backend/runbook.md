@@ -41,11 +41,11 @@ billing alerts actually notify anyone.
 Cost: see `docs/backend/decision-and-cost.md`. At fixture scale this should land near $0/month
 (DynamoDB provisioned capacity is set well inside the always-free 25/25 allowance).
 
-Already deployed as of 2026-10-02 (updated 2026-10-03 with the staff API): `TiroFixtureBackend-drill-20261002`,
-account `440744257823`, `us-east-1`. Table names: `tiro-fixture-primary-drill-20261002`,
-`tiro-restriction-register-drill-20261002`. `cdk deploy` also prints `StaffApiUrl`,
-`StaffUserPoolId`, `StaffUserPoolClientId`, and `StaffUserPoolDomain` — needed for the staff API/UI
-below.
+Already deployed as of 2026-10-02 (updated 2026-10-03 with the staff API, then again with S3 media
+support): `TiroFixtureBackend-drill-20261002`, account `440744257823`, `us-east-1`. Table names:
+`tiro-fixture-primary-drill-20261002`, `tiro-restriction-register-drill-20261002`. `cdk deploy` also
+prints `StaffApiUrl`, `StaffUserPoolId`, `StaffUserPoolClientId`, `StaffUserPoolDomain`, and
+`MediaBucketName` — needed for the staff API/UI below and the S3 media drill further down.
 
 ## Staff API and staff UI
 
@@ -199,6 +199,64 @@ BOTH `evaluatePermission` and `reconcileRestoredRecords` against the restored st
 afterward; the live primary/register tables and the one seeded-then-revoked record are left in
 place. Takes up to ~10 minutes, same restore-time variability as the other drill. Not run in CI;
 manually invoked only.
+
+## S3 media acceptance drill against real AWS
+
+One reusable script covers the full S3 media milestone PLUS the two `completeDeletion` checks a
+prior review round left outstanding (partial-failure recovery, stale-precondition refusal) — see
+`docs/backend/evidence-matrix.md`'s "Real S3 media acceptance drill" for the full 25-check result.
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=tiro-fixture-primary-drill-20261002 \
+  TIRO_REGISTER_TABLE=tiro-restriction-register-drill-20261002 \
+  TIRO_MEDIA_BUCKET=<MediaBucketName output from cdk deploy> \
+  TIRO_STAFF_API_URL=<StaffApiUrl output> \
+  TIRO_STAFF_USER_POOL_ID=<StaffUserPoolId output> \
+  TIRO_STAFF_USER_POOL_CLIENT_ID=<StaffUserPoolClientId output> \
+  npx tsx backend/src/scripts/realS3MediaAcceptanceDrill.ts
+```
+
+Creates its own disposable Cognito test user (deleted at the end) and seeds several fresh fixtures
+with real, version-bound S3 media — all left in place afterward, same precedent as every other
+real-AWS check. Exits non-zero if any of its 25 checks fail.
+
+## Seeding real, version-bound media into a fixture
+
+`backend/src/fixtures/media.ts`'s `bindSeedMedia(mediaStore, fixture)` uploads real tiny text/binary
+bytes for a `Fixture` from `buildSeedFixtures()`, computes genuine SHA-256 checksums, and binds each
+`MediaRef` to the exact S3 version that upload produced:
+
+```ts
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { S3Client } from "@aws-sdk/client-s3";
+import { S3MediaStore } from "./backend/src/store/s3MediaStore";
+import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "./backend/src/store/dynamoStore";
+import { buildSeedFixtures } from "./backend/src/fixtures/seed";
+import { bindSeedMedia } from "./backend/src/fixtures/media";
+import { seedStore } from "./backend/src/fixtures/load";
+
+const mediaStore = new S3MediaStore({ client: new S3Client({ region: "us-east-1" }), bucketName: "<bucket>" });
+const [active] = buildSeedFixtures();
+await bindSeedMedia(mediaStore, active); // mutates active in place
+await seedStore(fixtureStore, registerStore, [active]);
+```
+
+A `MediaRef` never touched by `bindSeedMedia` keeps `versionId: null` — a legacy, pre-binding
+reference. `services/media.ts`'s authenticated retrieval fails closed (409) for these rather than
+guessing a version; nothing migrates them automatically.
+
+## Browser setup verification
+
+`staff-ui/serve.json` (committed, `{"cleanUrls": false}`) must stay in place — `serve`'s default
+behavior 301-redirects `callback.html?code=...&state=...` to `/callback` and DROPS the query string,
+silently breaking real sign-in every time (not a corner case — the normal Hosted-UI redirect).
+Verify it's actually in effect after any change to `staff-ui/` or its serving command:
+
+```bash
+curl -i "http://localhost:4300/callback.html?code=test&state=test"
+# must return 200 directly, never a 301 to /callback
+```
 
 ## Cleanup
 

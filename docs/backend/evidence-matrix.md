@@ -135,16 +135,58 @@ then called the live deployed API and got back a real 200. Residual, low-risk, u
 rendering, under an actual browser's navigation and HTML parser — standard, low-complexity browser
 APIs, not exercised here. See "Browser-flow verification" below for the full sequence.
 
+**2026-10-03, S3 media milestone — real version-bound media, authenticated retrieval, media-aware
+deletion, media-carrying export/restore, and ONE live-AWS acceptance drill that also closed the two
+`completeDeletion` checks the fourth-review-round note above left open:**
+
+- **Storage.** New `MediaStore` interface (`backend/src/store/mediaStore.ts`), an `InMemoryMediaStore`
+  fake, and the real `S3MediaStore` adapter (`s3MediaStore.ts`) — same relationship as
+  `FixtureStore`/`dynamoStore.ts`. Every `MediaRef` now has a real `contentType` and a `versionId`
+  PINNED to one exact S3 version — never "latest" — so a later re-upload to the same key can never
+  change what an already-approved reference serves. `versionId: null` means a legacy, pre-binding
+  reference; `services/media.ts` fails closed (409) for these rather than guessing.
+  `fixtures/media.ts`'s `bindSeedMedia` uploads real tiny text/binary bytes (one object deliberately
+  given a SECOND, superseded version) and computes genuine SHA-256 from them — closing the old
+  all-zero placeholder-checksum gap wherever it runs.
+- **Authenticated retrieval.** `GET /records/:recordId/media/:mediaId` (`services/media.ts`,
+  wired through `router.ts`/`handler.ts`) runs the identical `evaluatePermission` check as every
+  other route, on EVERY fetch — never a presigned URL, never a cached or reusable download
+  capability. Enforces a 256 KiB cap from the record's own recorded size before ever calling
+  `mediaStore.getObject` (not after buffering), re-verifies the retrieved bytes' SHA-256, and ships
+  with `cache-control: private, no-store`.
+- **Media-aware, resumable deletion.** `completeDeletion()`'s existing "outstanding custody copies"
+  gate (already proven resumable for non-media copies — see the fourth-review-round fixes) now also
+  drives a real purge step for media-tracked copies: list every version AND delete marker for the
+  copy's exact S3 key, delete every one of them, and reconcile the copy only once a fresh listing
+  confirms the key is actually empty — never merely "attempted". A record already gone, a copy
+  already reconciled, or a version already deleted are all treated as already-done, not errors — the
+  exact tolerance a retry after a partial purge failure needs.
+- **Export/restore with media.** `complete-preservation` exports now embed each bound media object's
+  real base64 bytes plus safe lifecycle history (`auditReceipts`); `public-redacted` omits media the
+  same way it redacts consent evidence. `validateExport` decodes and re-hashes every included media
+  object against the record's own declared length/checksum — a mismatch is rejected as tampering,
+  closing the byte-level gap the original Finding 5b fix left open (format-only checking). An
+  optional `targetMediaStore` on `importExport` re-uploads media into the restore target's OWN store
+  and rebinds each reference to the version that upload produced.
+- Local: 119 tests pass (up from 86) — `mediaStore.test.ts`, `s3MediaStore.test.ts` (including a
+  mocked-client proof of the `ListObjectVersions` pagination loop, which no real-AWS run with only a
+  handful of versions would ever force into a second page), `media.test.ts`, plus new cases in
+  `lifecycle.test.ts`, `router.test.ts`, `export.test.ts`, `restore.test.ts`.
+
+See "Real S3 media acceptance drill" below for the live-AWS result — **25/25 checks passed** after
+one real bug was caught and fixed in the DRILL SCRIPT itself (not the system under test) before it
+could falsely report success.
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
 | Scoped permission checks | `permissions.test.ts`: 10 cases — wrong purpose, wrong audience, expired, disputed, unverified capacity, missing control state, staff-role-is-not-a-grant | **Demonstrated (local)** | None at logic level. |
-| Restricted records absent from public pages, search, API, and media | `export.ts`'s `public-redacted` scope omits non-published records entirely (not redacted — absent) | **Demonstrated (local, export path only)** | No actual public page/search/API/media surface exists yet — only the export-filtering logic is proven. |
+| Restricted records absent from public pages, search, API, and media | `export.ts`'s `public-redacted` scope omits non-published records entirely (not redacted — absent); `services/media.ts`'s `GET /records/:id/media/:mediaId` runs the same `evaluatePermission` gate as every other route, local AND real-AWS (see "Real S3 media acceptance drill") | **Demonstrated (local, and real AWS for the media route)** | No actual public page/search surface exists yet — only the export-filtering and the authenticated-staff media-route logic are proven. |
 | Sensitivity review and redaction | `FixtureRecord.redactionApplied` field exists | **Not demonstrated** | No redaction workflow or UI built. |
 | Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts`; `staff-ui/` now reads this data live via the API | **Demonstrated (local); the staff UI reads post-withdrawal state correctly, smoke-tested against real AWS** | No PUBLIC-facing surface reads this data yet (only the staff UI does) — only the state transition, copy-tracking, and staff-facing read path are proven. |
-| **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (21 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below) | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes.** An unauthenticated call returns 401; a real Cognito-issued ID token succeeds (both via `AdminInitiateAuth` AND via the actual browser OAuth/PKCE flow — see "Browser-flow verification"); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record reads are scoped by `evaluatePermission` (full content+evidence only when allowed, a limited metadata view otherwise); a `requestId` reused across different records/payloads conflicts (409) rather than silently no-op'ing; `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
-| Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled; `completeDeletion` requires a linked, completed deletion request (Finding 3); resumes correctly after a partial failure instead of being permanently denied; refuses when custody changes away from `deletion-pending` before the final write instead of deleting anyway (both this round's findings) | **Demonstrated (local)** | Real backup-expiry timing (actual DynamoDB PITR/backup lifecycle, actual S3 noncurrent-version expiration) not exercised — needs real AWS. This round's two new fixes (partial-failure recovery, stale-precondition check) are proven locally only, not yet re-run against the real deployed stack. |
-| **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases) | **Demonstrated, local and real AWS, for both the record-level and grant-level restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case: backup taken while a grant is active → that one grant revoked (record left otherwise fully publishable) → restored from the pre-revocation backup → both `evaluatePermission` and `reconcileRestoredRecords` deny, against the restored store plus the LIVE register — passed on its first run; see "Real grant-revocation restore drill" below. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2, both a direct store-level race and a full `startDeletion`/`restrict` integration race), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). Also still not exercised: actual S3 versioned-media restore (no media was in any drill fixture), actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry), and real Lambda/API-surface enforcement (doesn't exist yet). |
+| **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (26 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below and "Real S3 media acceptance drill") | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes and the authenticated media route.** An unauthenticated call returns 401 (confirmed again for the media route specifically, real AWS); a real Cognito-issued ID token succeeds (via `AdminInitiateAuth`, the actual browser OAuth/PKCE flow, and this drill's own scripted auth); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record AND media reads are scoped by `evaluatePermission` (full content/bytes only when allowed, a limited metadata view or a denial otherwise); a `requestId` reused across different records/payloads conflicts (409); `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
+| Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled; `completeDeletion` requires a linked, completed deletion request (Finding 3); resumes correctly after a partial failure instead of being permanently denied; refuses when custody changes away from `deletion-pending` before the final write instead of deleting anyway; purges every S3 version AND delete marker for media-tracked copies before reconciling them | **Demonstrated, local and real AWS.** Both the partial-failure-recovery and stale-precondition fixes — previously proven locally only — are now confirmed against real DynamoDB (one via a clearly-labeled, deterministic drill-only hook simulating the exact partial-failure state; the other via the real operations in the real order, no hook needed). Media-aware purging is confirmed against real S3, including a delete marker created outside this system's own path. See "Real S3 media acceptance drill". | Real backup-EXPIRY timing specifically (actual DynamoDB PITR lifecycle, actual S3 noncurrent-version 30-day expiration elapsing on its own schedule) is still not exercised — every deletion in every drill so far has been explicit, not timing-based. |
+| **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases); `backend/src/scripts/realS3MediaAcceptanceDrill.ts` (real AWS, media bytes carried through export/restore, tamper rejection, positive control) | **Demonstrated, local and real AWS, for the record-level, grant-level, AND media-carrying restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case. `realS3MediaAcceptanceDrill.ts` proves a complete-preservation export actually carries real media bytes, that a tampered copy is rejected by both `validateExport` and `importExport`, that restoring a pre-revocation backup (media included) into an isolated target and reconciling against the LIVE register still denies, and — as a positive control — that an untouched record's restored backup remains servable. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). The media-carrying restore used an isolated IN-PROCESS `FixtureStore` target (a fresh real DynamoDB table/backup for the record side is already proven separately by the other two drills) plus a real, separately-prefixed `S3MediaStore` in the same bucket — not a second bucket. Actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry) is still not exercised. |
 | Assigned operators | — | **Not demonstrated, not evidenced** | Organizational, not engineering. No name to put here. |
 | Approved regional consent/retention procedures | `docs/ethos.txt` §12 response windows remain explicitly "proposed," not adopted | **Not demonstrated, not evidenced** | Same — governance work, tracked separately (`docs/501c3.txt` Stage 1). |
 | Gate evidence and sign-off | This document | **Partial** — the engineering evidence exists; the sign-off line is deliberately blank | Needs a real named operator, not a placeholder. |
@@ -350,25 +392,107 @@ Test artifacts (two synthetic Cognito users, one across both this and the smoke-
 created and deleted within this check; no lasting state changes beyond the ordinary fixture
 mutations already described.
 
+## Real S3 media acceptance drill — what actually happened
+
+Dated 2026-10-03. `backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run against the redeployed
+live stack (`TiroFixtureBackend-drill-20261002`, now with the S3 media IAM/env var changes and the
+new `GET /records/:recordId/media/:mediaId` route). **25/25 checks passed** on the corrected run
+(see the bug below). What it actually did, in order:
+
+1. Created its own disposable Cognito test user (`AdminCreateUser`/`AdminInitiateAuth`), deleted at
+   the end — the staff user and every seeded fixture were left in place, same precedent as every
+   other real-AWS check in this project.
+2. Seeded three fresh fixtures (active, expired-consent, disputed-authority) with real bound S3
+   media via `bindSeedMedia`.
+3. **Unauthenticated denial, two ways:** a call to the media route with no `Authorization` header →
+   real **401**. A plain, UNSIGNED HTTPS GET straight at the S3 object's bucket URL (no credentials
+   at all, bypassing the API/Lambda entirely) → real **403** — proving `BlockPublicAccess` plus no
+   bucket policy denies direct access on their own, independent of the application layer.
+4. **Permitted retrieval:** an authenticated, authorized fetch returned the exact uploaded bytes —
+   their SHA-256 matched the recorded checksum exactly — with `cache-control: private, no-store`.
+5. **Denial cases:** the expired-consent record's media, the disputed-authority record's media, and
+   a wrong-purpose request against the otherwise-allowed record all returned real **403**s through
+   the real route.
+6. **No reusable download capability:** fetched the active record's media URL (200), ran a REAL
+   `withdraw()` through the REAL API, then re-fetched the EXACT SAME URL string — **403**. Repeated
+   the same pattern with a REAL `revokeConsentGrant()` on a separate record — same result. Neither
+   case needed a new URL or a cache-bust; the identical saved string simply stopped working.
+7. **Export/restore/tamper:** a complete-preservation export taken AFTER a revocation correctly
+   contained zero records (export never includes denied content, even under the preservation scope).
+   A separate backup taken BEFORE a (then-performed) revocation carried real media bytes (`count:
+   2`). Corrupting one object's base64 in that backup made `validateExport` reject it
+   (`"...is 32 bytes, but the record declares 80 — possible tampering."`) AND made `importExport`
+   throw outright, not just the standalone validator. Restoring the UNTAMPERED pre-revocation backup
+   into an isolated in-process target (fresh `FixtureStore` + a real, separately-prefixed
+   `S3MediaStore` in the same bucket) and reconciling against the LIVE register still denied —
+   `servable: false`, despite the restored copy looking unrevoked. A THIRD, never-touched record's
+   backup was restored the same way as a positive control and came back `servable: true` — proving
+   reconciliation isn't just unconditionally denying every restore.
+8. **Real version/delete-marker inventory and removal:** confirmed `listObjectVersions` saw both of
+   a binary object's real pre-existing versions. Then — simulating a delete marker created OUTSIDE
+   this system's own path, e.g. a console action or another tool — ran a bare, no-`VersionId`
+   `DeleteObjectCommand` directly against S3 on that same key: the real result was a THIRD entry (a
+   delete marker), with both original versions' bytes completely untouched — direct, live proof that
+   a delete marker never erases anything on its own. Running the real deletion workflow
+   (`startDeletion` + `completeDeletion` with the real `mediaStore`) then purged all three entries —
+   confirmed by a fresh `listObjectVersions` call showing zero remaining, not just that completion
+   reported success.
+9. **The two outstanding `completeDeletion` checks, against real DynamoDB:**
+   - *Partial-failure recovery.* There is no reliable way to force a real, transient AWS failure
+     between the register write and the record-removal write on demand, so this step uses a
+     **deterministic, explicitly labeled drill-only hook**: a raw `registerStore.setCurrent()` call,
+     bypassing `completeDeletion` entirely, that flips the LIVE register straight to
+     `currentCustodyStatus: "deleted"` — recreating exactly the state a real partial failure leaves
+     behind, without ever touching the record itself. Confirmed the record was still physically
+     present immediately after. Then called the real `completeDeletion()` — it resumed from that
+     state and actually finished, confirmed by a subsequent `getRecord()` returning `null`.
+   - *Stale-precondition refusal.* No hook needed at all — just the real operations in the real
+     vulnerable order: `startDeletion()`, then a REAL `retainForPreservationOnly()`, then
+     `completeDeletion()` with the original `deletionRequestId`. Result: `status: "denied"`, and a
+     direct DynamoDB `GetItemCommand` (not even going through the service layer) confirmed the
+     record was still present with `currentCustodyStatus: "preserved"` — the retention action won,
+     exactly as the fix intends.
+
+**One real bug, caught in the drill script itself before it could report a false pass:** the first
+run of this drill failed two of the inventory checks. The cause wasn't the system under test — it
+was a wrong assumption in the drill: `disputedAuthorityFixture()` (`fixtures/seed.ts`) starts with
+an empty `mediaRefs` array, so `bindSeedMedia`'s text-binding branch (guarded by
+`mediaRefs.length > 0`) never ran for it, leaving `mediaRefs[0]` as its BINARY ref — which
+`bindSeedMedia` deliberately gives a SECOND, superseded version. The check assumed exactly one
+pre-existing version and got two. Fixed by correcting the expected counts (2 before the marker, 3
+after it includes the marker) rather than changing which object the check uses — the underlying
+system behavior was already correct; only the test's expectation was wrong. Re-run: 25/25.
+
+Cleanup: only the drill's own disposable Cognito test user was deleted. Every fixture it seeded
+(several more active/expired/disputed/positive-control/partial-failure/stale-precondition records),
+the live primary/register tables, and the staff user from the browser-setup task were all left in
+place, per this project's standing precedent.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
 | --- | --- |
-| Inventory S3 object versions after delete | No media was involved in any real-AWS run so far (seeded fixtures' `mediaRefs` are non-empty but nothing has been uploaded to S3). `aws s3api list-object-versions --bucket <bucket>` before/after a real media delete, confirming noncurrent versions are tracked and expire per the 30-day lifecycle rule. |
-| Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed — now with real Lambda/API Gateway invocations to reconcile too, not just DynamoDB. |
-| A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` is the place to extend. |
+| Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed — now with real Lambda/API Gateway/S3 invocations to reconcile too, not just DynamoDB. |
+| A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` or `realS3MediaAcceptanceDrill.ts` are the places to extend. |
 | Script the staff API smoke test into a reusable drill | Currently manual (AWS CLI + PowerShell, not committed as a script) — write a `realStaffApiSmokeTest.ts` mirroring the other drill scripts' structure if this needs to be re-run repeatably rather than by hand. |
 | A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. Run `staff-ui/README.md`'s setup (create a user, `npx serve -l 4300 staff-ui`, open `http://localhost:4300/` in a real browser, sign in) by hand — everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
-| Real-AWS confirmation of the two `completeDeletion` fixes (partial-failure recovery, stale-precondition check) | Not yet run — proven locally only so far (see the fourth-review-round note above). Would mirror "Real defect-fix verification": force a real `deleteRecord` conditional-check failure (e.g. by racing the record's version) to confirm resumability, and sequence a real `retainForPreservationOnly()` call between a real `completeDeletion()`'s copies-check and its write to confirm the stale-precondition denial, both against the live deployed stack. |
+| Migrating already-live legacy (`versionId: null`) media references | None exist yet from THIS milestone (every reference `bindSeedMedia` touches is bound for real) — but every `MediaRef` seeded in earlier sessions, before version binding existed, is legacy-shaped. They correctly fail closed (409) rather than guess a version; nothing re-uploads/rebinds them automatically. Not attempted — would need a one-off migration script, intentionally not written speculatively. |
+
+~~Inventory S3 object versions after delete~~, ~~real `completeDeletion` resumability/stale-precondition confirmation~~ — **closed, see "Real S3 media acceptance drill" below.**
 
 ## Explicitly not built in this pass
 
 - The minimal staging-only staff UI's styling/polish beyond "usable" — it is genuinely minimal by
   design (see `staff-ui/README.md`), not a production admin console.
-- Presigned-URL-after-withdrawal handling for media (§3) — `MediaRef` exists in the domain model;
-  the S3 GET-route authorization logic does not yet.
-- Real S3 media/version handling, byte-level checksums, versioned correction, and redaction — the
-  next slice per the reviewer's own ordering.
+- Versioned correction and redaction (§3.5/§12's "Correct" action) — no implementation yet.
+- Migrating the already-live legacy (`versionId: null`) media references seeded before version
+  binding existed — they correctly fail closed, but nothing re-uploads/rebinds them automatically.
+- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or a media purge
+  racing an export) — every real-AWS case so far, media included, has been checked in isolation.
+
+Real S3 media/version handling, authenticated retrieval, byte-level checksums, media-aware
+deletion, and media-carrying export/restore — all previously listed here as the next slice — are
+now DONE; see the S3 media milestone note above and "Real S3 media acceptance drill".
 
 These are the next concrete slice of work, not a vague "more to do" — each is independently scoped
 and none of them block what's already demonstrated above.

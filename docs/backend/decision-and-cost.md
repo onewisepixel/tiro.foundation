@@ -65,6 +65,19 @@ invocations for smoke-testing, well under any meaningful threshold either way. N
 Lambda (256MB, 10s timeout, Node 22.x) and HTTP API costs at this call volume round to the same
 "sub-cent" estimate above; nothing here changes the monthly estimate.
 
+### Update, 2026-10-03: S3 media actually read, written, and deleted for real
+
+The S3 row above was previously speculative (small dummy files were PLANNED, none had actually been
+uploaded). The S3 media milestone changed that: `realS3MediaAcceptanceDrill.ts` alone uploaded,
+downloaded, and deleted roughly a dozen small objects (text/binary dummy media, several given a
+second version) across its run, plus whatever `bindSeedMedia` writes each time it's invoked. At this
+scale — tens of PUT/GET/DELETE requests, each object a few dozen to a few hundred bytes — the cost
+is still trivial: S3 Standard request pricing is fractions of a cent per thousand requests, and
+storage at this byte count rounds to nothing. The row's caveat about the account's 12-month free-tier
+window (not confirmed) still applies, but even outside it, this volume doesn't move the estimate.
+`noncurrentVersionExpiration: Duration.days(30)` (the bucket's lifecycle rule) means any version a
+drill run doesn't explicitly purge itself expires automatically within 30 days regardless.
+
 ### Alerting, not a cap
 
 Billing alerts will be configured (CloudWatch billing alarm at a low threshold, e.g. $5 and $20) as a notification tripwire. Per the brief: this is a notification, not an enforced spending cap — nothing in this architecture auto-shuts-down on alarm.

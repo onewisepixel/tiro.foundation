@@ -83,6 +83,60 @@ store interface) only — not yet re-run against live AWS, unlike the three Find
 See `docs/backend/evidence-matrix.md`'s fourth-review-round note and "AWS checks still not run"
 table.
 
+**2026-10-03, S3 media milestone:** real, version-bound synthetic media, authenticated retrieval,
+media-aware/resumable deletion, and media-carrying export/restore — plus a single reusable live-AWS
+acceptance drill that also closed the two outstanding `completeDeletion` checks from the fourth
+review round above.
+
+- **Storage.** New `backend/src/store/mediaStore.ts` (`MediaStore` interface + `InMemoryMediaStore`)
+  and `s3MediaStore.ts` (`S3MediaStore`, the real adapter). Every `MediaRef` now carries a real
+  `contentType` and a `versionId` PINNED to one exact S3 object version at bind time — never
+  "latest". `versionId: null` marks a legacy reference (pre-version-binding); retrieval fails closed
+  (409) for these rather than guessing. `fixtures/media.ts`'s `bindSeedMedia` uploads real tiny
+  text/binary objects (including one object given a second, superseded S3 version) and computes
+  genuine SHA-256 checksums from the actual bytes — the old all-zero placeholder checksum is gone
+  wherever `bindSeedMedia` runs.
+- **Authenticated retrieval.** New `GET /records/:recordId/media/:mediaId` route
+  (`services/media.ts` + `router.ts`/`handler.ts`). Runs the SAME `evaluatePermission` check as every
+  other route, on every single fetch — no presigned URLs, no cached/reusable download capability, so
+  a withdrawal or grant revocation denies the very next fetch of a previously-allowed URL, not just
+  future ones. Enforces a 256 KiB cap from the record's own recorded size BEFORE buffering, verifies
+  the retrieved bytes' SHA-256 against the bound reference, and is delivered with
+  `cache-control: private, no-store`.
+- **Media-aware, resumable deletion.** `completeDeletion()` now purges EVERY S3 version and delete
+  marker for each media-tracked custody copy — not just the version a `MediaRef` happens to be
+  pinned to — and reconciles that copy only once a fresh listing confirms the key is actually empty.
+  Tolerant of partial progress: an already-reconciled copy is skipped, a missing record means nothing
+  left to purge, and S3's own idempotent delete means retrying an already-gone version is a no-op —
+  so a transient purge failure leaves the request retryable and a later retry finishes cleanly.
+- **Export/restore with media.** `exportFixtureSet` (complete-preservation scope only — public
+  exports omit media bytes the same way they redact consent evidence) now embeds each bound media
+  object's real bytes (base64) plus safe lifecycle history (`auditReceipts`). `validateExport` now
+  decodes and re-hashes every included media object against the record's own declared
+  length/checksum and rejects a mismatch outright — real tamper detection, not just a hex-format
+  check. `importExport` can re-upload media into an isolated target's own `MediaStore` and rebind
+  each reference to the version THAT upload produced (the export's original versionId means nothing
+  in a target that never received it).
+- **Live acceptance drill
+  (`backend/src/scripts/realS3MediaAcceptanceDrill.ts`), 25/25 checks passed** against the real
+  deployed stack: unauthenticated API/direct-S3 denial, exact-byte retrieval, purpose/audience/
+  consent/authority denial, denial of a previously-allowed saved URL immediately after a real
+  withdrawal AND after a real grant revocation, export/restore integrity with real tamper rejection
+  and a positive control, real S3 version+delete-marker inventory and full removal (including a
+  delete marker deliberately created outside this system's own path), and the two previously
+  outstanding `completeDeletion` checks — partial-failure recovery (via a clearly-labeled,
+  deterministic drill-only register-write hook simulating exactly that state, since a real transient
+  AWS failure can't be forced on demand) and the stale-custody-precondition refusal (no hook needed,
+  just the real operations in the real order). One real bug caught and fixed IN THIS drill script
+  itself before it could falsely report success: two inventory assertions assumed a single
+  pre-existing S3 version where the actual (correct) fixture had two by design. See the evidence
+  matrix's "Real S3 media acceptance drill" for the full, corrected result.
+- **Browser setup.** `staff-ui/serve.json` (`cleanUrls: false`) is committed — without it, `serve`
+  301-redirects `callback.html?code=...` to `/callback` and drops the query string, silently
+  breaking every real sign-in. README now documents why and how to re-verify it.
+
+119 tests pass (up from 86).
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a
@@ -174,9 +228,13 @@ and documented rather than chased further; revisit when either upstream ships a 
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-Authorized-media S3 routes, real S3 object-version inventory, byte-level checksums, versioned
-correction, redaction, and a combinatorial real-AWS case or two (e.g. a revocation racing a
-concurrent restriction).
+Versioned correction and redaction (§3.5/§12's "Correct" action has no implementation yet).
+Migrating the many already-live legacy (`versionId: null`) media references seeded in earlier
+sessions — they correctly fail closed today, but nothing re-uploads/rebinds them automatically. A
+combinatorial real-AWS case or two (e.g. a revocation racing a concurrent restriction, or a media
+purge racing an export). Authorized-media S3 routes, real S3 object-version inventory/removal, and
+byte-level checksums are now DONE — see the S3 media milestone entry above and the evidence matrix's
+"Real S3 media acceptance drill."
 
 **Organizational, not engineering — this document cannot close these:**
 A named operator. Adopted (not proposed) consent/retention response-window numbers. Both are

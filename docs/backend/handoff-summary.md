@@ -47,6 +47,33 @@ executed in a real JS engine against the live Cognito domain and API — honestl
 browser click-through, since no browser-automation tool is available here; see the evidence
 matrix's "Browser-flow verification" for exactly what that does and doesn't prove.
 
+**Update, a fourth review round — two more `completeDeletion` defects, fixed with regression tests
+but at first only proven locally:** partial-failure recovery (the register write landing before the
+record-removal write meant a transient failure there left the request permanently denied, never
+resumable) and a stale-custody-precondition race (the prerequisite check used a separate, discarded
+register read instead of the exact snapshot the write itself used, so a retention action landing in
+between went undetected). 86 tests pass (up from 84).
+
+**Update, the S3 media milestone — real, version-bound media; authenticated retrieval; media-aware,
+resumable deletion; media-carrying export/restore; and ONE live-AWS acceptance drill that also
+closed the fourth round's two real-AWS gaps:** every `MediaRef` now pins an exact S3 version (never
+"latest") with a genuine SHA-256 computed from real uploaded bytes — not the old all-zero
+placeholder. `GET /records/:recordId/media/:mediaId` runs the identical `evaluatePermission` check
+as every other route, on every fetch, with no presigned URLs and no reusable download capability.
+`completeDeletion()` now purges every real S3 version AND delete marker for media-tracked custody
+copies before reconciling them, tolerant of partial progress. `exportFixtureSet` embeds real media
+bytes for complete-preservation exports (never for public ones); `validateExport` now rejects a
+tampered package by re-hashing its actual bytes, not just checking checksum format.
+119 tests pass (up from 86). **`realS3MediaAcceptanceDrill.ts` passed 25/25 checks against the live
+redeployed stack** — unauthenticated/direct-S3 denial, exact-byte retrieval, every denial case,
+no-reusable-URL confirmation after a real withdrawal AND a real grant revocation, export/restore
+integrity with real tamper rejection and a positive control, real S3 version/delete-marker inventory
+and removal (including a marker deliberately created outside this system's own path), and the two
+previously-local-only `completeDeletion` fixes now confirmed against real DynamoDB. One real bug —
+in the drill script's own assumptions, not the system under test — was caught and fixed before the
+corrected run passed outright. See the evidence matrix's "Real S3 media acceptance drill" for the
+full, exact result.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
@@ -189,13 +216,18 @@ cap) is live, subscribed to `onewisepixel@gmail.com`.
 
 ## Explicitly not done — not a vague "more to do" list
 
-- Authorized-media S3 routes (presigned URLs, withdrawal-invalidation handling).
-- Real S3 media/version handling, byte-level checksums, versioned correction, redaction.
-- Real S3 object-version inventory and real TTL-deletion timing — real Cognito-gated request
-  denial IS now demonstrated (see the evidence matrix's "Real staff API smoke test"), but these two
-  remain blocked on the media/TTL engineering above, not on anything organizational.
-- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction) — each real-AWS
-  correctness case so far has been checked in isolation, not combined with another.
+- Versioned correction and redaction (§3.5/§12's "Correct" action) — no implementation yet.
+- Migrating the already-live legacy (`versionId: null`) media references seeded before version
+  binding existed — they correctly fail closed (409), but nothing re-uploads/rebinds them
+  automatically; would need a dedicated one-off migration script.
+- Real TTL-deletion timing and real S3 noncurrent-version lifecycle-rule expiration timing — every
+  deletion in every drill so far has been explicit, not timing-based.
+- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or a media purge
+  racing an export) — each real-AWS correctness case so far has been checked in isolation.
+- **Done as of the S3 media milestone, previously listed here:** authorized-media S3 routes
+  (presigned URLs deliberately NOT used — see `services/media.ts`'s "no reusable download
+  capability" design), real S3 version/delete-marker handling, byte-level checksums, and real S3
+  object-version inventory/removal. See the evidence matrix's "Real S3 media acceptance drill".
 - **Organizational, not engineering, and not something this document can resolve:** a named
   operator, and adopted (not merely proposed) consent/retention response-window numbers. Both are
   stated prerequisites in `docs/ethos.txt` §6.1. No placeholder values were fabricated for either.
