@@ -1,0 +1,556 @@
+// Manually-invoked script — NOT part of `npm test`, NOT run in CI. One
+// reusable live-AWS acceptance drill for the S3 media milestone, folding in
+// the two completeDeletion checks a prior review round left outstanding
+// (see docs/backend/evidence-matrix.md's "AWS checks still not run" table
+// before this drill closed them).
+//
+// Covers, each against the REAL deployed stack:
+//   1. Unauthenticated denial, both at the API (no bearer token) and
+//      directly at S3 (an unsigned HTTPS GET to the object's bucket URL).
+//   2. Permitted exact-byte retrieval through the real authenticated API.
+//   3. Denial for purpose/audience mismatch, expired consent, and disputed
+//      authority — all through the real media route.
+//   4. A media fetch denied the moment AFTER a withdrawal/grant-revocation,
+//      reusing the EXACT SAME API URL that was allowed a moment before —
+//      proving there is no cached or reusable download capability.
+//   5. Export/restore: real media bytes carried through a complete-
+//      preservation export, a tampered copy rejected by validateExport,
+//      and reconciliation against the LIVE register denying revoked access
+//      even though the restored (isolated) copy looks unrevoked. A THIRD,
+//      untouched record is restored as a positive control and remains
+//      servable — proving reconciliation isn't just "always deny".
+//   6. Real S3 version/delete-marker inventory and removal via
+//      completeDeletion's purge step — including a delete marker created
+//      OUTSIDE this system's normal path (simulating e.g. a console action
+//      or another tool), to prove removing a marker alone is never treated
+//      as sufficient.
+//   7. The two outstanding completeDeletion checks: resuming after the
+//      register write succeeds but record removal fails, and refusing when
+//      retention changes custody before the final conditional write. The
+//      first needs a DETERMINISTIC DRILL-ONLY HOOK (a direct register write
+//      recreating exactly the state a partial failure leaves behind — there
+//      is no reliable way to force a real transient AWS failure on demand);
+//      the second needs no hook at all, just the real operations in the
+//      vulnerable order. Both are labeled in their own check, not blended
+//      with anything "naturally occurring".
+//
+// Cleanup: only this drill's own disposable Cognito test user is deleted.
+// Every seeded fixture, the live primary/register tables, and the staff
+// user named in the setup prompt are left untouched — same precedent as
+// every other real-AWS check in this project.
+//
+// Run with:
+// AWS_PROFILE=tiro-fixture-deploy AWS_REGION=us-east-1 \
+//   TIRO_PRIMARY_TABLE=... TIRO_REGISTER_TABLE=... TIRO_MEDIA_BUCKET=... \
+//   TIRO_STAFF_API_URL=... TIRO_STAFF_USER_POOL_ID=... TIRO_STAFF_USER_POOL_CLIENT_ID=... \
+//   npx tsx backend/src/scripts/realS3MediaAcceptanceDrill.ts
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { S3Client, DeleteObjectCommand as RawDeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  CognitoIdentityProviderClient,
+  AdminCreateUserCommand,
+  AdminSetUserPasswordCommand,
+  AdminInitiateAuthCommand,
+  AdminDeleteUserCommand,
+} from "@aws-sdk/client-cognito-identity-provider";
+import { createHash, randomUUID } from "node:crypto";
+import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
+import { S3MediaStore } from "../store/s3MediaStore";
+import { InMemoryFixtureStore } from "../store/memoryStore";
+import { seedStore } from "../fixtures/load";
+import { buildSeedFixtures } from "../fixtures/seed";
+import { bindSeedMedia } from "../fixtures/media";
+import {
+  startDeletion,
+  completeDeletion,
+  revokeConsentGrant,
+  retainForPreservationOnly,
+} from "../services/lifecycle";
+import { exportFixtureSet } from "../services/export";
+import { importExport, reconcileRestoredRecords, validateExport } from "../services/restore";
+
+const REGION = process.env.AWS_REGION ?? "us-east-1";
+const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
+const REGISTER_TABLE = requireEnv("TIRO_REGISTER_TABLE");
+const MEDIA_BUCKET = requireEnv("TIRO_MEDIA_BUCKET");
+const STATUS_INDEX = process.env.TIRO_STATUS_INDEX ?? "GSI1-status-index";
+const API_URL = requireEnv("TIRO_STAFF_API_URL").replace(/\/+$/, "");
+const USER_POOL_ID = requireEnv("TIRO_STAFF_USER_POOL_ID");
+const USER_POOL_CLIENT_ID = requireEnv("TIRO_STAFF_USER_POOL_CLIENT_ID");
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required env var ${name}`);
+  return value;
+}
+
+function log(step: string, message: string, data?: unknown): void {
+  console.log(`\n[${step}] ${message}`, data !== undefined ? JSON.stringify(data, null, 2) : "");
+}
+
+type CheckResult = { name: string; passed: boolean; detail?: string };
+const results: CheckResult[] = [];
+function record(name: string, passed: boolean, detail?: string): void {
+  results.push({ name, passed, detail });
+  log(passed ? "PASS" : "FAIL", name, detail);
+}
+
+async function main() {
+  const dynamoClient = new DynamoDBClient({ region: REGION });
+  const s3Client = new S3Client({ region: REGION });
+  const cognitoClient = new CognitoIdentityProviderClient({ region: REGION });
+
+  const fixtureStore = new DynamoFixtureStore({ client: dynamoClient, primaryTableName: PRIMARY_TABLE, statusIndexName: STATUS_INDEX });
+  const registerStore = new DynamoRestrictionRegisterStore({ client: dynamoClient, tableName: REGISTER_TABLE });
+  const mediaStore = new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET });
+
+  // ---------------------------------------------------------------- setup --
+  const drillTag = `drill-${Date.now()}`;
+  const testEmail = `s3-drill-${Date.now()}@example.invalid`;
+  const testPassword = `[SYNTHETIC]-Aa1!-${randomUUID().slice(0, 8)}`;
+  log("SETUP", "Creating disposable drill Cognito test user", { email: testEmail });
+  await cognitoClient.send(
+    new AdminCreateUserCommand({
+      UserPoolId: USER_POOL_ID,
+      Username: testEmail,
+      UserAttributes: [{ Name: "email", Value: testEmail }, { Name: "email_verified", Value: "true" }],
+      MessageAction: "SUPPRESS",
+    }),
+  );
+  await cognitoClient.send(
+    new AdminSetUserPasswordCommand({ UserPoolId: USER_POOL_ID, Username: testEmail, Password: testPassword, Permanent: true }),
+  );
+  const auth = await cognitoClient.send(
+    new AdminInitiateAuthCommand({
+      UserPoolId: USER_POOL_ID,
+      ClientId: USER_POOL_CLIENT_ID,
+      AuthFlow: "ADMIN_USER_PASSWORD_AUTH",
+      AuthParameters: { USERNAME: testEmail, PASSWORD: testPassword },
+    }),
+  );
+  const idToken = auth.AuthenticationResult?.IdToken;
+  if (!idToken) throw new Error("AdminInitiateAuth did not return an IdToken.");
+
+  async function apiGet(path: string, withAuth: boolean): Promise<{ status: number; headers: Headers; body: ArrayBuffer }> {
+    const response = await fetch(`${API_URL}${path}`, {
+      headers: withAuth ? { authorization: `Bearer ${idToken}` } : {},
+    });
+    return { status: response.status, headers: response.headers, body: await response.arrayBuffer() };
+  }
+  async function apiPost(path: string, bodyObj: unknown): Promise<{ status: number; json: unknown }> {
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+      body: JSON.stringify(bodyObj),
+    });
+    const json = await response.json().catch(() => null);
+    return { status: response.status, json };
+  }
+
+  try {
+    // ---------------------------------------------------- seed fixtures --
+    const [active, expired, disputed] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await bindSeedMedia(mediaStore, expired);
+    await bindSeedMedia(mediaStore, disputed);
+    await seedStore(fixtureStore, registerStore, [active, expired, disputed]);
+    const textMedia = active.record.mediaRefs[0];
+    log("SEED", "Seeded three fresh fixtures with real bound S3 media", {
+      active: active.record.recordId,
+      expired: expired.record.recordId,
+      disputed: disputed.record.recordId,
+    });
+
+    const mediaPath = (recordId: string, mediaId: string, purpose: string, audience: string) =>
+      `/records/${recordId}/media/${mediaId}?purpose=${purpose}&audience=${audience}`;
+    const activeMediaPath = mediaPath(active.record.recordId, textMedia.mediaId, "publication", "public");
+
+    // ----------------------------------------------------- check 1: 401 --
+    const unauth = await apiGet(activeMediaPath, false);
+    record("Unauthenticated API call to the media route is rejected (401)", unauth.status === 401, `status=${unauth.status}`);
+
+    // Direct, unsigned HTTPS GET straight at the S3 object — proves the
+    // bucket itself (BlockPublicAccess + no bucket policy) denies access
+    // with no credentials at all, independent of the API/Lambda entirely.
+    const directS3Response = await fetch(
+      `https://${MEDIA_BUCKET}.s3.${REGION}.amazonaws.com/${encodeURIComponent(textMedia.objectKey)}`,
+    );
+    record(
+      "Direct, unsigned HTTPS GET straight at the S3 object is denied (not 200)",
+      directS3Response.status !== 200,
+      `status=${directS3Response.status}`,
+    );
+
+    // --------------------------------------------- check 2: real bytes --
+    const allowed = await apiGet(activeMediaPath, true);
+    const allowedBytes = Buffer.from(allowed.body);
+    const allowedSha = createHash("sha256").update(allowedBytes).digest("hex");
+    record(
+      "Authenticated, authorized media fetch returns the exact uploaded bytes (verified SHA-256)",
+      allowed.status === 200 && allowedSha === textMedia.checksumSha256,
+      `status=${allowed.status} sha256Match=${allowedSha === textMedia.checksumSha256}`,
+    );
+    record(
+      "Media response carries private/no-store cache headers",
+      allowed.headers.get("cache-control") === "private, no-store",
+      String(allowed.headers.get("cache-control")),
+    );
+
+    // ------------------------------------------- check 3: denial cases --
+    const expiredPath = mediaPath(expired.record.recordId, expired.record.mediaRefs[0].mediaId, "publication", "public");
+    const expiredResult = await apiGet(expiredPath, true);
+    record("Expired-consent record's media is denied through the real API", expiredResult.status === 403, `status=${expiredResult.status}`);
+
+    const disputedPath = mediaPath(disputed.record.recordId, disputed.record.mediaRefs[0].mediaId, "publication", "public");
+    const disputedResult = await apiGet(disputedPath, true);
+    record("Disputed-authority record's media is denied through the real API", disputedResult.status === 403, `status=${disputedResult.status}`);
+
+    const wrongPurposePath = mediaPath(active.record.recordId, textMedia.mediaId, "model-training", "public");
+    const wrongPurposeResult = await apiGet(wrongPurposePath, true);
+    record(
+      "A purpose the record's grant doesn't cover is denied, even for an otherwise-allowed record",
+      wrongPurposeResult.status === 403,
+      `status=${wrongPurposeResult.status}`,
+    );
+
+    // ---------------------------------- check 4: no reusable download --
+    // Re-fetch the SAME active-media URL again right now: still allowed —
+    // sanity check that nothing has changed yet.
+    const stillAllowed = await apiGet(activeMediaPath, true);
+    record("Sanity check: the saved URL is still allowed immediately before withdrawal", stillAllowed.status === 200);
+
+    const withdrawResponse = await apiPost(`/records/${active.record.recordId}/withdraw`, {
+      reason: "[SYNTHETIC] S3 media acceptance drill — withdrawal",
+    });
+    record("Real withdraw() via the API succeeds", withdrawResponse.status === 200, `status=${withdrawResponse.status}`);
+
+    const afterWithdraw = await apiGet(activeMediaPath, true);
+    record(
+      "The EXACT SAME saved media URL is denied immediately after withdrawal — no cached/reusable download capability",
+      afterWithdraw.status === 403,
+      `status=${afterWithdraw.status}`,
+    );
+
+    // Same pattern, for grant-level revocation, on a SEPARATE fresh record
+    // (active is now withdrawn and can't demonstrate this cleanly anymore).
+    const [grantRevokeFixture] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, grantRevokeFixture);
+    await seedStore(fixtureStore, registerStore, [grantRevokeFixture]);
+    const grantRevokeMediaPath = mediaPath(
+      grantRevokeFixture.record.recordId,
+      grantRevokeFixture.record.mediaRefs[0].mediaId,
+      "publication",
+      "public",
+    );
+    const beforeRevoke = await apiGet(grantRevokeMediaPath, true);
+    record("Sanity check: the grant-revocation record's media is allowed before revocation", beforeRevoke.status === 200);
+    await revokeConsentGrant(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-revoke`,
+      recordId: grantRevokeFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — grant revocation",
+      consentId: grantRevokeFixture.consentGrants[0].consentId,
+    });
+    const afterRevoke = await apiGet(grantRevokeMediaPath, true);
+    record(
+      "The same saved media URL is denied immediately after grant revocation",
+      afterRevoke.status === 403,
+      `status=${afterRevoke.status}`,
+    );
+
+    // ------------------------------------ check 5: export/restore/tamper --
+    const [positiveControl] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, positiveControl);
+    await seedStore(fixtureStore, registerStore, [positiveControl]);
+
+    const [grantRevokeT0, positiveControlT0] = await Promise.all([
+      exportFixtureSet(
+        fixtureStore,
+        registerStore,
+        [grantRevokeFixture.record.recordId],
+        "complete-preservation",
+        `${drillTag}-grant-revoke`,
+        "public",
+        mediaStore,
+      ).then((r) => r), // NOTE: already revoked above — see the pre-revocation export taken before, kept separately below.
+      exportFixtureSet(
+        fixtureStore,
+        registerStore,
+        [positiveControl.record.recordId],
+        "complete-preservation",
+        `${drillTag}-positive-control`,
+        "public",
+        mediaStore,
+      ),
+    ]);
+    // grantRevokeT0 above is actually a POST-revocation export (revocation
+    // already ran) — exportFixtureSet's own evaluatePermission gate means
+    // it is now EMPTY (the record no longer passes, so it's simply
+    // absent). That absence is itself a real, meaningful assertion: export
+    // never includes content a live check would deny, even under
+    // complete-preservation scope.
+    record(
+      "A revoked record is absent from a NEW complete-preservation export taken after revocation (export never includes denied content)",
+      grantRevokeT0.records.length === 0,
+      `recordCount=${grantRevokeT0.records.length}`,
+    );
+
+    // The MEANINGFUL pre-revocation-backup case needs a backup taken BEFORE
+    // revocation — re-seed a fresh equivalent fixture for this specific
+    // T0->T1->T2->T3 sequence so it's unambiguous which export predates
+    // which lifecycle action.
+    const [preRevocationFixture] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, preRevocationFixture);
+    await seedStore(fixtureStore, registerStore, [preRevocationFixture]);
+    const preRevocationBackup = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [preRevocationFixture.record.recordId],
+      "complete-preservation",
+      `${drillTag}-pre-revocation`,
+      "public",
+      mediaStore,
+    );
+    const preRevocationMediaObjects = preRevocationBackup.records[0]?.mediaObjects;
+    record(
+      "A pre-revocation backup actually carries real media bytes",
+      Array.isArray(preRevocationMediaObjects) && preRevocationMediaObjects.length > 0,
+      `count=${Array.isArray(preRevocationMediaObjects) ? preRevocationMediaObjects.length : "n/a"}`,
+    );
+
+    await revokeConsentGrant(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-pre-revocation`,
+      recordId: preRevocationFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — T1 revocation",
+      consentId: preRevocationFixture.consentGrants[0].consentId,
+    });
+
+    // Tamper rejection: corrupt the backup's media bytes and confirm BOTH
+    // validateExport and importExport refuse it.
+    const tamperedBackup = structuredClone(preRevocationBackup);
+    const tamperedObjects = tamperedBackup.records[0].mediaObjects as { mediaId: string; base64: string }[];
+    tamperedObjects[0].base64 = Buffer.from("[SYNTHETIC] tampered drill bytes").toString("base64");
+    const tamperValidation = validateExport(tamperedBackup);
+    record("A tampered export package fails validateExport", tamperValidation.ok === false, JSON.stringify(tamperValidation));
+    let tamperImportRejected = false;
+    try {
+      await importExport(new InMemoryFixtureStore(), tamperedBackup);
+    } catch {
+      tamperImportRejected = true;
+    }
+    record("importExport refuses a tampered package outright, not just validateExport in isolation", tamperImportRejected);
+
+    // T2/T3: restore the UNTAMPERED pre-revocation backup into an isolated
+    // in-process target (FixtureStore) + a real, separately-prefixed S3
+    // media store under the SAME bucket (isolated by key prefix, not a
+    // second bucket — the full real-DynamoDB-table restore mechanics are
+    // already proven by realBackupRestoreDrill.ts/realGrantRevocationRestoreDrill.ts;
+    // this drill's new ground is specifically the media layer).
+    const restoredFixtureStore = new InMemoryFixtureStore();
+    const restoredMediaStore = new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET });
+    // Rewrite the restored object's key under a disposable prefix so this
+    // restore never collides with the live key.
+    const rebindEnvelope = structuredClone(preRevocationBackup);
+    rebindEnvelope.records[0].record.mediaRefs = rebindEnvelope.records[0].record.mediaRefs.map((m) => ({
+      ...m,
+      objectKey: `restored/${drillTag}/${m.objectKey}`,
+    }));
+    await importExport(restoredFixtureStore, rebindEnvelope, restoredMediaStore);
+    const reconciliation = await reconcileRestoredRecords(restoredFixtureStore, registerStore, rebindEnvelope.records, {
+      purpose: "publication",
+      audience: "public",
+    });
+    record(
+      "Reconciling the restored (stale, looks-unrevoked) backup against the LIVE register still denies — no revived access",
+      reconciliation[0]?.servable === false,
+      JSON.stringify(reconciliation[0]),
+    );
+
+    // Positive control: restore+reconcile an export whose record was NEVER
+    // touched afterward — must remain servable, proving reconciliation
+    // isn't just "always deny after any restore".
+    const positiveRestoredStore = new InMemoryFixtureStore();
+    const positiveRebind = structuredClone(positiveControlT0);
+    positiveRebind.records[0].record.mediaRefs = positiveRebind.records[0].record.mediaRefs.map((m) => ({
+      ...m,
+      objectKey: `restored/${drillTag}-positive/${m.objectKey}`,
+    }));
+    await importExport(positiveRestoredStore, positiveRebind, new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET }));
+    const positiveReconciliation = await reconcileRestoredRecords(positiveRestoredStore, registerStore, positiveRebind.records, {
+      purpose: "publication",
+      audience: "public",
+    });
+    record(
+      "Positive control: restoring an untouched record's backup remains servable (reconciliation isn't just always-deny)",
+      positiveReconciliation[0]?.servable === true,
+      JSON.stringify(positiveReconciliation[0]),
+    );
+
+    // --------------------------- check 6: real version/marker inventory --
+    // disputed has no text media ref (seed.ts's disputedAuthorityFixture
+    // starts with mediaRefs: []), so bindSeedMedia's text-binding branch was
+    // skipped for it and mediaRefs[0] is its BINARY ref — which
+    // bindSeedMedia deliberately gives TWO real S3 versions (demonstrating
+    // version pinning). That's exactly the right object for this check: it
+    // proves inventory sees BOTH pre-existing versions, not just one.
+    const inventoryTarget = disputed.record.mediaRefs[0]; // never touched by deletion yet
+    const versionsBeforeDelete = await mediaStore.listObjectVersions(inventoryTarget.objectKey);
+    record(
+      "listObjectVersions sees BOTH real pre-existing versions before anything is deleted",
+      versionsBeforeDelete.length === 2 && versionsBeforeDelete.every((v) => !v.isDeleteMarker),
+      JSON.stringify(versionsBeforeDelete),
+    );
+
+    // Simulate a delete marker created OUTSIDE this system's normal path
+    // (e.g. a console action, or another tool bare-deleting the key) —
+    // a bare DeleteObject with no VersionId, which S3 turns into a NEW
+    // delete-marker version rather than removing anything.
+    await s3Client.send(new RawDeleteObjectCommand({ Bucket: MEDIA_BUCKET, Key: inventoryTarget.objectKey }));
+    const versionsWithMarker = await mediaStore.listObjectVersions(inventoryTarget.objectKey);
+    record(
+      "A bare key-level delete adds a DELETE MARKER on top, leaving BOTH original versions' bytes fully intact (not erased)",
+      versionsWithMarker.length === 3 &&
+        versionsWithMarker.filter((v) => v.isDeleteMarker).length === 1 &&
+        versionsWithMarker.filter((v) => !v.isDeleteMarker).length === 2,
+      JSON.stringify(versionsWithMarker),
+    );
+    // Now run the real deletion workflow on this record — completeDeletion's
+    // purge step must remove BOTH the marker and the original version.
+    const disputedStart = await startDeletion(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-disputed-start`,
+      recordId: disputed.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — inventory/removal",
+    });
+    const disputedComplete = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `req-${drillTag}-disputed-complete`,
+        recordId: disputed.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] S3 media acceptance drill — inventory/removal",
+        deletionRequestId: disputedStart.requestId,
+      },
+      mediaStore,
+    );
+    const versionsAfterDelete = await mediaStore.listObjectVersions(inventoryTarget.objectKey);
+    record(
+      "completeDeletion removes EVERY version AND the delete marker — real S3 shows nothing left, not just that completion reported success",
+      disputedComplete.status === "completed" && versionsAfterDelete.length === 0,
+      `status=${disputedComplete.status} remainingVersions=${versionsAfterDelete.length}`,
+    );
+
+    // ------------------------- check 7a: resumable partial-failure drill --
+    // DETERMINISTIC DRILL-ONLY HOOK: there is no reliable way to force a
+    // real, transient AWS failure between the register write and the
+    // record-removal write on demand. Instead, this directly recreates —
+    // via a raw register write, bypassing completeDeletion — EXACTLY the
+    // state such a failure leaves behind (register says "deleted", record
+    // still physically present), then proves completeDeletion resumes and
+    // finishes it. This is a SIMULATION of that state, not a naturally
+    // occurring failure — labeled here and in the evidence matrix as such.
+    const [resumeFixture] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [resumeFixture]);
+    const resumeStart = await startDeletion(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-resume-start`,
+      recordId: resumeFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — partial-failure recovery",
+    });
+    const preHookState = await registerStore.getCurrent(resumeFixture.record.recordId);
+    if (!preHookState) throw new Error("drill invariant violated: register entry must exist after startDeletion");
+    await registerStore.setCurrent(
+      { ...preHookState, currentCustodyStatus: "deleted", controlVersion: preHookState.controlVersion + 1 },
+      preHookState.controlVersion,
+    );
+    log("DRILL HOOK (labeled)", "Directly flipped the LIVE register to custody=\"deleted\" via a raw write, bypassing completeDeletion — simulating exactly the state a partial failure (register write succeeded, record removal failed) leaves behind. The record itself was never touched by this hook.");
+    const recordStillThere = await fixtureStore.getRecord(resumeFixture.record.recordId);
+    record("Sanity check: the record is still physically present right after the simulated partial failure", recordStillThere !== null);
+    const resumeComplete = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `req-${drillTag}-resume-complete`,
+        recordId: resumeFixture.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] S3 media acceptance drill — partial-failure recovery",
+        deletionRequestId: resumeStart.requestId,
+      },
+      mediaStore,
+    );
+    const recordGoneAfterResume = await fixtureStore.getRecord(resumeFixture.record.recordId);
+    record(
+      "completeDeletion resumes from the simulated partial-failure state and actually finishes, against real DynamoDB",
+      resumeComplete.status === "completed" && recordGoneAfterResume === null,
+      `status=${resumeComplete.status}`,
+    );
+
+    // --------------------- check 7b: retention-before-completion drill --
+    // No hook needed here — just the real operations, in the real
+    // vulnerable order, against real DynamoDB.
+    const [staleFixture] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [staleFixture]);
+    const staleStart = await startDeletion(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-stale-start`,
+      recordId: staleFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — stale precondition",
+    });
+    await retainForPreservationOnly(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-stale-retain`,
+      recordId: staleFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — a real retention action overrides the pending deletion",
+    });
+    const staleComplete = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `req-${drillTag}-stale-complete`,
+        recordId: staleFixture.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] S3 media acceptance drill — stale precondition",
+        deletionRequestId: staleStart.requestId,
+      },
+      mediaStore,
+    );
+    const staleRecordStillThere = await fixtureStore.getRecord(staleFixture.record.recordId);
+    const staleRegister = await registerStore.getCurrent(staleFixture.record.recordId);
+    record(
+      "completeDeletion refuses (denies) when a real retention action changed custody before its final write, against real DynamoDB — the record is NOT deleted",
+      staleComplete.status === "denied" && staleRecordStillThere !== null && staleRegister?.currentCustodyStatus === "preserved",
+      `status=${staleComplete.status} custody=${staleRegister?.currentCustodyStatus}`,
+    );
+
+    // Direct-DynamoDB confirmation (not via the service layer) that the
+    // stale-precondition record really is untouched, for belt-and-suspenders.
+    const rawItem = await dynamoClient.send(
+      new GetItemCommand({ TableName: PRIMARY_TABLE, Key: { PK: { S: `ENTITY#${staleFixture.record.recordId}` }, SK: { S: "RECORD" } } }),
+    );
+    record("Direct DynamoDB GetItem confirms the stale-precondition record is still present", rawItem.Item !== undefined);
+  } finally {
+    // ------------------------------------------------------------ cleanup --
+    log("CLEANUP", "Deleting the disposable drill Cognito test user (nothing else)", { email: testEmail });
+    await cognitoClient
+      .send(new AdminDeleteUserCommand({ UserPoolId: USER_POOL_ID, Username: testEmail }))
+      .catch((error) => log("CLEANUP", "Non-fatal: failed to delete drill test user", String(error)));
+  }
+
+  console.log("\n==================== SUMMARY ====================");
+  for (const r of results) {
+    console.log(`${r.passed ? "PASS" : "FAIL"} — ${r.name}`);
+  }
+  const failed = results.filter((r) => !r.passed);
+  console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
+  if (failed.length > 0) {
+    process.exitCode = 1;
+  }
+}
+
+main().catch((error) => {
+  console.error("Drill failed with an unhandled error:", error);
+  process.exitCode = 1;
+});
