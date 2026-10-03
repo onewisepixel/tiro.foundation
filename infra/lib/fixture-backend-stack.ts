@@ -195,6 +195,7 @@ export class FixtureBackendStack extends Stack {
         TIRO_PRIMARY_TABLE: this.primaryTable.tableName,
         TIRO_REGISTER_TABLE: this.restrictionRegisterTable.tableName,
         TIRO_STATUS_INDEX: "GSI1-status-index",
+        TIRO_MEDIA_BUCKET: this.mediaBucket.bucketName,
       },
     });
     // Both grants are needed on the SAME Lambda because the service layer
@@ -205,6 +206,16 @@ export class FixtureBackendStack extends Stack {
     // asymmetric IAM policy on this handler.
     this.primaryTable.grantReadWriteData(apiHandler);
     this.restrictionRegisterTable.grantReadWriteData(apiHandler);
+    // Minimal media-bucket IAM: grantRead covers GetObject/GetObjectVersion
+    // plus ListBucket/ListBucketVersions (CDK's READ_ACTIONS wildcards,
+    // s3:GetObject* and s3:List*) — scoped version reads (services/media.ts)
+    // and version/delete-marker inventory (lifecycle.ts's purge step) both
+    // need this. grantDelete covers DeleteObject/DeleteObjectVersion — the
+    // actual permanent-removal half of that same purge step. No write grant:
+    // this Lambda never uploads media itself (fixtures/media.ts's seeding
+    // and the restore drills use their own separate credentials).
+    this.mediaBucket.grantRead(apiHandler);
+    this.mediaBucket.grantDelete(apiHandler);
 
     const httpApi = new apigwv2.HttpApi(this, "StaffApi", {
       apiName: `tiro-fixture-staff-api-${namespace}`,
@@ -238,12 +249,18 @@ export class FixtureBackendStack extends Stack {
       integration: apiIntegration,
     });
     httpApi.addRoutes({
+      path: "/records/{recordId}/media/{mediaId}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: apiIntegration,
+    });
+    httpApi.addRoutes({
       path: "/export",
       methods: [apigwv2.HttpMethod.POST],
       integration: apiIntegration,
     });
 
     new CfnOutput(this, "StaffApiUrl", { value: httpApi.apiEndpoint });
+    new CfnOutput(this, "MediaBucketName", { value: this.mediaBucket.bucketName });
     new CfnOutput(this, "StaffUserPoolId", { value: this.staffUserPool.userPoolId });
     new CfnOutput(this, "StaffUserPoolClientId", { value: staffUserPoolClient.userPoolClientId });
     new CfnOutput(this, "StaffUserPoolDomain", {
