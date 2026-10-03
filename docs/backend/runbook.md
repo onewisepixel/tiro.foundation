@@ -115,6 +115,27 @@ own temporary restored table and backup. Takes up to ~10 minutes — DynamoDB re
 variable and not simply proportional to table size. Not run in CI (real cost, real time, needs
 credentials); manually invoked only.
 
+## Full-fixture seed and correctness checks against real DynamoDB
+
+Separate from the restore drill above — this script seeds the FULL four-fixture set (not just the
+one `active` case) and exercises the grant-revocation, concurrency, and export-authorization
+findings directly against real DynamoDB. Creates no disposable AWS resources (no temporary table or
+backup); the seeded fixtures are left in place afterward. Not run in CI; manually invoked only.
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=tiro-fixture-primary-drill-20261002 \
+  TIRO_REGISTER_TABLE=tiro-restriction-register-drill-20261002 \
+  npx tsx backend/src/scripts/realFullFixtureChecks.ts
+```
+
+Runs 9 checks and exits non-zero if any fails: 4 permission-parity checks (one per fixture case),
+a grant-revocation check, two concurrency checks (a direct `RestrictionRegisterStore.setCurrent`
+compare-and-swap race, plus a full `startDeletion`/`restrict` integration race), and two
+export-authorization checks (`public-redacted` and `complete-preservation` scopes both excluding
+the expired-consent and disputed-authority records). Last run 2026-10-03: all 9 passed on the first
+try — see `docs/backend/evidence-matrix.md` for the full results.
+
 ## Cleanup
 
 ```bash

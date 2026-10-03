@@ -14,6 +14,11 @@ fixes before merge, per the reviewer's request. The real-AWS drill's result (bel
 the one scenario it tests; it was not, and is not, evidence for the gaps the reviewer additionally
 found by testing cases the drill doesn't exercise.
 
+**Update, later the same day:** `backend/src/scripts/realFullFixtureChecks.ts` closed that gap —
+seeded the full four-fixture set into the live deployed stack and re-ran the grant-revocation,
+concurrency, and export-authorization checks against real DynamoDB. All 9 checks passed on the
+first run. See "What was proven, and how" below.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
@@ -63,6 +68,13 @@ four times: seed a record → real `CreateBackupCommand` → withdraw + start de
 → real `RestoreTableFromBackupCommand` into a fresh table → reconcile the restored (stale,
 still-"published") record against the live (correctly "withdrawn") control table → assert denial.
 **All four passed.** The fourth run was fully automated including self-cleanup, exit code 0.
+
+Separately, `realFullFixtureChecks.ts` seeded the FULL four-fixture set (not just the one `active`
+case above) into the same live tables and ran 9 checks against real DynamoDB: 4 parity checks, the
+grant-revocation check (Finding 1), two concurrency checks — a direct register compare-and-swap
+race and a full `startDeletion`/`restrict` integration race (Finding 2) — and an export-authorization
+check under both export scopes (Finding 3). **All 9 passed on the first run.** No disposable AWS
+resources were created; the seeded fixtures were left in place as part of the real-AWS baseline.
 
 Full requirement-by-requirement status — what's `demonstrated (local)`, `demonstrated (real AWS)`,
 `pending`, or `not demonstrated`, with gaps stated plainly — is in
@@ -145,11 +157,10 @@ cap) is live, subscribed to `onewisepixel@gmail.com`.
   built and tested; no HTTP surface calls it yet.
 - The minimal staging-only staff UI.
 - Authorized-media S3 routes (presigned URLs, withdrawal-invalidation handling).
-- A seed script for the full four-fixture set against real DynamoDB — only the one clean `active`
-  case has run against real AWS; the other three (expired consent, disputed authority,
-  preservation-only) have only run against the in-memory fake.
 - Real S3 object-version inventory, real Cognito-gated request denial, real TTL-deletion timing —
   all blocked on the engineering above, not on anything organizational.
+- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction) — each real-AWS
+  correctness case so far has been checked in isolation, not combined with another.
 - **Organizational, not engineering, and not something this document can resolve:** a named
   operator, and adopted (not merely proposed) consent/retention response-window numbers. Both are
   stated prerequisites in `docs/ethos.txt` §6.1. No placeholder values were fabricated for either.
