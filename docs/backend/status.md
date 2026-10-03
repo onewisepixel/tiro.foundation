@@ -64,6 +64,25 @@ deployed stack. Also this round: the Hosted UI → callback → API flow was ver
 (no browser-automation tool here, so no literal click-through) — see the evidence matrix's
 "Browser-flow verification."
 
+**2026-10-03, fourth review round — two more `completeDeletion` defects, both fixed:**
+1. **Partial failure couldn't recover.** The register write (to `"deleted"`) happens before the
+   primary-record removal; if removal failed after the register write landed, every retry was
+   permanently denied for custody no longer being `"deletion-pending"` — even though the record was
+   still present and the job just needed finishing. Fixed: the precondition now also accepts
+   `"deleted"` (the exact state a partial failure leaves behind) and skips removal if the record is
+   already gone.
+2. **The prerequisite check read a stale, discarded snapshot.** The check and the actual write used
+   two separate reads of the register; a retention action landing between them was invisible to the
+   write, which deleted the record anyway. Fixed: the check now runs inside the same
+   `computePatch` callback that supplies the write's expected version — one snapshot, not two — and
+   denies (terminal, not retryable) if custody isn't `"deletion-pending"`/`"deleted"` at that exact
+   point.
+
+Both fixed with regression tests (86 tests, up from 84), proven at the logic level (the shared
+store interface) only — not yet re-run against live AWS, unlike the three Finding 1-3 fixes above.
+See `docs/backend/evidence-matrix.md`'s fourth-review-round note and "AWS checks still not run"
+table.
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a

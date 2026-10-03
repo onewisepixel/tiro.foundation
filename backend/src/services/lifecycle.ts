@@ -313,15 +313,30 @@ export async function revokeConsentGrant(
 //    record (deletionRequestId) — completion can never happen without a
 //    real prior start.
 // 2. It requires the register's currentCustodyStatus to actually be
-//    "deletion-pending" — a record that's merely "preserved" is refused.
-// 3. It goes through getOrCreateRequest/runGuarded like every other action,
-//    so it has its own tracked request, requesterCapacity, and receipt.
+//    "deletion-pending" (or "deleted" — see StaleCustodyStatusError below) —
+//    a record that's merely "preserved" is refused.
+// 3. It goes through getOrCreateRequest like every other action, so it has
+//    its own tracked request, requesterCapacity, and receipt.
 export type CompleteDeletionInput = LifecycleActionInput & {
   // The requestId startDeletion() returned when deletion was started for
   // this record. Required, not inferred from register state alone — an
   // explicit link, not just an implicit "custodyStatus happens to match".
   deletionRequestId: string;
 };
+
+// Thrown from INSIDE transitionControl's computePatch, i.e. against the
+// exact register snapshot that will also supply the expected version for
+// the conditional write below — not a separate, earlier read that could go
+// stale before the write happens. A reviewer caught a real bug where the
+// prerequisite check used its own throwaway getCurrent() and the write's
+// computePatch ignored custody status entirely, so a retention action that
+// flipped custody to "preserved" in between went undetected and the record
+// was deleted anyway. Validating here closes that gap: if custody isn't
+// "deletion-pending" (first attempt) or "deleted" (resuming after the
+// register write succeeded but the record removal below failed — see the
+// outstanding-copies-style retry note in completeDeletion) at the moment of
+// the write, this throws before anything is written.
+class StaleCustodyStatusError extends Error {}
 
 export async function completeDeletion(
   fixtureStore: FixtureStore,
@@ -349,21 +364,12 @@ export async function completeDeletion(
     );
   }
 
-  const current = await registerStore.getCurrent(input.recordId);
-  if (current?.currentCustodyStatus !== "deletion-pending") {
-    return denyRequest(
-      fixtureStore,
-      request,
-      `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — startDeletion() must run first.`,
-    );
-  }
-
   const copies = await fixtureStore.listCustodyCopies(input.recordId);
   const outstanding = copies.filter((copy) => copy.reconciledAt === null);
   if (outstanding.length > 0) {
-    // Retryable (unlike the two denials above) — leave the request
-    // in-progress so a later call, once copies ARE reconciled, can still
-    // complete it under the same requestId.
+    // Retryable (unlike the deny above) — leave the request in-progress so
+    // a later call, once copies ARE reconciled, can still complete it under
+    // the same requestId.
     await recordFailure(
       fixtureStore,
       request,
@@ -372,20 +378,48 @@ export async function completeDeletion(
     return request;
   }
 
-  return runGuarded(fixtureStore, request, async () => {
-    // The register entry is the authoritative "may this be served" answer
-    // and is set to deleted FIRST — if the record removal below fails, the
-    // record is still correctly denied. Only once that's durable do we
-    // remove the primary record itself; a status flag alone (the old
-    // behavior) left completion reporting success while the record stayed
-    // present and exportable, which was Finding 5a.
-    await transitionControl(registerStore, input.recordId, () => ({ currentCustodyStatus: "deleted" }));
-    const record = await fixtureStore.getRecord(input.recordId);
-    if (record) {
-      await fixtureStore.deleteRecord(input.recordId, record.version);
+  try {
+    const safeNote = await (async () => {
+      // The register entry is the authoritative "may this be served" answer
+      // and is set to deleted FIRST — if the record removal below fails,
+      // the record is still correctly denied. Only once that's durable do
+      // we remove the primary record itself; a status flag alone (the old
+      // behavior) left completion reporting success while the record
+      // stayed present and exportable, which was Finding 5a.
+      //
+      // computePatch here IS the prerequisite check — it runs against the
+      // same snapshot transitionControl uses for the version-matched write,
+      // so a concurrent custody change is either caught here (wrong status
+      // at write time) or by setCurrent's own version conflict (changed
+      // between this read and the write) — never silently missed. "deleted"
+      // is accepted alongside "deletion-pending" specifically so that a
+      // retry after this exact partial failure (register flipped to
+      // "deleted", then deleteRecord below threw) can resume and finish
+      // removing the still-present record, instead of being permanently
+      // denied for no longer being "deletion-pending".
+      await transitionControl(registerStore, input.recordId, (current) => {
+        if (current?.currentCustodyStatus !== "deletion-pending" && current?.currentCustodyStatus !== "deleted") {
+          throw new StaleCustodyStatusError(
+            `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — it changed after the prerequisite check (e.g. a retention action), so completion cannot proceed.`,
+          );
+        }
+        return { currentCustodyStatus: "deleted" };
+      });
+      const record = await fixtureStore.getRecord(input.recordId);
+      if (record) {
+        await fixtureStore.deleteRecord(input.recordId, record.version);
+      }
+      return "All custody copies reconciled; custody status is deleted and the record removed.";
+    })();
+    return await completeRequest(fixtureStore, request, safeNote);
+  } catch (error) {
+    if (error instanceof StaleCustodyStatusError) {
+      return denyRequest(fixtureStore, request, error.message);
     }
-    return "All custody copies reconciled; custody status is deleted and the record removed.";
-  });
+    const message = error instanceof VersionConflictError ? error.message : "Unexpected error applying lifecycle action.";
+    await recordFailure(fixtureStore, request, message);
+    throw error;
+  }
 }
 
 export type { PublicationStatus, CustodyStatus };

@@ -1,8 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryFixtureStore, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
-import type { RestrictionRegisterStore } from "../store/store";
-import type { RestrictionRegisterEntry } from "../domain/types";
+import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import type {
+  AuditReceipt,
+  AuthorityClaim,
+  ConsentGrant,
+  CustodyCopy,
+  LegalRight,
+  LifecycleRequest,
+  LifecycleRequestStatus,
+  RestrictionRegisterEntry,
+} from "../domain/types";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { withdraw, restrict, retainForPreservationOnly, startDeletion, completeDeletion } from "./lifecycle";
@@ -27,6 +36,72 @@ class AlwaysFailingRegisterStore implements RestrictionRegisterStore {
   }
   async listAll(): Promise<RestrictionRegisterEntry[]> {
     return [];
+  }
+}
+
+// Delegates to a real InMemoryFixtureStore for everything except
+// deleteRecord, which throws once (simulating the primary record-removal
+// step failing AFTER the register has already durably recorded "deleted")
+// and then behaves normally on every call after. Used to prove
+// completeDeletion's partial-failure state is actually resumable — see the
+// reviewer's "recovery cannot resume" finding.
+class FailOnceOnDeleteFixtureStore implements FixtureStore {
+  private failed = false;
+  constructor(private inner: FixtureStore) {}
+  getRecord(recordId: string) {
+    return this.inner.getRecord(recordId);
+  }
+  putRecord(record: Parameters<FixtureStore["putRecord"]>[0], expectedVersion: number | undefined) {
+    return this.inner.putRecord(record, expectedVersion);
+  }
+  async deleteRecord(recordId: string, expectedVersion: number): Promise<void> {
+    if (!this.failed) {
+      this.failed = true;
+      throw new Error("simulated primary-deletion failure");
+    }
+    return this.inner.deleteRecord(recordId, expectedVersion);
+  }
+  listAuthorityClaims(recordId: string) {
+    return this.inner.listAuthorityClaims(recordId);
+  }
+  putAuthorityClaim(claim: AuthorityClaim) {
+    return this.inner.putAuthorityClaim(claim);
+  }
+  listLegalRights(recordId: string) {
+    return this.inner.listLegalRights(recordId);
+  }
+  putLegalRight(right: LegalRight) {
+    return this.inner.putLegalRight(right);
+  }
+  listConsentGrants(recordId: string) {
+    return this.inner.listConsentGrants(recordId);
+  }
+  putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
+    return this.inner.putConsentGrant(grant, expectedVersion);
+  }
+  listCustodyCopies(recordId: string) {
+    return this.inner.listCustodyCopies(recordId);
+  }
+  putCustodyCopy(copy: CustodyCopy) {
+    return this.inner.putCustodyCopy(copy);
+  }
+  createLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.createLifecycleRequest(request);
+  }
+  getLifecycleRequest(requestId: string) {
+    return this.inner.getLifecycleRequest(requestId);
+  }
+  updateLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.updateLifecycleRequest(request);
+  }
+  listLifecycleRequestsByStatus(status: LifecycleRequestStatus) {
+    return this.inner.listLifecycleRequestsByStatus(status);
+  }
+  putAuditReceipt(receipt: AuditReceipt) {
+    return this.inner.putAuditReceipt(receipt);
+  }
+  listAuditReceipts(recordId: string) {
+    return this.inner.listAuditReceipts(recordId);
   }
 }
 
@@ -218,6 +293,120 @@ test("completeDeletion actually removes the primary record, not just a status fl
   const record = await fixtureStore.getRecord(recordId);
   assert.equal(record, null, "the primary record must actually be gone, not merely flagged deleted in the register");
 });
+
+test(
+  "completeDeletion resumes a partial failure instead of being permanently denied (recovery finding)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-delete-partial",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    const flaky = new FailOnceOnDeleteFixtureStore(fixtureStore);
+
+    await assert.rejects(
+      () =>
+        completeDeletion(flaky, registerStore, {
+          requestId: "req-complete-partial",
+          recordId,
+          requesterCapacity: "[SYNTHETIC] steward",
+          reason: "[SYNTHETIC] complete test",
+          deletionRequestId: startResult.requestId,
+        }),
+      /simulated primary-deletion failure/,
+    );
+
+    const afterFirstAttempt = await registerStore.getCurrent(recordId);
+    assert.equal(
+      afterFirstAttempt?.currentCustodyStatus,
+      "deleted",
+      "the register write durably succeeds even though the record-removal step fails right after",
+    );
+    const recordStillPresent = await fixtureStore.getRecord(recordId);
+    assert.ok(recordStillPresent, "the record must still be present — only the register write landed");
+
+    const requestAfterFailure = await fixtureStore.getLifecycleRequest("req-complete-partial");
+    assert.equal(
+      requestAfterFailure?.status,
+      "in-progress",
+      "a transient failure must leave the request retryable, not denied",
+    );
+
+    // Retry with the SAME requestId — deleteRecord succeeds this time. The
+    // old code denied this because custody was no longer "deletion-pending"
+    // (it was already "deleted" from the first attempt) — that's exactly
+    // the bug: a partial failure could never be resumed.
+    const secondAttempt = await completeDeletion(flaky, registerStore, {
+      requestId: "req-complete-partial",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] complete test",
+      deletionRequestId: startResult.requestId,
+    });
+    assert.equal(
+      secondAttempt.status,
+      "completed",
+      "resuming after the partial failure must be able to finish the job",
+    );
+
+    const finalRecord = await fixtureStore.getRecord(recordId);
+    assert.equal(finalRecord, null, "the record must actually be removed once the retry succeeds");
+  },
+);
+
+test(
+  "completeDeletion refuses when custody changes away from deletion-pending before the final transition, instead of deleting anyway (stale-precondition finding)",
+  async () => {
+    const { fixtureStore, registerStore, recordId } = await setupActive();
+
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-delete-toctou",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    // Simulates a retention action landing in the window between
+    // completeDeletion's custody-copies check and its own fresh read of the
+    // register at write time — exactly the ordering the reviewer reproduced.
+    await retainForPreservationOnly(fixtureStore, registerStore, {
+      requestId: "req-retain-race",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] retention overrides deletion",
+    });
+
+    const result = await completeDeletion(fixtureStore, registerStore, {
+      requestId: "req-complete-toctou",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] complete test",
+      deletionRequestId: startResult.requestId,
+    });
+
+    assert.equal(
+      result.status,
+      "denied",
+      "a retention action that overrides custody must deny completion, not delete the record anyway",
+    );
+    const record = await fixtureStore.getRecord(recordId);
+    assert.ok(record, "the record must still be present — retention wins the race");
+    const current = await registerStore.getCurrent(recordId);
+    assert.equal(
+      current?.currentCustodyStatus,
+      "preserved",
+      "custody must remain preserved, not be overwritten to deleted",
+    );
+  },
+);
 
 test(
   "concurrent lifecycle actions derived from the same snapshot: only one wins, never a silently merged/corrupted result (Finding 2)",

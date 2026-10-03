@@ -84,6 +84,41 @@ tests, all re-verified against real AWS:**
 All three re-verified against the live deployed stack after redeploying the fixed Lambda — see "Real
 defect-fix verification" below. 84 passing tests (up from 76).
 
+**2026-10-03, fourth review round — two more `completeDeletion` defects, both fixed, both with local
+regression tests (86 passing, up from 84):**
+
+1. **Partial failure could not recover.** The old precondition check required
+   `currentCustodyStatus === "deletion-pending"` exactly. But the register write (to `"deleted"`)
+   happened BEFORE the primary-record removal, so if removal failed after the register write
+   succeeded, every retry — same `requestId` or a fresh one — hit a register that now read
+   `"deleted"`, not `"deletion-pending"`, and was permanently denied even though the record was
+   still physically present. Fixed: the custody-status check (see #2 below) now accepts `"deleted"`
+   as well as `"deletion-pending"` — specifically to allow resuming exactly this partial-failure
+   state — and the record-removal step itself is skipped (not re-attempted as an error) if the
+   record is already gone. `lifecycle.test.ts`, "completeDeletion resumes a partial failure instead
+   of being permanently denied."
+2. **The prerequisite check read a different, discarded snapshot than the one used for the actual
+   write.** The old code read the register once to check `currentCustodyStatus`, then
+   `transitionControl` read it AGAIN internally to perform the version-matched write — and that
+   second read's `computePatch` ignored custody status entirely, unconditionally setting it to
+   `"deleted"`. A retention action landing between the two reads (e.g. `retainForPreservationOnly()`
+   flipping custody to `"preserved"`) was invisible to the write, which deleted the record anyway.
+   Fixed: the outer, throwaway pre-check is gone; the validation now happens *inside*
+   `transitionControl`'s `computePatch`, against the exact snapshot that also supplies
+   `setCurrent`'s expected version — the same snapshot, not a stale copy of it. An invalid status at
+   that point throws `StaleCustodyStatusError`, caught and turned into a terminal `"denied"` (not a
+   retryable failure, since a human retention decision should not be silently overridden by a
+   retry). `lifecycle.test.ts`, "completeDeletion refuses when custody changes away from
+   deletion-pending before the final transition."
+
+Both fixes are proven **at the logic level only** — regression tests against
+`InMemoryFixtureStore`/`InMemoryRestrictionRegisterStore`, the same interface `dynamoStore.ts`
+implements, but not yet re-run against the real deployed stack. Unlike the three Finding 1-3 fixes
+above, these have not had a dedicated real-AWS confirmation pass; see the "AWS checks still not run"
+table below. The reviewer's own instruction was to land the fix and regression coverage as the first
+part of the upcoming S3 slice, not to re-verify against live AWS in this round — noted here so that
+distinction isn't lost.
+
 **Also this round: Hosted UI → callback → authenticated API, verified against real AWS — with an
 honest limitation stated.** The prior round's real-AWS smoke test proved CLI-token (`AdminInitiateAuth`)
 access, not the actual browser OAuth flow a staff member uses. No browser-automation tool (Playwright/
@@ -108,7 +143,7 @@ APIs, not exercised here. See "Browser-flow verification" below for the full seq
 | Sensitivity review and redaction | `FixtureRecord.redactionApplied` field exists | **Not demonstrated** | No redaction workflow or UI built. |
 | Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts`; `staff-ui/` now reads this data live via the API | **Demonstrated (local); the staff UI reads post-withdrawal state correctly, smoke-tested against real AWS** | No PUBLIC-facing surface reads this data yet (only the staff UI does) — only the state transition, copy-tracking, and staff-facing read path are proven. |
 | **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (21 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below) | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes.** An unauthenticated call returns 401; a real Cognito-issued ID token succeeds (both via `AdminInitiateAuth` AND via the actual browser OAuth/PKCE flow — see "Browser-flow verification"); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record reads are scoped by `evaluatePermission` (full content+evidence only when allowed, a limited metadata view otherwise); a `requestId` reused across different records/payloads conflicts (409) rather than silently no-op'ing; `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
-| Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled | **Demonstrated (local)** | Real backup-expiry timing (actual DynamoDB PITR/backup lifecycle, actual S3 noncurrent-version expiration) not exercised — needs real AWS. |
+| Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled; `completeDeletion` requires a linked, completed deletion request (Finding 3); resumes correctly after a partial failure instead of being permanently denied; refuses when custody changes away from `deletion-pending` before the final write instead of deleting anyway (both this round's findings) | **Demonstrated (local)** | Real backup-expiry timing (actual DynamoDB PITR/backup lifecycle, actual S3 noncurrent-version expiration) not exercised — needs real AWS. This round's two new fixes (partial-failure recovery, stale-precondition check) are proven locally only, not yet re-run against the real deployed stack. |
 | **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases) | **Demonstrated, local and real AWS, for both the record-level and grant-level restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case: backup taken while a grant is active → that one grant revoked (record left otherwise fully publishable) → restored from the pre-revocation backup → both `evaluatePermission` and `reconcileRestoredRecords` deny, against the restored store plus the LIVE register — passed on its first run; see "Real grant-revocation restore drill" below. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2, both a direct store-level race and a full `startDeletion`/`restrict` integration race), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). Also still not exercised: actual S3 versioned-media restore (no media was in any drill fixture), actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry), and real Lambda/API-surface enforcement (doesn't exist yet). |
 | Assigned operators | — | **Not demonstrated, not evidenced** | Organizational, not engineering. No name to put here. |
 | Approved regional consent/retention procedures | `docs/ethos.txt` §12 response windows remain explicitly "proposed," not adopted | **Not demonstrated, not evidenced** | Same — governance work, tracked separately (`docs/501c3.txt` Stage 1). |
@@ -324,6 +359,7 @@ mutations already described.
 | A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` is the place to extend. |
 | Script the staff API smoke test into a reusable drill | Currently manual (AWS CLI + PowerShell, not committed as a script) — write a `realStaffApiSmokeTest.ts` mirroring the other drill scripts' structure if this needs to be re-run repeatably rather than by hand. |
 | A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. Run `staff-ui/README.md`'s setup (create a user, `npx serve -l 4300 staff-ui`, open `http://localhost:4300/` in a real browser, sign in) by hand — everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
+| Real-AWS confirmation of the two `completeDeletion` fixes (partial-failure recovery, stale-precondition check) | Not yet run — proven locally only so far (see the fourth-review-round note above). Would mirror "Real defect-fix verification": force a real `deleteRecord` conditional-check failure (e.g. by racing the record's version) to confirm resumability, and sequence a real `retainForPreservationOnly()` call between a real `completeDeletion()`'s copies-check and its write to confirm the stale-precondition denial, both against the live deployed stack. |
 
 ## Explicitly not built in this pass
 
