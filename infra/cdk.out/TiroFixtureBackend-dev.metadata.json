@@ -1,0 +1,279 @@
+{
+  "/TiroFixtureBackend-dev": [
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    },
+    {
+      "type": "aws:cdk:stack-tags",
+      "data": [
+        {
+          "key": "milestone",
+          "value": "fixture-preservation-drill"
+        },
+        {
+          "key": "namespace",
+          "value": "dev"
+        },
+        {
+          "key": "project",
+          "value": "tiro-fixture-backend"
+        },
+        {
+          "key": "syntheticOnly",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/PrimaryTable": [
+    {
+      "type": "aws:cdk:hasPhysicalName",
+      "data": {
+        "Ref": "PrimaryTable53E72174"
+      }
+    }
+  ],
+  "/TiroFixtureBackend-dev/RestrictionRegisterTable": [
+    {
+      "type": "aws:cdk:hasPhysicalName",
+      "data": {
+        "Ref": "RestrictionRegisterTableA604678D"
+      }
+    }
+  ],
+  "/TiroFixtureBackend-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider": [
+    {
+      "type": "aws:cdk:is-custom-resource-handler-customResourceProvider",
+      "data": true
+    }
+  ],
+  "/TiroFixtureBackend-dev/BootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "BootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/CheckBootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CheckBootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/PrimaryTable/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "PrimaryTable53E72174"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Table2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:54:25)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/RestrictionRegisterTable/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "RestrictionRegisterTableA604678D"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Table2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:81:37)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/MediaBucket/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MediaBucketBCBB02BA"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Bucket2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:103:24)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    },
+    {
+      "type": "aws:cdk:analytics:mixin",
+      "data": {
+        "mixin": "aws-cdk-lib.aws_s3.mixins.BucketAutoDeleteObjects"
+      }
+    }
+  ],
+  "/TiroFixtureBackend-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/StaffUserPool/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "StaffUserPool2EF92F57"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new UserPool2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:121:26)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/FixtureBackendLogGroup/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "FixtureBackendLogGroupABA08988"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new LogGroup2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:136:5)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/BillingAlarmTopic/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "BillingAlarmTopic299F87AA"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Topic2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:148:28)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/BillingAlarm/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "BillingAlarm3477AF51"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Alarm2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:155:28)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/CDKMetadata/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CDKMetadata"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib, node internals...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/MediaBucket/Policy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MediaBucketPolicy68C27F6B"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Bucket2 in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:103:24)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    },
+    {
+      "type": "aws:cdk:analytics:mixin",
+      "data": {
+        "mixin": "aws-cdk-lib.aws_s3.mixins.BucketPolicyStatements"
+      }
+    }
+  ],
+  "/TiroFixtureBackend-dev/MediaBucket/AutoDeleteObjectsCustomResource/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MediaBucketAutoDeleteObjectsCustomResourceBC0A7C44"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TiroFixtureBackend-dev/StaffUserPool/StaffUserPoolClient/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "StaffUserPoolStaffUserPoolClient42B48245"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...PropertyInjectable.addClient in aws-cdk-lib...",
+        "new FixtureBackendStack (C:\\tiro\\dev\\tiro.foundation\\infra\\lib\\fixture-backend-stack.ts:128:24)",
+        "<anonymous> (C:\\tiro\\dev\\tiro.foundation\\infra\\bin\\fixture-backend.ts:12:1)",
+        "...node internals..."
+      ]
+    }
+  ]
+}

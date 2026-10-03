@@ -1,0 +1,563 @@
+{
+ "Resources": {
+  "PrimaryTable53E72174": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "PK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "SK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "GSI1PK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "GSI1SK",
+      "AttributeType": "S"
+     }
+    ],
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "GSI1-status-index",
+      "KeySchema": [
+       {
+        "AttributeName": "GSI1PK",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "GSI1SK",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+       "ReadCapacityUnits": 5,
+       "WriteCapacityUnits": 5
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "PK",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "SK",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "ProvisionedThroughput": {
+     "ReadCapacityUnits": 5,
+     "WriteCapacityUnits": 5
+    },
+    "TableName": "tiro-fixture-primary-dev",
+    "Tags": [
+     {
+      "Key": "milestone",
+      "Value": "fixture-preservation-drill"
+     },
+     {
+      "Key": "namespace",
+      "Value": "dev"
+     },
+     {
+      "Key": "project",
+      "Value": "tiro-fixture-backend"
+     },
+     {
+      "Key": "syntheticOnly",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/PrimaryTable/Resource"
+   }
+  },
+  "RestrictionRegisterTableA604678D": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "recordId",
+      "AttributeType": "S"
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "recordId",
+      "KeyType": "HASH"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "ProvisionedThroughput": {
+     "ReadCapacityUnits": 5,
+     "WriteCapacityUnits": 5
+    },
+    "TableName": "tiro-restriction-register-dev",
+    "Tags": [
+     {
+      "Key": "milestone",
+      "Value": "fixture-preservation-drill"
+     },
+     {
+      "Key": "namespace",
+      "Value": "dev"
+     },
+     {
+      "Key": "project",
+      "Value": "tiro-fixture-backend"
+     },
+     {
+      "Key": "syntheticOnly",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/RestrictionRegisterTable/Resource"
+   }
+  },
+  "MediaBucketBCBB02BA": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "LifecycleConfiguration": {
+     "Rules": [
+      {
+       "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 30
+       },
+       "Status": "Enabled"
+      }
+     ]
+    },
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    },
+    "Tags": [
+     {
+      "Key": "aws-cdk:auto-delete-objects",
+      "Value": "true"
+     },
+     {
+      "Key": "milestone",
+      "Value": "fixture-preservation-drill"
+     },
+     {
+      "Key": "namespace",
+      "Value": "dev"
+     },
+     {
+      "Key": "project",
+      "Value": "tiro-fixture-backend"
+     },
+     {
+      "Key": "syntheticOnly",
+      "Value": "true"
+     }
+    ],
+    "VersioningConfiguration": {
+     "Status": "Enabled"
+    }
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/MediaBucket/Resource"
+   }
+  },
+  "MediaBucketPolicy68C27F6B": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "MediaBucketBCBB02BA"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:PutBucketPolicy",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::GetAtt": [
+          "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          "Arn"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MediaBucketBCBB02BA",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MediaBucketBCBB02BA",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/MediaBucket/Policy/Resource"
+   }
+  },
+  "MediaBucketAutoDeleteObjectsCustomResourceBC0A7C44": {
+   "Type": "Custom::S3AutoDeleteObjects",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+      "Arn"
+     ]
+    },
+    "BucketName": {
+     "Ref": "MediaBucketBCBB02BA"
+    }
+   },
+   "DependsOn": [
+    "MediaBucketPolicy68C27F6B"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/MediaBucket/AutoDeleteObjectsCustomResource/Default"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": {
+      "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-us-east-1"
+     },
+     "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs24.x",
+    "Description": {
+     "Fn::Join": [
+      "",
+      [
+       "Lambda function for auto-deleting objects in ",
+       {
+        "Ref": "MediaBucketBCBB02BA"
+       },
+       " S3 bucket."
+      ]
+     ]
+    }
+   },
+   "DependsOn": [
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+    "aws:asset:property": "Code"
+   }
+  },
+  "StaffUserPool2EF92F57": {
+   "Type": "AWS::Cognito::UserPool",
+   "Properties": {
+    "AccountRecoverySetting": {
+     "RecoveryMechanisms": [
+      {
+       "Name": "admin_only",
+       "Priority": 1
+      }
+     ]
+    },
+    "AdminCreateUserConfig": {
+     "AllowAdminCreateUserOnly": true
+    },
+    "AutoVerifiedAttributes": [
+     "email"
+    ],
+    "EmailVerificationMessage": "The verification code to your new account is {####}",
+    "EmailVerificationSubject": "Verify your new account",
+    "SmsVerificationMessage": "The verification code to your new account is {####}",
+    "UserPoolName": "tiro-fixture-staff-dev",
+    "UserPoolTags": {
+     "milestone": "fixture-preservation-drill",
+     "namespace": "dev",
+     "project": "tiro-fixture-backend",
+     "syntheticOnly": "true"
+    },
+    "UsernameAttributes": [
+     "email"
+    ],
+    "VerificationMessageTemplate": {
+     "DefaultEmailOption": "CONFIRM_WITH_CODE",
+     "EmailMessage": "The verification code to your new account is {####}",
+     "EmailSubject": "Verify your new account",
+     "SmsMessage": "The verification code to your new account is {####}"
+    }
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/StaffUserPool/Resource"
+   }
+  },
+  "StaffUserPoolStaffUserPoolClient42B48245": {
+   "Type": "AWS::Cognito::UserPoolClient",
+   "Properties": {
+    "AllowedOAuthFlows": [
+     "implicit",
+     "code"
+    ],
+    "AllowedOAuthFlowsUserPoolClient": true,
+    "AllowedOAuthScopes": [
+     "profile",
+     "phone",
+     "email",
+     "openid",
+     "aws.cognito.signin.user.admin"
+    ],
+    "CallbackURLs": [
+     "https://example.com"
+    ],
+    "ExplicitAuthFlows": [
+     "ALLOW_USER_SRP_AUTH",
+     "ALLOW_REFRESH_TOKEN_AUTH"
+    ],
+    "GenerateSecret": false,
+    "SupportedIdentityProviders": [
+     "COGNITO"
+    ],
+    "UserPoolId": {
+     "Ref": "StaffUserPool2EF92F57"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/StaffUserPool/StaffUserPoolClient/Resource"
+   }
+  },
+  "FixtureBackendLogGroupABA08988": {
+   "Type": "AWS::Logs::LogGroup",
+   "Properties": {
+    "LogGroupName": "/tiro/fixture-backend/dev",
+    "RetentionInDays": 14,
+    "Tags": [
+     {
+      "Key": "milestone",
+      "Value": "fixture-preservation-drill"
+     },
+     {
+      "Key": "namespace",
+      "Value": "dev"
+     },
+     {
+      "Key": "project",
+      "Value": "tiro-fixture-backend"
+     },
+     {
+      "Key": "syntheticOnly",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/FixtureBackendLogGroup/Resource"
+   }
+  },
+  "BillingAlarmTopic299F87AA": {
+   "Type": "AWS::SNS::Topic",
+   "Properties": {
+    "Tags": [
+     {
+      "Key": "milestone",
+      "Value": "fixture-preservation-drill"
+     },
+     {
+      "Key": "namespace",
+      "Value": "dev"
+     },
+     {
+      "Key": "project",
+      "Value": "tiro-fixture-backend"
+     },
+     {
+      "Key": "syntheticOnly",
+      "Value": "true"
+     }
+    ],
+    "TopicName": "tiro-fixture-backend-billing-dev"
+   },
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/BillingAlarmTopic/Resource"
+   }
+  },
+  "BillingAlarm3477AF51": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmActions": [
+     {
+      "Ref": "BillingAlarmTopic299F87AA"
+     }
+    ],
+    "AlarmName": "tiro-fixture-backend-billing-dev",
+    "ComparisonOperator": "GreaterThanThreshold",
+    "Dimensions": [
+     {
+      "Name": "Currency",
+      "Value": "USD"
+     }
+    ],
+    "EvaluationPeriods": 1,
+    "MetricName": "EstimatedCharges",
+    "Namespace": "AWS/Billing",
+    "Period": 21600,
+    "Statistic": "Maximum",
+    "Tags": [
+     {
+      "Key": "milestone",
+      "Value": "fixture-preservation-drill"
+     },
+     {
+      "Key": "namespace",
+      "Value": "dev"
+     },
+     {
+      "Key": "project",
+      "Value": "tiro-fixture-backend"
+     },
+     {
+      "Key": "syntheticOnly",
+      "Value": "true"
+     }
+    ],
+    "Threshold": 5
+   },
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/BillingAlarm/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5WQwW7CMAyGn2U9B2+UA9JuwKRdJg0BO03TlKamC6Qxil0YivLuUxsxuOywkz/7s/9IKaGclvBwp088MvV+5GwFcS3a7JU+8Wesz163VFcQN7pyqBZbP0BSPIE478wepR9meo9Fa7+tLx6L28A+iScwKIa8OuuEntCh4Gu1QyNcpA+V1ZKcNedrau7/kZ0P1qIFW/RDdFKGGm+FIL4xhiWR6x/45QssnEUvtypPknLUMMQXap4DdYd+48JJsWeIGzpYM3xQD0kZR1190mK+IM6cDm3vBkhJrZCpCwbVomOh9tpu/R9qGehoawxzzahmzChr0Y31TVKeaoQd3x/LEsZTGN/t2NpR6LzYFmGV6w8SLMiZ6gEAAA=="
+   },
+   "Metadata": {
+    "aws:cdk:path": "TiroFixtureBackend-dev/CDKMetadata/Default"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}
