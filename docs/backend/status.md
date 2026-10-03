@@ -18,10 +18,48 @@ before merge, per the reviewer's explicit request.
 
 **Also 2026-10-03, after the fixes above:** `backend/src/scripts/realFullFixtureChecks.ts` seeded
 the FULL four-fixture set into real DynamoDB (not just the one `active` record the restore drill
-used) and re-ran the grant-revocation, concurrency, and export-authorization checks against the live
-deployed stack instead of the in-memory fake. All 9 checks passed on the first run. This closes the
-"seed the full fixture set" and "exercise Findings 1/2/3 against real AWS" items that were open in
-the evidence matrix.
+used) and re-ran the concurrency and export-authorization checks, plus a LIVE-only (no restore
+involved) grant-revocation check, against the live deployed stack instead of the in-memory fake. All
+9 checks passed on the first run.
+
+**2026-10-03, third review round:** a reviewer caught three remaining problems, all now addressed:
+1. CI was red — `next build` (Turbopack) failed resolving the Karla Google Font, and `npm install`
+   reported 6 high-severity advisories. Root-caused and fixed/documented below under "CI: self-hosted
+   fonts and the dependency audit."
+2. `evidence-matrix.md` overstated the grant-revocation real-AWS evidence —
+   `realFullFixtureChecks.ts` proves live denial after revocation but never restores anything, so it
+   is not evidence that a restored pre-revocation backup stays denied. The claim is corrected, and a
+   dedicated drill (`realGrantRevocationRestoreDrill.ts`) now exists to actually test that — see the
+   evidence matrix for its result.
+3. A check in `realFullFixtureChecks.ts` — `grantAfterRevoke?.revokedAt !== null` — falsely passes
+   when the grant is simply missing (`undefined !== null` is `true`). Fixed to require the grant to
+   exist and have a populated `revokedAt`.
+
+## CI: self-hosted fonts and the dependency audit
+
+`next/font/google`'s Turbopack resolution fetches font files from Google at build time — a
+documented, recurring source of CI flakiness (network-dependent, non-hermetic builds; see
+upstream reports on this exact failure mode). Fixed by switching `src/app/layout.tsx` from
+`next/font/google` to `next/font/local`, with the same files/weights/styles (latin subset)
+downloaded once and committed under `src/fonts/`. The build is now hermetic — no network access
+needed at build time for fonts.
+
+`npm audit` reports 6 high-severity advisories, investigated rather than blindly run through
+`npm audit fix --force`:
+- 5 trace through `eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob` → `micromatch` →
+  `braces`. `braces@3.0.3` (the advisory's vulnerable range is `<=3.0.3`) is the latest version
+  published on the registry — **no fixed version exists yet**, so no override or upgrade can close
+  this; `npm audit`'s suggested "fix" (downgrading `eslint-config-next` to a Next-14-targeted
+  `14.2.35`) is a red herring, not a real fix, and would be actively wrong for a Next-16 project.
+- 1 is `brace-expansion` nested under `aws-cdk-lib`'s own `minimatch`. Confirmed mechanically (not
+  just by failed override attempts) that `aws-cdk-lib` ships `minimatch`/`brace-expansion` as
+  **bundled dependencies** — vendored inside its own published tarball at an exact pinned version —
+  which `npm overrides` cannot reach at all, and `aws-cdk-lib@2.272.0` is already the latest release.
+
+All 6 are devDependencies used only by `eslint .` (file-discovery globbing) or `cdk synth`/`cdk
+deploy` (asset-staging globbing) — never shipped to the Next.js app or any runtime path, and the
+only inputs they ever parse are this repo's own file paths, never untrusted/external input. Accepted
+and documented rather than chased further; revisit when either upstream ships a fix.
 
 ## Three distinct things, kept distinct
 
@@ -34,9 +72,10 @@ the evidence matrix.
    describe, exercised against synthetic, invented, non-sensitive fixtures — never the public site's
    real demonstration records, never real collected material. Deployed to a real, dedicated AWS
    account (`440744257823`, `us-east-1`) as of 2026-10-02; the record-level restore-after-withdrawal
-   scenario, plus (as of 2026-10-03) grant-level revocation, concurrent-write rejection, and
-   export-time authorization, have all been proven against real DynamoDB, not just the local fake
-   (see `docs/backend/evidence-matrix.md` for exactly what's covered and what isn't — each case is
+   scenario has been proven against real DynamoDB, not just the local fake, and so (as of
+   2026-10-03) have concurrent-write rejection and export-time authorization — live grant-level
+   revocation too, though its own restoration case is tracked separately (see
+   `docs/backend/evidence-matrix.md` for exactly what's covered and what isn't — each case is
    proven in isolation, not yet combinatorially). Still genuinely incomplete for the parts that need
    organizational decisions this document can't make (named operators, adopted retention procedures)
    or further engineering (no Lambda/API/staff-UI surface yet).
@@ -68,8 +107,11 @@ the evidence matrix.
 - CI now typechecks and tests both new packages and synths the CDK stack, on every PR, without any
   AWS credentials. The real-AWS drill is deliberately NOT in CI — it costs real (if tiny) money and
   takes up to ~10 minutes; it's a manually-invoked script, documented in the runbook.
-- The public Next.js site is untouched — same build, same lint, same 45-test baseline it had before
-  (18 of those 45 are the pre-existing `recordKind` frontend checks; 27 are new backend tests).
+- The public Next.js site's content/design is untouched; its build mechanism changed once,
+  2026-10-03, purely for CI reliability — `next/font/google` swapped for `next/font/local` with the
+  same fonts self-hosted under `src/fonts/` (see "CI: self-hosted fonts and the dependency audit"
+  above). Same 45-then-55-test backend baseline either way (18 pre-existing `recordKind` frontend
+  checks; the rest are backend tests).
 
 ## What remains open, by kind
 

@@ -1,32 +1,57 @@
 import type { Metadata } from "next";
-import { Spectral, Karla, Space_Mono, Space_Grotesk } from "next/font/google";
+import localFont from "next/font/local";
 import TopNav from "@/components/TopNav";
 import Footer from "@/components/Footer";
 import "./globals.css";
 
-const spectral = Spectral({
+// Self-hosted (not next/font/google): Turbopack's Google Fonts resolution is
+// network-dependent at build time and a documented source of CI flakiness —
+// a transient fetch failure or Turbopack font-loader resolution error takes
+// down the whole build. These are the exact same files/weights/styles
+// Google Fonts served for these families (latin subset only, matching the
+// previous config) downloaded once and committed, so the build is hermetic.
+const spectral = localFont({
+  src: [
+    { path: "../fonts/spectral-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/spectral-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/spectral-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/spectral-400-italic.woff2", weight: "400", style: "italic" },
+    { path: "../fonts/spectral-500-italic.woff2", weight: "500", style: "italic" },
+    { path: "../fonts/spectral-600-italic.woff2", weight: "600", style: "italic" },
+  ],
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
+  display: "swap",
 });
 
-const karla = Karla({
+// Karla ships as a single variable-font file for weights 400/500/600 — Google
+// Fonts itself serves the identical file for all three weight requests, so
+// one downloaded file is reused across all three @font-face declarations
+// below, exactly mirroring what Google's own CSS did.
+const karla = localFont({
+  src: [
+    { path: "../fonts/karla-variable.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/karla-variable.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/karla-variable.woff2", weight: "600", style: "normal" },
+  ],
   variable: "--font-body",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
-const spaceMono = Space_Mono({
+const spaceMono = localFont({
+  src: [
+    { path: "../fonts/space-mono-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/space-mono-700-normal.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-code",
-  subsets: ["latin"],
-  weight: ["400", "700"],
+  display: "swap",
 });
 
-const spaceGrotesk = Space_Grotesk({
+const spaceGrotesk = localFont({
+  src: "../fonts/space-grotesk-500-normal.woff2",
+  weight: "500",
+  style: "normal",
   variable: "--font-logo",
-  subsets: ["latin"],
-  weight: ["500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {

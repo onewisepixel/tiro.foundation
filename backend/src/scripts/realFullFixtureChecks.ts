@@ -151,7 +151,12 @@ async function main() {
     "Finding 1: revoking a grant denies access against REAL DynamoDB (register's revokedConsentIds + grant's own revokedAt)",
     postRevokeDecision.allowed === false &&
       (registerAfterRevoke?.revokedConsentIds.includes(consentId) ?? false) &&
-      grantAfterRevoke?.revokedAt !== null,
+      // grantAfterRevoke !== undefined is required here, not just != null:
+      // `undefined?.revokedAt !== null` evaluates to `undefined !== null`,
+      // which is true — so a MISSING grant row would falsely pass this check
+      // without the explicit existence test.
+      grantAfterRevoke !== undefined &&
+      grantAfterRevoke.revokedAt !== null,
     { postRevokeDecision, revokedConsentIds: registerAfterRevoke?.revokedConsentIds, grantRevokedAt: grantAfterRevoke?.revokedAt },
   );
 

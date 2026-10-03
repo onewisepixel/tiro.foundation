@@ -29,10 +29,18 @@ a grant-level revocation restore." 55 passing tests.
 
 **Same-day, second follow-up — real AWS:** `backend/src/scripts/realFullFixtureChecks.ts` seeded the
 FULL four-fixture set into the live deployed stack (not just the one `active` record
-`realBackupRestoreDrill.ts` used) and re-ran the grant-revocation, concurrency, and export-authorization
-checks against real DynamoDB rather than the in-memory fake — closing the three real-AWS gaps the
-table below used to list. All 9 checks passed on the first run. See "Real full-fixture checks — what
-actually happened" below.
+`realBackupRestoreDrill.ts` used) and re-ran the concurrency and export-authorization checks against
+real DynamoDB. All 9 checks passed on the first run. See "Real full-fixture checks — what actually
+happened" below. **Correction, reviewed separately:** this script's grant-revocation check only
+proves a revoked grant denies LIVE access — it never restores a backup, so on its own it is NOT
+evidence that a restored pre-revocation backup still gets denied. That specific restoration claim
+was previously overstated in the table row below; it is corrected here and closed by a dedicated
+drill, `realGrantRevocationRestoreDrill.ts`, which passed on its first real run — see "Real
+grant-revocation restore drill" below for the actual, not assumed, result. Also caught in the same
+review: a check in
+`realFullFixtureChecks.ts` used `grantAfterRevoke?.revokedAt !== null`, which is `true` (a false
+pass) when the grant is simply missing, since `undefined !== null`. Fixed to require the grant to
+exist AND have a populated `revokedAt`.
 
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
@@ -42,7 +50,7 @@ actually happened" below.
 | Sensitivity review and redaction | `FixtureRecord.redactionApplied` field exists | **Not demonstrated** | No redaction workflow or UI built. |
 | Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts` | **Demonstrated (local)** | "Dependent views" don't exist yet (no staff UI, no public surface reading this data) — only the state transition and copy-tracking are proven. |
 | Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled | **Demonstrated (local)** | Real backup-expiry timing (actual DynamoDB PITR/backup lifecycle, actual S3 noncurrent-version expiration) not exercised — needs real AWS. |
-| **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, grant-revocation/concurrency/export cases) | **Demonstrated, local and real AWS, for every case this milestone's regression suite covers.** The drill proves the record-level withdrawal+deletion→restore scenario end-to-end against real DynamoDB (passed three times). `realFullFixtureChecks.ts` separately proves, also against real DynamoDB: a revoked grant denies access even via a stale restored row (Finding 1), a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2, both a direct store-level race and a full `startDeletion`/`restrict` integration race), and export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3). All 9 checks passed on the first run; see "Real full-fixture checks — what actually happened" below. | Each of those real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). Also still not exercised: actual S3 versioned-media restore (no media was in any drill fixture), actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry), and real Lambda/API-surface enforcement (doesn't exist yet). |
+| **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases) | **Demonstrated, local and real AWS, for both the record-level and grant-level restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case: backup taken while a grant is active → that one grant revoked (record left otherwise fully publishable) → restored from the pre-revocation backup → both `evaluatePermission` and `reconcileRestoredRecords` deny, against the restored store plus the LIVE register — passed on its first run; see "Real grant-revocation restore drill" below. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2, both a direct store-level race and a full `startDeletion`/`restrict` integration race), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). Also still not exercised: actual S3 versioned-media restore (no media was in any drill fixture), actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry), and real Lambda/API-surface enforcement (doesn't exist yet). |
 | Assigned operators | — | **Not demonstrated, not evidenced** | Organizational, not engineering. No name to put here. |
 | Approved regional consent/retention procedures | `docs/ethos.txt` §12 response windows remain explicitly "proposed," not adopted | **Not demonstrated, not evidenced** | Same — governance work, tracked separately (`docs/501c3.txt` Stage 1). |
 | Gate evidence and sign-off | This document | **Partial** — the engineering evidence exists; the sign-off line is deliberately blank | Needs a real named operator, not a placeholder. |
@@ -96,6 +104,34 @@ Every drill run cleaned up its own disposable artifacts (temporary restored tabl
 the original primary table, restriction-register table, and their one real seeded-then-withdrawn
 record were never deleted — matching the brief's "preserve the baseline dataset and independent
 restriction register" instruction.
+
+## Real grant-revocation restore drill — what actually happened
+
+Dated 2026-10-03. `backend/src/scripts/realGrantRevocationRestoreDrill.ts` ran the real T0→T1→T2→T3
+sequence a reviewer specifically asked for, against the same deployed stack: seed one record, take
+a real `CreateBackupCommand` backup WHILE its grant is still active, revoke ONLY that grant
+(`revokeConsentGrant()`) against live data — confirmed the record stayed otherwise fully
+publishable (`currentPublicationStatus` stayed `"published"`; nothing withdrawn or deleted) — then
+`RestoreTableFromBackupCommand` into a fresh table from the pre-revocation backup, confirmed the
+restored grant row showed `revokedAt: null` (genuinely stale, not trivially already-denied), then
+ran both `evaluatePermission` and `reconcileRestoredRecords` against the restored store plus the
+LIVE (untouched) register.
+
+**Result: PASSED on the first run.** Both checks denied — `evaluatePermission`:
+`{ allowed: false, reason: "No active consent grant for purpose \"publication\" and audience
+\"public\"." }`; `reconcileRestoredRecords`: `{ servable: false, reason: "No active consent grant
+... (regardless of exported state)." }`. This is the actual evidence for the claim the table row
+above now makes about grant-level restoration — not inferred from the live-only
+`realFullFixtureChecks.ts` run, which was the precise overstatement a reviewer caught.
+
+One more thing caught (by this session, not the reviewer) while writing this script: an early
+version logged the restored grant's `revokedAt` via `restoredGrant?.revokedAt ?? "MISSING"`, which
+would print "MISSING" for an actually-present `revokedAt: null` (the correct, expected value) just
+as readily as for a genuinely absent grant — the same undefined/null confusion as the
+`grantAfterRevoke?.revokedAt !== null` bug, just in a log line instead of an assertion. Fixed before
+this was ever run for real; the actual sanity check a few lines below it (`restoredGrant ===
+undefined || restoredGrant.revokedAt !== null`) always used a correct strict comparison, so this was
+a misleading log message, not a false-passing check.
 
 ## Real full-fixture checks — what actually happened
 
