@@ -114,6 +114,31 @@ redacted-for-public-export pattern. Four new API routes, no infra change needed.
 from 131); a new live drill, `realCorrectionRedactionDrill.ts`, passed **19/19 on its first real
 run** against the deployed stack.
 
+**Update, a seventh review round (2026-10-04) — five gaps reported as deterministic LOCAL
+reproductions against the actual service code, not fresh AWS runs, all genuinely fixed:** (1)
+correcting then redacting the same field left the correction's historical values unmasked — fixed
+by a shared `services/redactionView.ts` module enforcing masking on history too, from the current
+register, wired into the live route and public exports; (2) restoring a pre-redaction backup could
+revive redacted text, because text redaction (unlike media) had no durable register state — fixed
+by adding `redactedTextFields` to the register and masking from it at serve time, restore-proof the
+same way media already was; (3) a failed history write could lose the true original — fixed with
+genuine atomicity (`putRecordWithCorrection`/`putRecordWithRedaction`, a real DynamoDB
+`TransactWriteItems`) plus stable, requestId-derived history ids; (4) the media-purge claim was
+released too early (reopening the exact race it exists to prevent) and didn't recognize its own
+`requestId` on retry — fixed by holding it continuously through the final commit and comparing
+ownership; (5) the export response budget measured only media, so 20 large-text records still
+produced 9 MB+ — fixed by budgeting each record's complete real serialized envelope and excluding
+the whole record, never trimming, when it would cross the limit.
+
+158 tests pass (up from 150). `realS3MediaAcceptanceDrill.ts` (Finding 4) now passes **36/36**;
+`realCorrectionRedactionDrill.ts` (Findings 1-3, plus Finding 5's API-shape half) now passes
+**32/32**. One limitation is named rather than hidden: Finding 5's actual whole-response TEXT
+exclusion couldn't be forced live — confirmed directly against CloudWatch metrics and Lambda logs
+that this fixture stack's deliberately tiny, always-free-tier DynamoDB provisioning throttles even
+a single ~395 KB strongly-consistent read — so that exact scale (the reviewer's 9,032,712-byte,
+20-record reproduction) stays proven byte-for-byte by the deterministic local test instead. See the
+evidence matrix's seventh-review-round note for the full detail.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
@@ -256,7 +281,6 @@ cap) is live, subscribed to `onewisepixel@gmail.com`.
 
 ## Explicitly not done — not a vague "more to do" list
 
-- Versioned correction and redaction (§3.5/§12's "Correct" action) — no implementation yet.
 - Migrating the already-live legacy (`versionId: null`) media references seeded before version
   binding existed — they correctly fail closed (409), but nothing re-uploads/rebinds them
   automatically; would need a dedicated one-off migration script.
@@ -264,10 +288,18 @@ cap) is live, subscribed to `onewisepixel@gmail.com`.
   deletion in every drill so far has been explicit, not timing-based.
 - A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or a media purge
   racing an export) — each real-AWS correctness case so far has been checked in isolation.
+- Forcing the export response budget's real whole-record TEXT exclusion live (as opposed to proving
+  the field exists) — needs reading several real MB out of this stack's deliberately tiny,
+  always-free-tier DynamoDB provisioning inside one Lambda invocation; confirmed infeasible without
+  a real, billed capacity bump this round deliberately didn't make unilaterally. See the evidence
+  matrix's seventh-review-round note.
 - **Done as of the S3 media milestone, previously listed here:** authorized-media S3 routes
   (presigned URLs deliberately NOT used — see `services/media.ts`'s "no reusable download
   capability" design), real S3 version/delete-marker handling, byte-level checksums, and real S3
   object-version inventory/removal. See the evidence matrix's "Real S3 media acceptance drill".
+- **Done as of the versioned correction and redaction milestone, previously listed here:**
+  §3.5/§12's "Correct" action and text/media redaction tooling. See that milestone's note above and
+  the evidence matrix's "Real correction/redaction drill".
 - **Organizational, not engineering, and not something this document can resolve:** a named
   operator, and adopted (not merely proposed) consent/retention response-window numbers. Both are
   stated prerequisites in `docs/ethos.txt` §6.1. No placeholder values were fabricated for either.

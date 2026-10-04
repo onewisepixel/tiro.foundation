@@ -23,6 +23,33 @@
 //      the original redacted text, matching how it already redacts
 //      consent evidence and media.
 //
+// Reviewer-caught findings closed in this round, all against the REAL
+// deployed stack (not just the in-memory fake):
+//   6. Correcting a field and then redacting that SAME field masks the
+//      correction's historical previousValue/correctedValue too, through
+//      the real GET /records/:id response — not just the live value.
+//   7. Replaying the SAME correct requestId through the real API twice
+//      is a safe no-op: exactly one correction, with the TRUE original
+//      preserved, never a corrupted re-capture of an already-changed
+//      live value.
+//   8. Restoring a backup taken BEFORE a text redaction, directly into the
+//      REAL primary table, does not revive the pre-redaction text through
+//      the real API — enforced from the REAL, unchanged restriction
+//      register, which importExport is structurally incapable of writing
+//      to. access.allowed: true is confirmed CORRECT (text redaction
+//      doesn't deny overall access); the served content staying masked
+//      despite that is the actual fix.
+//   9. The real deployed /export response carries the new
+//      recordsSkippedForResponseBudget field at all. Forcing an ACTUAL
+//      whole-response exclusion live (the reviewer's full 20-record, 9 MB+
+//      reproduction) was attempted and abandoned — this table's
+//      deliberately tiny, always-free-tier provisioned RCU throttles even
+//      a single ~395 KB strongly-consistent read, confirmed directly
+//      against real CloudWatch/Lambda logs, not guessed. That exact scale
+//      is proven byte-for-byte by the deterministic local test instead
+//      (export.test.ts); see check 7's own comment and evidence-matrix.md
+//      for the full, named limitation.
+//
 // Cleanup: only this drill's own disposable Cognito test user is deleted.
 // Every fixture it seeds is left in place, same precedent as every other
 // real-AWS check in this project.
@@ -200,6 +227,90 @@ async function main() {
     );
     record("Sanity check: the original title really was different from the redacted placeholder", originalTitle !== "[REDACTED]");
 
+    // ------- check 3b: correcting then redacting the SAME field masks --
+    // ------- its correction history too, through the real API --------
+    // Reviewer-caught finding: correcting a field and then redacting that
+    // SAME field left the correction's previousValue/correctedValue
+    // readable through the real GET /records/:id response — a complete
+    // end-run around the redaction. Uses a FRESH record so it doesn't
+    // interact with the title/summary already touched above.
+    const [sameFieldFixture] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [sameFieldFixture]);
+    const sameFieldRecordId = sameFieldFixture.record.recordId;
+    const sameFieldOriginalTitle = sameFieldFixture.record.title;
+    await apiPost(`/records/${sameFieldRecordId}/correct`, {
+      reason: "[SYNTHETIC] correction/redaction drill — same-field masking",
+      field: "title",
+      correctedValue: "[SYNTHETIC] corrected title, same field as the later redaction",
+    });
+    const sameFieldRedactResponse = await apiPost(`/records/${sameFieldRecordId}/redact-text`, {
+      reason: "[SYNTHETIC] correction/redaction drill — same-field masking",
+      field: "title",
+    });
+    record("Real POST /records/:id/redact-text on a PREVIOUSLY CORRECTED field succeeds through the live API", sameFieldRedactResponse.status === 200, `status=${sameFieldRedactResponse.status}`);
+
+    const afterSameFieldRedact = await apiGet(`/records/${sameFieldRecordId}?purpose=publication&audience=public`);
+    const afterSameFieldRedactBody = afterSameFieldRedact.json as {
+      record?: { title?: string };
+      corrections?: { field: string; previousValue: string; correctedValue: string }[];
+    };
+    record(
+      "The live field is masked through the real API",
+      afterSameFieldRedactBody.record?.title === "[REDACTED]",
+      afterSameFieldRedactBody.record?.title,
+    );
+    record(
+      "The real API masks that SAME field's correction history too, not just the live value — the exact reviewer-caught gap",
+      afterSameFieldRedactBody.corrections?.[0]?.previousValue === "[REDACTED]" &&
+        afterSameFieldRedactBody.corrections?.[0]?.correctedValue === "[REDACTED]",
+      JSON.stringify(afterSameFieldRedactBody.corrections),
+    );
+    record("Sanity check: the original title really was different from the redacted placeholder", sameFieldOriginalTitle !== "[REDACTED]");
+
+    // --- check 3c: retrying the SAME correct/redact-text requestId through
+    // --- the real API is a safe no-op, never corrupting history ---------
+    // Reviewer-caught finding: correctRecord()/redactText() used to write
+    // the field change and its history as two SEPARATE operations, so a
+    // retry after a failure in between (or after full success) could
+    // re-read the ALREADY-changed live value and record it as a second,
+    // wrong "previous" value. This can't force a real mid-write AWS
+    // failure on demand, but it DOES prove the retry-after-full-success
+    // half live: replaying the identical request twice through the real
+    // API must never duplicate or corrupt history.
+    const retryRequestId = `req-${drillTag}-retry-correct`;
+    const retryFieldValue = "[SYNTHETIC] corrected via a retried requestId";
+    const firstRetryAttempt = await apiPost(`/records/${sameFieldRecordId}/correct`, {
+      requestId: retryRequestId,
+      reason: "[SYNTHETIC] correction/redaction drill — retry safety",
+      field: "summary",
+      correctedValue: retryFieldValue,
+    });
+    const secondRetryAttempt = await apiPost(`/records/${sameFieldRecordId}/correct`, {
+      requestId: retryRequestId,
+      reason: "[SYNTHETIC] correction/redaction drill — retry safety",
+      field: "summary",
+      correctedValue: retryFieldValue,
+    });
+    record(
+      "Replaying the SAME requestId through the real API twice reports completed both times, not an error or a silent divergence",
+      firstRetryAttempt.status === 200 && secondRetryAttempt.status === 200,
+      `first=${firstRetryAttempt.status} second=${secondRetryAttempt.status}`,
+    );
+    const afterRetryBody = (await apiGet(`/records/${sameFieldRecordId}?purpose=publication&audience=public`)).json as {
+      corrections?: { field: string; previousValue: string; correctedValue: string }[];
+    };
+    const retryCorrections = (afterRetryBody.corrections ?? []).filter((c) => c.field === "summary");
+    record(
+      "Replaying the same requestId through the real API produces exactly ONE correction, not a duplicate",
+      retryCorrections.length === 1,
+      JSON.stringify(retryCorrections),
+    );
+    record(
+      "The real correction's previousValue after a replayed retry is still the TRUE original, not a corrupted re-capture of the already-changed live value",
+      retryCorrections[0]?.previousValue === sameFieldFixture.record.summary,
+      retryCorrections[0]?.previousValue,
+    );
+
     // ------------------------------------------ check 4: redact media --
     const mediaPath = (mediaId: string) => `/records/${recordId}/media/${mediaId}?purpose=publication&audience=public`;
     const beforeRedactMedia = await fetch(`${API_URL}${mediaPath(textMedia.mediaId)}`, { headers: { authorization: `Bearer ${idToken}` } });
@@ -293,6 +404,120 @@ async function main() {
       "Restoring the complete-preservation export reproduces the real pre-redaction original text",
       restoredRedactions.some((r) => r.scope === "text" && "previousValue" in r && r.previousValue === originalTitle),
       JSON.stringify(restoredRedactions),
+    );
+
+    // ----- check 6: restoring a backup taken BEFORE redaction does NOT ----
+    // ----- revive the pre-redaction text, against the REAL live register --
+    // Reviewer-caught finding, exact repro: "I exported before redaction,
+    // redacted the source, then restored that backup. Against the
+    // unchanged live register, the restored original returned
+    // access.allowed: true and servable: true." access.allowed: true is
+    // actually CORRECT here (text redaction masks a field, unlike media
+    // redaction's hard access override) — the bug was the SERVED CONTENT
+    // reverting to the pre-redaction original despite that. This restores
+    // into the REAL DynamoFixtureStore (overwriting the live record back
+    // to its pristine pre-redaction state) while the REAL
+    // DynamoRestrictionRegisterStore is never touched by the restore —
+    // then confirms through the REAL deployed API that the field still
+    // comes back masked.
+    const [survivalFixture] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [survivalFixture]);
+    const survivalRecordId = survivalFixture.record.recordId;
+    const survivalOriginalTitle = survivalFixture.record.title;
+    const preRedactionBackup = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [survivalRecordId],
+      "complete-preservation",
+      `${drillTag}-pre-redaction-backup`,
+      "public",
+    );
+    const survivalRedactResponse = await apiPost(`/records/${survivalRecordId}/redact-text`, {
+      reason: "[SYNTHETIC] correction/redaction drill — restore survival",
+      field: "title",
+    });
+    record("Real POST /records/:id/redact-text succeeds through the live API (restore-survival setup)", survivalRedactResponse.status === 200, `status=${survivalRedactResponse.status}`);
+
+    // Restore the PRE-redaction backup directly into the REAL primary
+    // table — simulating "restoring an old backup" against real DynamoDB.
+    // importExport is structurally incapable of writing to the register,
+    // so the real register entry is left completely alone by this call.
+    await importExport(fixtureStore, preRedactionBackup);
+    const revivedRawRecord = await fixtureStore.getRecord(survivalRecordId);
+    record(
+      "Sanity check: the restore really did revive the pre-redaction original in the REAL primary table",
+      revivedRawRecord?.title === survivalOriginalTitle,
+      revivedRawRecord?.title,
+    );
+    const survivalRegisterAfterRestore = await registerStore.getCurrent(survivalRecordId);
+    record(
+      "The REAL live register still says the field is redacted — importExport never touched it",
+      (survivalRegisterAfterRestore?.redactedTextFields ?? []).includes("title"),
+      JSON.stringify(survivalRegisterAfterRestore?.redactedTextFields),
+    );
+
+    const afterSurvivalRestore = await apiGet(`/records/${survivalRecordId}?purpose=publication&audience=public`);
+    const afterSurvivalRestoreBody = afterSurvivalRestore.json as { access?: { allowed?: boolean }; record?: { title?: string } };
+    record(
+      "access.allowed is correctly true — text redaction does not deny overall access, unlike media redaction",
+      afterSurvivalRestoreBody.access?.allowed === true,
+      JSON.stringify(afterSurvivalRestoreBody.access),
+    );
+    record(
+      "Despite allowed access and a primary table reverted to the pre-redaction original, the REAL deployed API still serves the field masked — the exact reviewer-caught finding, closed",
+      afterSurvivalRestoreBody.record?.title === "[REDACTED]",
+      afterSurvivalRestoreBody.record?.title,
+    );
+
+    // ----- check 7: the real deployed /export response carries the new ----
+    // ----- recordsSkippedForResponseBudget field -------------------------
+    // Reviewer reproduced 9,032,712 serialized bytes from 20 records with
+    // larger text fields, despite the (then media-only) serialized-response
+    // budget. That EXACT scale — enough large records to force a real
+    // whole-response exclusion — is proven byte-for-byte by the
+    // deterministic local test (export.test.ts's "twenty records with
+    // large TEXT fields..."), which has no real infrastructure's throughput
+    // to respect.
+    //
+    // A live attempt at forcing that same exclusion was tried here, at
+    // several scales, and abandoned — not narrowed quietly, named
+    // plainly. Confirmed directly against real CloudWatch metrics and
+    // Lambda logs: this table's deliberately tiny, always-free-tier
+    // provisioning (5 RCU/s — see fixture-backend-stack.ts's PrimaryTable)
+    // throttled even a SINGLE strongly-consistent read of one ~395 KB
+    // record (`DynamoFixtureStore.getRecord` uses `ConsistentRead: true`
+    // throughout, correctly, for lifecycle-correctness reasons unrelated to
+    // this drill) with a genuine `ProvisionedThroughputExceededException`,
+    // regardless of how long a prior cooldown waited. Unlike the media
+    // budget's live check in realS3MediaAcceptanceDrill.ts, where the bulk
+    // bytes live in S3 (no comparable provisioned-RCU ceiling to pass
+    // through), proving the TEXT-driven threshold live would require
+    // reading several megabytes of DynamoDB-stored content back out inside
+    // one Lambda invocation — genuinely infeasible against this fixture
+    // stack's capacity without either forcing a real, billed capacity
+    // increase on a SHARED table (not this script's call to make
+    // unilaterally) or waiting far longer than is reasonable for a
+    // drill. Named here rather than hidden; see evidence-matrix.md.
+    //
+    // What IS proven live, honestly: the real deployed API's /export
+    // response actually carries the new field at all, using ordinary,
+    // normal-sized records — confirming the deployed shape matches what
+    // export.ts now returns, without needing to cross the byte threshold.
+    const budgetShapeResponse = await fetch(`${API_URL}/export`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        recordIds: [sameFieldRecordId, survivalRecordId],
+        scope: "complete-preservation",
+        fixtureSetId: `${drillTag}-budget-shape`,
+        destinationAudience: "public",
+      }),
+    });
+    const budgetShapeBody = (await budgetShapeResponse.json().catch(() => null)) as { recordsSkippedForResponseBudget?: unknown[] } | null;
+    record(
+      "The real deployed /export response carries the new recordsSkippedForResponseBudget field, confirming the deployed shape matches what export.ts now returns",
+      budgetShapeResponse.status === 200 && Array.isArray(budgetShapeBody?.recordsSkippedForResponseBudget),
+      `status=${budgetShapeResponse.status} field=${JSON.stringify(budgetShapeBody?.recordsSkippedForResponseBudget)}`,
     );
   } finally {
     log("CLEANUP", "Deleting the disposable drill Cognito test user (nothing else)", { email: testEmail });

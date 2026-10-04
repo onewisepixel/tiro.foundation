@@ -202,9 +202,10 @@ manually invoked only.
 
 ## S3 media acceptance drill against real AWS
 
-One reusable script covers the full S3 media milestone PLUS the two `completeDeletion` checks a
-prior review round left outstanding (partial-failure recovery, stale-precondition refusal) — see
-`docs/backend/evidence-matrix.md`'s "Real S3 media acceptance drill" for the full 25-check result.
+One reusable script covers the full S3 media milestone PLUS the `completeDeletion` checks several
+review rounds have left outstanding (partial-failure recovery, stale-precondition refusal, and the
+media-purge claim's ownership-based resumption) — see `docs/backend/evidence-matrix.md`'s "Real S3
+media acceptance drill" for the full 36-check result.
 
 ```bash
 AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
@@ -219,7 +220,7 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
 
 Creates its own disposable Cognito test user (deleted at the end) and seeds several fresh fixtures
 with real, version-bound S3 media — all left in place afterward, same precedent as every other
-real-AWS check. Exits non-zero if any of its 25 checks fail.
+real-AWS check. Exits non-zero if any of its 36 checks fail.
 
 ## Correction/redaction acceptance drill against real AWS
 
@@ -239,8 +240,17 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
 Exercises `correctRecord`/`disputeCorrection`/`redactText`/`redactMedia` through the real deployed
 API, confirming the pre-correction/pre-redaction originals are preserved in history but never
 served through `GET /records/:id`, and that export/restore carry (preservation scope) or omit
-(public scope) them correctly. Creates its own disposable Cognito test user (deleted at the end);
-the one fixture it seeds is left in place. Exits non-zero if any of its 19 checks fail.
+(public scope) them correctly. Also confirms, from a seventh review round: a redacted field's
+correction history is masked too; a replayed `correct` requestId never corrupts history; restoring
+a pre-redaction backup directly into the real primary table doesn't revive the served text, checked
+against the real, unchanged register; and the real `/export` response carries the new
+`recordsSkippedForResponseBudget` field. Creates its own disposable Cognito test user (deleted at
+the end); the fixtures it seeds are left in place. Exits non-zero if any of its 32 checks fail.
+Note: this drill deliberately does NOT attempt to force the export response budget's actual
+whole-record TEXT exclusion live — that needs reading several real MB out of this stack's
+deliberately tiny, always-free-tier DynamoDB provisioning inside one Lambda invocation, confirmed
+infeasible without a real, billed capacity bump (see the evidence matrix's seventh-review-round
+note); that exact scale stays proven by `export.test.ts` locally instead.
 
 ## Seeding real, version-bound media into a fixture
 

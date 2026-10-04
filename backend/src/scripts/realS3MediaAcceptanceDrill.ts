@@ -32,7 +32,11 @@
 //      is no reliable way to force a real transient AWS failure on demand);
 //      the second needs no hook at all, just the real operations in the
 //      vulnerable order. Both are labeled in their own check, not blended
-//      with anything "naturally occurring".
+//      with anything "naturally occurring". A fourth sub-check (7d, this
+//      round's reviewer-caught finding) proves the media-purge claim is
+//      resumed — never refused as foreign — by the SAME requestId that
+//      already owns it, while a genuinely DIFFERENT requestId is still
+//      refused, against the real register.
 //
 // Cleanup: only this drill's own disposable Cognito test user is deleted.
 // Every seeded fixture, the live primary/register tables, and the staff
@@ -66,6 +70,7 @@ import {
   completeDeletion,
   revokeConsentGrant,
   retainForPreservationOnly,
+  MediaPurgeInProgressError,
 } from "../services/lifecycle";
 import { exportFixtureSet } from "../services/export";
 import { importExport, reconcileRestoredRecords, validateExport } from "../services/restore";
@@ -666,6 +671,80 @@ async function main() {
         interleaveVersionsAfter.length === interleaveVersionsBefore.length &&
         interleaveVersionsBefore.every((v) => interleaveVersionsAfter.some((a) => a.versionId === v.versionId)),
       `custody=${interleaveRegister?.currentCustodyStatus} before=${interleaveVersionsBefore.length} after=${interleaveVersionsAfter.length}`,
+    );
+
+    // ------------- check 7d: claim ownership resumption, real DynamoDB ----
+    // DETERMINISTIC DRILL-ONLY HOOK, same precedent as 7a: there is no
+    // reliable way to force a real purge failure AND a real release
+    // failure on demand. This directly recreates — via a raw register
+    // write — EXACTLY the state a failed purge plus a failed release
+    // leaves behind (a claim stuck, attributed to a specific requestId),
+    // then proves, against real DynamoDB: a DIFFERENT requestId is still
+    // refused (the claim is foreign to it), while the SAME requestId that
+    // already owns it resumes and completes — never denied just because a
+    // claim already exists. This is the reviewer's exact repro: "a failed
+    // purge plus failed release left an owned claim that its retry denied
+    // rather than resumed."
+    const [claimFixture] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, claimFixture);
+    await seedStore(fixtureStore, registerStore, [claimFixture]);
+    const claimStart = await startDeletion(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-claim-start`,
+      recordId: claimFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — claim ownership resumption",
+    });
+    const claimOwnerRequestId = `req-${drillTag}-claim-owner-complete`;
+    const preClaimState = await registerStore.getCurrent(claimFixture.record.recordId);
+    if (!preClaimState) throw new Error("drill invariant violated: register entry must exist after startDeletion");
+    await registerStore.setCurrent(
+      {
+        ...preClaimState,
+        mediaPurgeClaim: { requestId: claimOwnerRequestId, claimedAt: new Date().toISOString() },
+        controlVersion: preClaimState.controlVersion + 1,
+      },
+      preClaimState.controlVersion,
+    );
+    log(
+      "DRILL HOOK (labeled)",
+      "Directly wrote a mediaPurgeClaim onto the REAL live register via a raw write, bypassing completeDeletion — simulating exactly the state a failed purge plus a failed release leaves behind, attributed to a specific requestId.",
+    );
+
+    const claimForeignAttempt = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `req-${drillTag}-claim-foreign-complete`,
+        recordId: claimFixture.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] S3 media acceptance drill — claim ownership resumption",
+        deletionRequestId: claimStart.requestId,
+      },
+      mediaStore,
+    ).catch((error: unknown) => error);
+    record(
+      "A claim held by a DIFFERENT requestId is still refused, against the real register",
+      claimForeignAttempt instanceof MediaPurgeInProgressError,
+      String(claimForeignAttempt),
+    );
+
+    const claimResumed = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: claimOwnerRequestId,
+        recordId: claimFixture.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] S3 media acceptance drill — claim ownership resumption",
+        deletionRequestId: claimStart.requestId,
+      },
+      mediaStore,
+    );
+    const claimRecordGone = await fixtureStore.getRecord(claimFixture.record.recordId);
+    record(
+      "The claim's OWN requestId resumes and completes against real DynamoDB — never refused as a foreign conflict just because a claim already exists",
+      claimResumed.status === "completed" && claimRecordGone === null,
+      `status=${claimResumed.status}`,
     );
 
     // ------- check 8: export response size budget, real Lambda, real API --

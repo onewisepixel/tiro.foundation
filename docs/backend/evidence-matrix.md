@@ -262,17 +262,92 @@ redaction tooling, scoped to what this backend can actually do:**
 150 tests pass (up from 131). See "Real correction/redaction drill" below for the live-AWS
 result — **19/19 checks passed on the first real run.**
 
+**2026-10-04, seventh review round — five gaps reproduced as deterministic LOCAL reproductions
+against the actual service code (not fresh AWS runs), all fixed, regression-tested, and re-verified
+against real DynamoDB/S3/Lambda:**
+
+1. **Correction history bypassed text redaction.** Correcting a field and then redacting that SAME
+   field left `[REDACTED]` on the live value but the correction's historical `previousValue`/
+   `correctedValue` for that field fully readable through `GET /records/:id`'s `corrections` and
+   through public exports — a complete end-run around the redaction. Root cause: masking was
+   enforced only on the live field, never on history for the same field. Fixed by a new shared
+   module, `services/redactionView.ts`, whose `maskCorrectionsForRedactedFields` masks a
+   correction's historical values for any field the CURRENT register lists as redacted — wired into
+   both `router.ts`'s `GET /records/:id` (unconditionally, live reads never see unredacted history)
+   and `export.ts` (only for `public-redacted` scope; `complete-preservation` keeps the full
+   archival history, the same exemption `Redaction.previousValue` already has for that scope).
+   `router.test.ts`, `export.test.ts`.
+2. **Restoration revived redacted text.** Text redaction had NO durable, register-level control
+   state — unlike media redaction's `redactedMediaIds` — so it lived only in the primary
+   `FixtureStore` (the live field + a `Redaction` row), the one place a restored backup can
+   silently resurrect it. Reproduced exactly: export before redaction, redact the source, restore
+   that pre-redaction backup — the live register was untouched (correctly still "allowed"), but the
+   served field reverted to the pre-redaction original despite that. Fixed by adding
+   `redactedTextFields` to `RestrictionRegisterEntry`, written by `redactText()` the same way
+   `redactedMediaIds` already is, and enforcing it at serve time via
+   `redactionView.ts`'s `applyTextRedactions` — reading the CURRENT register, never the record's
+   own (restorable) stored value — wired into both `router.ts` and `export.ts` (for BOTH export
+   scopes; the live field is always masked once redacted, same as media). `restore.test.ts`,
+   `export.test.ts`.
+3. **A failed history write permanently lost originals.** `correctRecord()`/`redactText()` wrote the
+   changed field and its history row as two SEPARATE writes; a failure in between (or a retry after
+   full success) could lose the true original or corrupt history with the already-changed live
+   value. Fixed with genuine atomicity: new `FixtureStore.putRecordWithCorrection`/
+   `putRecordWithRedaction` methods — a real `TransactWriteItems` in DynamoDB, a single
+   non-overridable mutation in the in-memory fake — commit the field change and its history row
+   together or not at all. Combined with stable, `requestId`-derived history-row ids (not a fresh
+   `uuidv7()` per attempt) and an "already applied" existence guard, a retry after a failure is a
+   safe resume and a retry after full success is a safe no-op, never a second, corrupting write.
+   `lifecycle.test.ts` (new atomicity regression tests for both `correctRecord` and `redactText`,
+   injecting one history-write failure then retrying — the exact repro).
+4. **The purge claim's lifetime and recovery were incomplete.** Two distinct bugs in
+   `completeDeletion()`'s media-purge claim: (a) the claim was released in a `finally` block
+   immediately after the purge attempt, BEFORE the final commit — reopening the exact race the
+   claim exists to prevent, just moved later: retention could win the register in that now-
+   unprotected window, after the media was already destroyed, leaving "preserved" custody with zero
+   media versions. (b) the claim check never compared ownership, so a retry of the SAME completion
+   under the SAME `requestId` (resuming after an earlier partial failure) was wrongly refused as a
+   foreign conflict. Fixed: the claim is now held CONTINUOUSLY from claim-time through the FINAL
+   write, released only as part of that write (success) or in the deny/abandon branch (never as a
+   separate step with its own failure window); the claim check now compares
+   `mediaPurgeClaim.requestId` against the caller's own — a different requestId still refuses, the
+   SAME requestId resumes. `lifecycle.test.ts` (a real `InterleavingRegisterStore` race landing
+   retention in the exact post-purge, pre-commit window; a simulated stuck-claim resumption test).
+5. **The response budget excluded text/history.** The previous round's export budget measured only
+   media's serialized contribution; 20 records with larger TEXT fields and no media produced
+   9,032,712 serialized bytes, over Lambda's real 6 MiB synchronous response limit, because nothing
+   budgeted title/summary/corrections/redactions/history. Fixed: `exportFixtureSet` now builds each
+   record's COMPLETE envelope, measures its REAL serialized size
+   (`Buffer.byteLength(JSON.stringify(envelope), "utf8")`), and tracks a running total across the
+   WHOLE response — excluding the ENTIRE record (not just trimming media) if it would cross
+   `MAX_EXPORT_RESPONSE_BYTES`, reported in a new `recordsSkippedForResponseBudget` field (never
+   silently dropped, same pattern as `mediaObjectsSkipped`; also carried losslessly through the
+   JSONL `toJsonl`/`fromJsonl` round-trip). `export.test.ts` (twenty records with large text fields
+   and no media, reproducing the reviewer's exact byte count before the fix).
+
+**158 tests pass (up from 150).** Both live drills were extended and re-run against the redeployed
+stack: `realS3MediaAcceptanceDrill.ts` (Finding 4, the claim's ownership-based resumption) —
+**36/36 checks passed**; `realCorrectionRedactionDrill.ts` (Findings 1, 2, 3, and the API-shape half
+of Finding 5) — **32/32 checks passed**. See "Real S3 media acceptance drill" and "Real correction/
+redaction drill" below for exactly what each ran, including an honestly-named limitation: forcing
+Finding 5's actual whole-response TEXT exclusion live (the reviewer's full 9 MB+, 20-record scale)
+was attempted and abandoned after confirming, directly against CloudWatch metrics and Lambda logs,
+that this fixture stack's deliberately tiny, always-free-tier DynamoDB provisioning (5 RCU/s)
+throttles even a single ~395 KB strongly-consistent read — that exact scale stays proven
+byte-for-byte by the deterministic local test instead, same as several other real-infra ceilings
+already named plainly elsewhere in this document (TTL-deletion timing, no browser-automation tool).
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
 | Scoped permission checks | `permissions.test.ts`: 10 cases — wrong purpose, wrong audience, expired, disputed, unverified capacity, missing control state, staff-role-is-not-a-grant | **Demonstrated (local)** | None at logic level. |
 | Restricted records absent from public pages, search, API, and media | `export.ts`'s `public-redacted` scope omits non-published records entirely (not redacted — absent); `services/media.ts`'s `GET /records/:id/media/:mediaId` runs the same `evaluatePermission` gate as every other route, local AND real-AWS (see "Real S3 media acceptance drill") | **Demonstrated (local, and real AWS for the media route)** | No actual public page/search surface exists yet — only the export-filtering and the authenticated-staff media-route logic are proven. |
-| Sensitivity review and redaction | `redactText()`/`redactMedia()` (`services/lifecycle.ts`), local (`lifecycle.test.ts`, `router.test.ts`) and real AWS (`realCorrectionRedactionDrill.ts`) | **Demonstrated, local and real AWS, for text masking and a hard media-access override.** Text redaction masks the field and preserves the original only in history, never served through `GET /records/:id`, confirmed against the real deployed API. Media redaction denies the exact mediaId through `evaluatePermission`'s hard override, confirmed against the real media route, while a different object on the same record stays fetchable and the redacted object's real S3 bytes stay untouched. | No actual image/audio/video content processing (blur/bleep/crop) — this backend masks TEXT and denies MEDIA ACCESS, never alters media bytes, honestly short of real redaction tooling that needs media-processing infrastructure this project doesn't have. |
-| Versioned correction with preserved history | `correctRecord()`/`disputeCorrection()` (`services/lifecycle.ts`), local and real AWS (`realCorrectionRedactionDrill.ts`) | **Demonstrated, local and real AWS.** A correction replaces the live field immediately while preserving the previous value permanently in `Correction` history, confirmed against the real deployed API; a later dispute marks the correction `"disputed"` without reverting it, confirmed live. | A combinatorial case (e.g. a correction racing a redaction on the same field) hasn't been exercised. |
+| Sensitivity review and redaction | `redactText()`/`redactMedia()` (`services/lifecycle.ts`), `services/redactionView.ts`'s register-driven masking, local (`lifecycle.test.ts`, `router.test.ts`, `export.test.ts`, `restore.test.ts`) and real AWS (`realCorrectionRedactionDrill.ts`) | **Demonstrated, local and real AWS, for text masking (now restore-proof and history-aware) and a hard media-access override.** Text redaction masks the field and preserves the original only in history. A seventh-round reviewer caught two bypasses: a correction on the same field left its historical values unmasked, and restoring a pre-redaction backup revived the served text despite the live register still listing it redacted. Both closed — masking is now enforced from the CURRENT register state, never the record's own (restorable) content, for both the live field AND its correction history, confirmed live: correcting then redacting the same field masks its history through the real API; restoring a real pre-redaction backup into the live primary table still serves `[REDACTED]`, confirmed against the real, unchanged register. Media redaction denies the exact mediaId through `evaluatePermission`'s hard override, confirmed against the real media route, while a different object on the same record stays fetchable and the redacted object's real S3 bytes stay untouched. | No actual image/audio/video content processing (blur/bleep/crop) — this backend masks TEXT and denies MEDIA ACCESS, never alters media bytes, honestly short of real redaction tooling that needs media-processing infrastructure this project doesn't have. |
+| Versioned correction with preserved history | `correctRecord()`/`disputeCorrection()` (`services/lifecycle.ts`), local and real AWS (`realCorrectionRedactionDrill.ts`) | **Demonstrated, local and real AWS.** A correction replaces the live field immediately while preserving the previous value permanently in `Correction` history, confirmed against the real deployed API; a later dispute marks the correction `"disputed"` without reverting it, confirmed live. The combinatorial case this row previously named as unexercised — a correction racing a redaction on the same field — is now exercised (see "Sensitivity review and redaction" above): the field change and its history row commit atomically (`putRecordWithCorrection`, a real DynamoDB `TransactWriteItems`), closing a reviewer-caught gap where a failed history write could lose the true original. | A broader combinatorial sweep (e.g. a correction racing a DIFFERENT record's redaction, or racing a concurrent withdrawal) still hasn't been exercised — only the one same-field case the reviewer specifically named. |
 | Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts`; `staff-ui/` now reads this data live via the API | **Demonstrated (local); the staff UI reads post-withdrawal state correctly, smoke-tested against real AWS** | No PUBLIC-facing surface reads this data yet (only the staff UI does) — only the state transition, copy-tracking, and staff-facing read path are proven. |
-| **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (26 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below and "Real S3 media acceptance drill") | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes and the authenticated media route.** An unauthenticated call returns 401 (confirmed again for the media route specifically, real AWS); a real Cognito-issued ID token succeeds (via `AdminInitiateAuth`, the actual browser OAuth/PKCE flow, and this drill's own scripted auth); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record AND media reads are scoped by `evaluatePermission` (full content/bytes only when allowed, a limited metadata view or a denial otherwise); a `requestId` reused across different records/payloads conflicts (409); `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
-| Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled; `completeDeletion` requires a linked, completed deletion request (Finding 3); resumes correctly after a partial failure instead of being permanently denied; refuses when custody changes away from `deletion-pending` before the final write instead of deleting anyway; purges every S3 version AND delete marker for media-tracked copies before reconciling them | **Demonstrated, local and real AWS.** Both the partial-failure-recovery and stale-precondition fixes — previously proven locally only — are now confirmed against real DynamoDB (one via a clearly-labeled, deterministic drill-only hook simulating the exact partial-failure state; the other via the real operations in the real order, no hook needed). Media-aware purging is confirmed against real S3, including a delete marker created outside this system's own path. See "Real S3 media acceptance drill". | Real backup-EXPIRY timing specifically (actual DynamoDB PITR lifecycle, actual S3 noncurrent-version 30-day expiration elapsing on its own schedule) is still not exercised — every deletion in every drill so far has been explicit, not timing-based. |
-| **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases); `backend/src/scripts/realS3MediaAcceptanceDrill.ts` (real AWS, media bytes carried through export/restore, tamper rejection, positive control) | **Demonstrated, local and real AWS, for the record-level, grant-level, AND media-carrying restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case. `realS3MediaAcceptanceDrill.ts` proves a complete-preservation export actually carries real media bytes, that a tampered copy is rejected by both `validateExport` and `importExport`, that restoring a pre-revocation backup (media included) into an isolated target and reconciling against the LIVE register still denies, and — as a positive control — that an untouched record's restored backup remains servable. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). The media-carrying restore used an isolated IN-PROCESS `FixtureStore` target (a fresh real DynamoDB table/backup for the record side is already proven separately by the other two drills) plus a real, separately-prefixed `S3MediaStore` in the same bucket — not a second bucket. Actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry) is still not exercised. |
+| **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (33 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below and "Real S3 media acceptance drill") | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes and the authenticated media route.** An unauthenticated call returns 401 (confirmed again for the media route specifically, real AWS); a real Cognito-issued ID token succeeds (via `AdminInitiateAuth`, the actual browser OAuth/PKCE flow, and this drill's own scripted auth); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record AND media reads are scoped by `evaluatePermission` (full content/bytes only when allowed, a limited metadata view or a denial otherwise); a `requestId` reused across different records/payloads conflicts (409); `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
+| Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled; `completeDeletion` requires a linked, completed deletion request (Finding 3); resumes correctly after a partial failure instead of being permanently denied; refuses when custody changes away from `deletion-pending` before the final write instead of deleting anyway; purges every S3 version AND delete marker for media-tracked copies before reconciling them; the media-purge claim is held continuously through the final commit and resumed (never refused) by its own `requestId` | **Demonstrated, local and real AWS.** The partial-failure-recovery, stale-precondition, and (seventh round) claim-lifetime/ownership fixes are all confirmed against real DynamoDB. A reviewer caught that the claim was released too early (reopening the exact race it exists to prevent — retention could win after the media was already purged) and that a resumed completion under its OWN `requestId` was wrongly refused as foreign; both closed and confirmed live: a real retention action racing into the post-purge, pre-commit window is still refused, and a claim simulated as stuck from an earlier failed attempt resumes under its own `requestId` while a genuinely different one is still refused. Media-aware purging is confirmed against real S3, including a delete marker created outside this system's own path. See "Real S3 media acceptance drill". | Real backup-EXPIRY timing specifically (actual DynamoDB PITR lifecycle, actual S3 noncurrent-version 30-day expiration elapsing on its own schedule) is still not exercised — every deletion in every drill so far has been explicit, not timing-based. |
+| **Full preservation export and successful restoration without reviving revoked access** | `restore.test.ts` (local); `backend/src/scripts/realBackupRestoreDrill.ts` (real AWS, record-level case); `backend/src/scripts/realGrantRevocationRestoreDrill.ts` (real AWS, grant-level restoration case); `backend/src/scripts/realFullFixtureChecks.ts` (real AWS, live-only concurrency/export cases); `backend/src/scripts/realS3MediaAcceptanceDrill.ts` (real AWS, media bytes carried through export/restore, tamper rejection, positive control) | **Demonstrated, local and real AWS, for the record-level, grant-level, AND media-carrying restoration cases.** The restore drill proves record-level withdrawal+deletion→restore end-to-end against real DynamoDB (passed three times). `realGrantRevocationRestoreDrill.ts` separately proves the grant-level case. `realS3MediaAcceptanceDrill.ts` proves a complete-preservation export actually carries real media bytes, that a tampered copy is rejected by both `validateExport` and `importExport`, that restoring a pre-revocation backup (media included) into an isolated target and reconciling against the LIVE register still denies, and — as a positive control — that an untouched record's restored backup remains servable. `realFullFixtureChecks.ts` additionally proves, against real DynamoDB but with no restoration involved: a concurrent lifecycle-action write is rejected rather than silently clobbering the winner (Finding 2), export excludes expired-consent/disputed-authority records under real `evaluatePermission` (Finding 3), and live grant revocation denies live access (Finding 1's live half). A seventh-round reviewer caught that restoring a backup taken BEFORE a text redaction could revive the pre-redaction text through export too (not just the live read) — closed by the same register-driven masking as the live route; `export.test.ts`/`restore.test.ts` locally, confirmed live in `realCorrectionRedactionDrill.ts`. The export response budget also now covers the WHOLE serialized envelope (title/summary/corrections/redactions/history), not just media — a whole record is excluded (`recordsSkippedForResponseBudget`), never trimmed, if it would cross the limit; proven byte-for-byte locally (`export.test.ts`, the reviewer's exact 9,032,712-byte, 20-record reproduction) and confirmed live that the real deployed API's response actually carries the new field. | Each of these real-AWS proofs is still its own isolated case, not a combinatorial sweep (e.g. revocation racing concurrently with a restriction, or export racing a withdrawal, haven't been exercised together). The media-carrying restore used an isolated IN-PROCESS `FixtureStore` target (a fresh real DynamoDB table/backup for the record side is already proven separately by the other two drills) plus a real, separately-prefixed `S3MediaStore` in the same bucket — not a second bucket. Actual TTL-deletion latency (explicit deletion was used throughout, not TTL expiry) is still not exercised. The export-budget's actual whole-response TEXT exclusion (as opposed to the field merely existing) was NOT independently re-forced live — attempted and abandoned after confirming this fixture stack's deliberately tiny, always-free-tier DynamoDB provisioning throttles even a single ~395 KB strongly-consistent read; see "Real correction/redaction drill" below for the measured reason. |
 | Assigned operators | — | **Not demonstrated, not evidenced** | Organizational, not engineering. No name to put here. |
 | Approved regional consent/retention procedures | `docs/ethos.txt` §12 response windows remain explicitly "proposed," not adopted | **Not demonstrated, not evidenced** | Same — governance work, tracked separately (`docs/501c3.txt` Stage 1). |
 | Gate evidence and sign-off | This document | **Partial** — the engineering evidence exists; the sign-off line is deliberately blank | Needs a real named operator, not a placeholder. |
@@ -480,12 +555,13 @@ mutations already described.
 
 ## Real S3 media acceptance drill — what actually happened
 
-Dated 2026-10-03, updated after the fifth review round and again after the sixth (2026-10-04).
-`backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run against the redeployed live stack
-(`TiroFixtureBackend-drill-20261002`, now with the S3 media IAM/env var changes and the new
-`GET /records/:recordId/media/:mediaId` route). **25/25 checks passed** on the corrected run (see
-the bug below); **29/29** after the fifth-round extensions; **34/34** after the sixth-round
-extensions described further down. What it actually did, in order:
+Dated 2026-10-03, updated after the fifth review round, again after the sixth (2026-10-04), and
+again after the seventh (2026-10-04). `backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run
+against the redeployed live stack (`TiroFixtureBackend-drill-20261002`, now with the S3 media
+IAM/env var changes and the new `GET /records/:recordId/media/:mediaId` route). **25/25 checks
+passed** on the corrected run (see the bug below); **29/29** after the fifth-round extensions;
+**34/34** after the sixth-round extensions; **36/36** after the seventh-round extension (check 7d,
+further down). What it actually did, in order:
 
 1. Created its own disposable Cognito test user (`AdminCreateUser`/`AdminInitiateAuth`), deleted at
    the end — the staff user and every seeded fixture were left in place, same precedent as every
@@ -596,15 +672,37 @@ Both of the sixth round's fixes are proven at the logic level by their own regre
 tests, up from 127) AND now confirmed against the real deployed stack, closing the gap between
 "documented residual" and "actually closed" the reviewer asked for.
 
+**Extended again on 2026-10-04 for the seventh review round's claim-lifetime/ownership finding
+(redeployed, re-run, 36/36):**
+
+- **Claim ownership resumption (check 7d), real DynamoDB.** A reviewer caught two bugs in the same
+  mechanism: the media-purge claim was released right after the purge attempt, BEFORE the final
+  commit, reopening the exact race it exists to prevent (retention could win the register in that
+  now-unprotected window, after the media was already gone); and the claim check never compared
+  ownership, so a retry of the SAME completion under its OWN `requestId` (resuming after an earlier
+  partial failure) was wrongly refused as a foreign conflict. Since there's no reliable way to force
+  a real failed-purge-plus-failed-release on demand, this check uses the SAME deterministic
+  drill-only-hook precedent as check 7a: a raw `registerStore.setCurrent()` write, bypassing
+  `completeDeletion`, recreates exactly the state that leaves behind — a claim attributed to a
+  specific `requestId`. Against that real register state: a completion attempt under a DIFFERENT
+  `requestId` was genuinely refused (`MediaPurgeInProgressError`, confirmed in the real response);
+  a completion attempt under the SAME `requestId` that owns the claim resumed and actually
+  completed, confirmed by a subsequent `getRecord()` returning `null`.
+
+Both halves of this fix are proven at the logic level by their own regression tests (158 tests, up
+from 150 — see `lifecycle.test.ts`'s interleaved-retention and claim-resumption cases) AND now
+confirmed against the real deployed stack.
+
 Cleanup: only the drill's own disposable Cognito test user was deleted. Every fixture it seeded
-(several more active/expired/disputed/positive-control/partial-failure/stale-precondition records),
-the live primary/register tables, and the staff user from the browser-setup task were all left in
-place, per this project's standing precedent.
+(several more active/expired/disputed/positive-control/partial-failure/stale-precondition/claim-
+ownership records), the live primary/register tables, and the staff user from the browser-setup
+task were all left in place, per this project's standing precedent.
 
 ## Real correction/redaction drill — what actually happened
 
-Dated 2026-10-04. `backend/src/scripts/realCorrectionRedactionDrill.ts`, a new drill run against
-the redeployed live stack. **19/19 checks passed on the first real run.** What it actually did:
+Dated 2026-10-04, extended the same day for the seventh review round. `backend/src/scripts/realCorrectionRedactionDrill.ts`, run
+against the redeployed live stack. **19/19 checks passed on the first real run**; **32/32** after
+the seventh-round extensions described below. What it actually did:
 
 1. Created its own disposable Cognito test user, deleted at the end. Seeded one fresh fixture with
    real bound S3 media.
@@ -633,18 +731,67 @@ the redeployed live stack. **19/19 checks passed on the first real run.** What i
    complete-preservation export into an isolated in-process target (real S3-backed media store,
    separately prefixed) reproduced both the correction history and the real pre-redaction text.
 
-Cleanup: only the drill's own disposable Cognito test user was deleted. The one fixture it seeded
-was left in place, same precedent as every other real-AWS check in this project.
+**Extended the same day for the seventh review round's five findings (redeployed, re-run, 32/32):**
+
+7. **Correcting then redacting the SAME field, through the real API (Finding 1).** A fresh record's
+   `title` was corrected, then redacted. The real `GET /records/:id` response's live field came
+   back `"[REDACTED]"` — expected — but so did that SAME field's correction history
+   (`previousValue`/`correctedValue` both `"[REDACTED]"`), confirming the real deployed API masks a
+   redacted field's history too, not just its live value.
+8. **Replaying the SAME correct requestId through the real API twice (Finding 3's retry half).**
+   Two identical `POST /records/:id/correct` calls with the same explicit `requestId` both returned
+   200; a follow-up real `GET` showed exactly ONE correction, with `previousValue` still the TRUE
+   original — not a corrupted re-capture of the already-changed live value a two-separate-writes
+   design would have produced.
+9. **Restoring a backup taken BEFORE a text redaction, directly into the REAL primary table
+   (Finding 2).** Exported a fresh record's `complete-preservation` backup BEFORE redacting its
+   `title`, then redacted it through the real API, then restored that pre-redaction backup straight
+   into the live primary table (`importExport`, which never touches the register). A direct read
+   confirmed the primary table's `title` really did revert to the pre-redaction original, and the
+   REAL register still listed `title` as redacted — importExport had no way to touch it. The real
+   `GET /records/:id` call confirmed `access.allowed: true` (correct — text redaction doesn't deny
+   overall access, unlike media) while the served `title` stayed `"[REDACTED]"` — the exact
+   reviewer-caught finding, closed against real DynamoDB and the real deployed API.
+10. **The real deployed `/export` response shape (Finding 5, API-contract half).** A real
+    `complete-preservation` export of two ordinary records came back with the new
+    `recordsSkippedForResponseBudget` field present as an array, confirming the deployed Lambda
+    actually returns the new shape `export.ts` now produces.
+
+**Named, not hidden: Finding 5's actual whole-response TEXT exclusion was NOT independently forced
+live.** An attempt was made at several scales (20, then 14, then 3 near-400-KB records) and
+abandoned after directly confirming, via real CloudWatch `ConsumedReadCapacityUnits` metrics and
+Lambda CloudWatch logs, that this fixture stack's deliberately tiny, always-free-tier DynamoDB
+provisioning (5 RCU/s — see `fixture-backend-stack.ts`'s `PrimaryTable`) throttles with a genuine
+`ProvisionedThroughputExceededException` even on a SINGLE strongly-consistent read of one ~395 KB
+record (`DynamoFixtureStore.getRecord` correctly uses `ConsistentRead: true` throughout, for
+reasons unrelated to this drill) — no amount of waiting between attempts cleared it, because
+DynamoDB's provisioned burst capacity is capped at roughly 300 seconds' worth of unused throughput
+(~1,500 RCU here), not unlimited linear accumulation, and each failed attempt itself consumed
+whatever had regenerated. Forcing it through would need either a real, billed capacity increase on
+this shared table (not a decision this script makes unilaterally) or a wait far longer than
+reasonable for a drill. Unlike the media-budget live check above (`realS3MediaAcceptanceDrill.ts`'s
+check 8/9), where the bulk bytes live in S3 — no comparable provisioned-RCU ceiling to pass through
+— this exact exclusion-threshold claim rests on the deterministic local test instead
+(`export.test.ts`'s "twenty records with large TEXT fields..."), which reproduces the reviewer's
+exact 9,032,712-byte figure with no real infrastructure's throughput to respect.
+
+158 tests pass (up from 150); all five findings have local regression tests. Four of the five are
+also confirmed against the real deployed stack; the fifth's exclusion THRESHOLD specifically is
+proven local-only, for the infrastructure reason stated above.
+
+Cleanup: only the drill's own disposable Cognito test user was deleted each run. Every fixture it
+seeded was left in place, same precedent as every other real-AWS check in this project.
 
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
 | --- | --- |
 | Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed — now with real Lambda/API Gateway/S3 invocations to reconcile too, not just DynamoDB. |
-| A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` or `realS3MediaAcceptanceDrill.ts` are the places to extend. |
+| A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` or `realS3MediaAcceptanceDrill.ts` are the places to extend. (The one specific combinatorial case a reviewer named — a correction racing a redaction on the same field — is now closed; see the seventh-review-round note and "Real correction/redaction drill" above.) |
 | Script the staff API smoke test into a reusable drill | Currently manual (AWS CLI + PowerShell, not committed as a script) — write a `realStaffApiSmokeTest.ts` mirroring the other drill scripts' structure if this needs to be re-run repeatably rather than by hand. |
 | A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. Run `staff-ui/README.md`'s setup (create a user, `npx serve -l 4300 staff-ui`, open `http://localhost:4300/` in a real browser, sign in) by hand — everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
 | Migrating already-live legacy (`versionId: null`) media references | None exist yet from THIS milestone (every reference `bindSeedMedia` touches is bound for real) — but every `MediaRef` seeded in earlier sessions, before version binding existed, is legacy-shaped. They correctly fail closed (409) rather than guess a version; nothing re-uploads/rebinds them automatically. Not attempted — would need a one-off migration script, intentionally not written speculatively. |
+| Forcing the export response budget's real whole-record TEXT exclusion live (as opposed to proving the field exists) | Needs reading several real MB back out of this table's deliberately tiny, always-free-tier provisioned RCU (5/s) inside one Lambda invocation — confirmed infeasible without either a real, billed capacity bump on this shared table (a deliberate choice NOT made unilaterally here) or an unreasonably long wait; see "Real correction/redaction drill"'s seventh-round note for the measured CloudWatch/Lambda-log evidence. If this needs closing for real, the move is a TEMPORARY `UpdateTable` capacity bump (e.g. to 50+ RCU) for the duration of one drill run, reverted immediately after — a real infra/cost decision, so get sign-off first. |
 
 ~~Inventory S3 object versions after delete~~, ~~real `completeDeletion` resumability/stale-precondition confirmation~~ — **closed, see "Real S3 media acceptance drill" below.**
 
@@ -657,9 +804,10 @@ was left in place, same precedent as every other real-AWS check in this project.
   media-processing infrastructure this project doesn't have.
 - Migrating the already-live legacy (`versionId: null`) media references seeded before version
   binding existed — they correctly fail closed, but nothing re-uploads/rebinds them automatically.
-- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, a media purge
-  racing an export, or a correction racing a redaction on the same field) — every real-AWS case so
-  far has been checked in isolation.
+- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or a media purge
+  racing an export) — every real-AWS case so far has been checked in isolation. (A correction racing
+  a redaction on the same field — previously listed here — is now closed, local and live; see the
+  seventh-review-round note above.)
 
 Real S3 media/version handling, authenticated retrieval, byte-level checksums, media-aware
 deletion, media-carrying export/restore, versioned correction, and text/media redaction — all

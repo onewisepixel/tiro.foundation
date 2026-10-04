@@ -254,6 +254,42 @@ the live media route while a DIFFERENT object on the same record stayed fetchabl
 object's S3 bytes stayed completely intact; and real export/restore confirmed carrying
 (preservation scope) or omitting (public scope) the real pre-redaction text.
 
+**2026-10-04, seventh review round — five gaps reproduced as deterministic LOCAL reproductions
+against the actual service code, all fixed, regression-tested, and re-verified against real
+DynamoDB/S3/Lambda:**
+
+1. **Correction history bypassed text redaction.** Correcting then redacting the SAME field left
+   the live value masked but the correction's historical values fully readable through `GET
+   /records/:id` and public exports. Fixed by a new shared `services/redactionView.ts` module whose
+   `maskCorrectionsForRedactedFields` masks history for any currently-redacted field, wired into
+   both the live route (always) and public exports (archival exports keep full history).
+2. **Restoration revived redacted text.** Text redaction had no durable register state, unlike
+   media's `redactedMediaIds` — restoring a pre-redaction backup could silently un-redact it. Fixed
+   by adding `redactedTextFields` to the register and enforcing masking from it at serve time
+   (`applyTextRedactions`), never from the record's own restorable content — the same principle
+   media redaction already had, now extended to text.
+3. **A failed history write could permanently lose originals.** The field change and its history
+   row were two separate writes; a failure between them (or a retry after success) could corrupt or
+   lose the true original. Fixed with genuine atomicity — new `putRecordWithCorrection`/
+   `putRecordWithRedaction` store methods (a real DynamoDB `TransactWriteItems`) plus stable,
+   requestId-derived history ids and an already-applied guard.
+4. **The media-purge claim's lifetime and recovery were incomplete.** It was released right after
+   the purge, before the final commit, reopening the exact race it exists to prevent; and a retry
+   under its own `requestId` was wrongly refused as foreign. Fixed: the claim is held continuously
+   through the final write and resumed by its own `requestId`, never a different one.
+5. **The response budget excluded text/history.** The previous budget measured only media; 20
+   records with large text produced 9 MB+ despite it. Fixed: `exportFixtureSet` now measures each
+   record's REAL complete serialized envelope and excludes the whole record (never trims) if it
+   would cross the limit, reported in a new `recordsSkippedForResponseBudget` field.
+
+158 tests pass (up from 150). Both live drills were extended and re-run: `realS3MediaAcceptanceDrill.ts`
+(Finding 4) — **36/36**; `realCorrectionRedactionDrill.ts` (Findings 1-3 and the API-shape half of
+Finding 5) — **32/32**. One honestly-named limitation: Finding 5's actual whole-response TEXT
+exclusion couldn't be forced live — this fixture stack's deliberately tiny, always-free-tier
+DynamoDB provisioning throttles even a single ~395 KB strongly-consistent read, confirmed directly
+against CloudWatch/Lambda logs — so that exact scale stays proven byte-for-byte by the
+deterministic local test instead. See the evidence matrix's seventh-review-round note.
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a
@@ -348,13 +384,18 @@ and documented rather than chased further; revisit when either upstream ships a 
 Migrating the many already-live legacy (`versionId: null`) media references seeded in earlier
 sessions — they correctly fail closed today, but nothing re-uploads/rebinds them automatically. A
 combinatorial real-AWS case or two (e.g. a revocation racing a concurrent restriction, or a media
-purge racing an export, or a correction racing a redaction on the same field). Actual
-image/audio/video redaction (blur/bleep/crop) — this backend's redaction is text-masking and a
-hard media-access override only, honestly short of real media-content processing, which needs
-infrastructure this project doesn't have. Versioned correction and redaction, authorized-media S3
-routes, real S3 object-version inventory/removal, and byte-level checksums are now DONE — see the
-S3 media and correction/redaction milestone entries above and the evidence matrix's "Real S3 media
-acceptance drill" / "Real correction/redaction drill."
+purge racing an export — a correction racing a redaction on the same field, previously listed here,
+is now closed, local and live). Actual image/audio/video redaction (blur/bleep/crop) — this
+backend's redaction is text-masking and a hard media-access override only, honestly short of real
+media-content processing, which needs infrastructure this project doesn't have. Forcing the export
+response budget's real whole-record TEXT exclusion live, as opposed to proving the field merely
+exists — needs reading several real MB out of this stack's deliberately tiny, always-free-tier
+DynamoDB provisioning inside one Lambda invocation, confirmed infeasible without a real, billed
+capacity bump this round deliberately didn't make unilaterally; see the evidence matrix's
+seventh-review-round note. Versioned correction and redaction, authorized-media S3 routes, real S3
+object-version inventory/removal, and byte-level checksums are now DONE — see the S3 media and
+correction/redaction milestone entries above and the evidence matrix's "Real S3 media acceptance
+drill" / "Real correction/redaction drill."
 
 **Organizational, not engineering — this document cannot close these:**
 A named operator. Adopted (not proposed) consent/retention response-window numbers. Both are
