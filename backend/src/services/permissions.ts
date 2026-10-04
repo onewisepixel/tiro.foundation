@@ -19,6 +19,13 @@ export type PermissionQuery = {
   purpose: Purpose;
   audience: ConsentGrant["audience"];
   now: Date;
+  // Present when checking access to a SPECIFIC media object, not just the
+  // record generally. Redaction (redactMedia(), services/lifecycle.ts) is
+  // a hard override checked here, independent of and in addition to every
+  // other check below — it can only ever ADD a restriction, consistent
+  // with docs/ethos.txt §3.5's "curator approval cannot expand source
+  // permissions" applied to redaction specifically.
+  mediaId?: string;
 };
 
 export async function evaluatePermission(
@@ -36,6 +43,9 @@ export async function evaluatePermission(
       allowed: false,
       reason: "No current restriction-register entry for this record; missing control state denies serving.",
     };
+  }
+  if (query.mediaId && control.redactedMediaIds?.includes(query.mediaId)) {
+    return { allowed: false, reason: `Media ${query.mediaId} has been redacted.` };
   }
   if (control.currentCustodyStatus === "deleted" || control.currentCustodyStatus === "deletion-pending") {
     return { allowed: false, reason: `Custody status is "${control.currentCustodyStatus}".` };

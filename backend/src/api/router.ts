@@ -11,7 +11,7 @@
 // here bypasses evaluatePermission for any purpose/audience check. What
 // authentication DOES gate is who may invoke a lifecycle MUTATION at all,
 // and whose identity lands in the audit trail for it.
-import type { LifecycleRequestStatus } from "../domain/types";
+import type { LifecycleRequestStatus, Redaction } from "../domain/types";
 import { uuidv7 } from "../domain/id";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import { IdempotencyKeyConflictError, VersionConflictError } from "../store/store";
@@ -23,6 +23,10 @@ import {
   startDeletion,
   completeDeletion,
   revokeConsentGrant,
+  correctRecord,
+  disputeCorrection,
+  redactText,
+  redactMedia,
   MediaPurgeInProgressError,
 } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
@@ -35,6 +39,10 @@ import {
   validateRevokeConsentActionBody,
   validatePermissionCheckBody,
   validateExportBody,
+  validateCorrectActionBody,
+  validateDisputeCorrectionActionBody,
+  validateRedactTextActionBody,
+  validateRedactMediaActionBody,
   isPurpose,
   isAudience,
 } from "./validation";
@@ -67,6 +75,16 @@ function notFound(message: string): ApiResponse {
 }
 function badRequest(message: string): ApiResponse {
   return { statusCode: 400, body: { error: message } };
+}
+
+// Redaction metadata (scope, field/mediaId, reason, timestamps) is safe —
+// it's the whole POINT of redaction that the ORIGINAL text never appears
+// here. Used for every GET /records/:id response, allowed or not: safe by
+// construction, same as custodyCopies/auditReceipts.
+function redactionsSafeView(redactions: Redaction[]) {
+  return redactions.map((r) =>
+    r.scope === "text" ? { recordId: r.recordId, redactionId: r.redactionId, scope: r.scope, field: r.field, reason: r.reason, createdAt: r.createdAt } : r,
+  );
 }
 
 async function withConflictHandling(work: () => Promise<ApiResponse>): Promise<ApiResponse> {
@@ -165,14 +183,17 @@ export async function routeRequest(
     if (!record) {
       return notFound(`No record with id "${recordId}".`);
     }
-    const [control, authorityClaims, legalRights, consentGrants, custodyCopies, auditReceipts] = await Promise.all([
-      registerStore.getCurrent(recordId),
-      fixtureStore.listAuthorityClaims(recordId),
-      fixtureStore.listLegalRights(recordId),
-      fixtureStore.listConsentGrants(recordId),
-      fixtureStore.listCustodyCopies(recordId),
-      fixtureStore.listAuditReceipts(recordId),
-    ]);
+    const [control, authorityClaims, legalRights, consentGrants, custodyCopies, auditReceipts, corrections, redactions] =
+      await Promise.all([
+        registerStore.getCurrent(recordId),
+        fixtureStore.listAuthorityClaims(recordId),
+        fixtureStore.listLegalRights(recordId),
+        fixtureStore.listConsentGrants(recordId),
+        fixtureStore.listCustodyCopies(recordId),
+        fixtureStore.listAuditReceipts(recordId),
+        fixtureStore.listCorrections(recordId),
+        fixtureStore.listRedactions(recordId),
+      ]);
     const decision = await evaluatePermission(fixtureStore, registerStore, { recordId, purpose, audience, now: new Date() });
     if (!decision.allowed) {
       return {
@@ -194,14 +215,33 @@ export async function routeRequest(
           authorityClaimCount: authorityClaims.length,
           legalRightCount: legalRights.length,
           consentGrantCount: consentGrants.length,
+          correctionCount: corrections.length,
           custodyCopies,
           auditReceipts,
+          // Safe metadata only (no original text) even in the limited
+          // view — same reasoning as custodyCopies/auditReceipts above.
+          redactions: redactionsSafeView(redactions),
         },
       };
     }
     return {
       statusCode: 200,
-      body: { access: decision, record, control, authorityClaims, legalRights, consentGrants, custodyCopies, auditReceipts },
+      body: {
+        access: decision,
+        record,
+        control,
+        authorityClaims,
+        legalRights,
+        consentGrants,
+        custodyCopies,
+        auditReceipts,
+        // Full correction history is safe (same sensitivity as the
+        // record's own title/summary) — but redactions NEVER include the
+        // pre-redaction original through this general-purpose route, even
+        // when the caller is otherwise fully authorized for the record.
+        corrections,
+        redactions: redactionsSafeView(redactions),
+      },
     };
   }
 
@@ -305,6 +345,75 @@ export async function routeRequest(
           requesterCapacity: callerIdentity,
           reason: validated.value.reason,
           consentId: validated.value.consentId,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "correct") {
+      const validated = validateCorrectActionBody(body);
+      if (!validated.ok) {
+        return badRequest(validated.error);
+      }
+      return withConflictHandling(async () => {
+        const result = await correctRecord(fixtureStore, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          field: validated.value.field,
+          correctedValue: validated.value.correctedValue,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "dispute-correction") {
+      const validated = validateDisputeCorrectionActionBody(body);
+      if (!validated.ok) {
+        return badRequest(validated.error);
+      }
+      return withConflictHandling(async () => {
+        const result = await disputeCorrection(fixtureStore, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          correctionId: validated.value.correctionId,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "redact-text") {
+      const validated = validateRedactTextActionBody(body);
+      if (!validated.ok) {
+        return badRequest(validated.error);
+      }
+      return withConflictHandling(async () => {
+        const result = await redactText(fixtureStore, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          field: validated.value.field,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "redact-media") {
+      const validated = validateRedactMediaActionBody(body);
+      if (!validated.ok) {
+        return badRequest(validated.error);
+      }
+      return withConflictHandling(async () => {
+        const result = await redactMedia(fixtureStore, registerStore, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          mediaId: validated.value.mediaId,
         });
         return { statusCode: 200, body: result };
       });

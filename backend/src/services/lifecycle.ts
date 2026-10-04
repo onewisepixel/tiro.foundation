@@ -7,7 +7,9 @@
 // acknowledged. A caller retrying the same requestId is safe: creation is
 // idempotent on requestId, and the register write is itself version-guarded.
 import type {
+  CorrectableField,
   CustodyStatus,
+  FixtureRecord,
   LifecycleAction,
   LifecycleRequest,
   PublicationStatus,
@@ -163,6 +165,7 @@ type ControlPatch = Partial<
     | "restrictedPurposes"
     | "revokedConsentIds"
     | "mediaPurgeClaim"
+    | "redactedMediaIds"
   >
 >;
 
@@ -195,6 +198,7 @@ async function transitionControl(
     // entirely (the common case — most patches don't touch this field) is
     // the only thing that should preserve the current value.
     mediaPurgeClaim: patch.mediaPurgeClaim !== undefined ? patch.mediaPurgeClaim : current?.mediaPurgeClaim ?? null,
+    redactedMediaIds: patch.redactedMediaIds ?? current?.redactedMediaIds ?? [],
     updatedAt: new Date().toISOString(),
   };
   await registerStore.setCurrent(next, current?.controlVersion);
@@ -577,6 +581,198 @@ export async function completeDeletion(
     await recordFailure(fixtureStore, request, message);
     throw error;
   }
+}
+
+// §12's "Correct" action: replaces the live field (so readers see the fix
+// immediately) but preserves the prior value permanently in a Correction
+// row — never erases it. Operates purely on FixtureStore (title/summary/
+// provenanceRef live there, not in the register) with its own
+// version-guarded write; it doesn't touch publicationStatus/custodyStatus,
+// so it takes no RestrictionRegisterStore parameter at all — an unused
+// parameter here would be dead weight, not defensive consistency.
+export type CorrectRecordInput = LifecycleActionInput & {
+  field: CorrectableField;
+  correctedValue: string;
+};
+
+export async function correctRecord(
+  fixtureStore: FixtureStore,
+  input: CorrectRecordInput,
+): Promise<LifecycleRequest> {
+  const request = await getOrCreateRequest(fixtureStore, "correct", input, {
+    field: input.field,
+    correctedValue: input.correctedValue,
+  });
+  if (request.status === "completed" || request.status === "denied") {
+    return request;
+  }
+
+  const record = await fixtureStore.getRecord(input.recordId);
+  if (!record) {
+    return denyRequest(fixtureStore, request, `No record "${input.recordId}" exists to correct.`);
+  }
+
+  return runGuarded(fixtureStore, request, async () => {
+    // Re-read fresh inside the guarded work, not the outer `record` above
+    // (used only for the existence precondition) — the same
+    // single-fresh-snapshot discipline transitionControl uses for the
+    // register, applied here to the record's own optimistic-concurrency
+    // version.
+    const fresh = await fixtureStore.getRecord(input.recordId);
+    if (!fresh) {
+      throw new Error(`Record "${input.recordId}" was removed before the correction could be applied.`);
+    }
+    const previousValue = fresh[input.field];
+    const correctionId = uuidv7();
+    const updated: FixtureRecord = { ...fresh, [input.field]: input.correctedValue, updatedAt: new Date().toISOString() };
+    await fixtureStore.putRecord(updated, fresh.version);
+    await fixtureStore.putCorrection({
+      recordId: input.recordId,
+      correctionId,
+      field: input.field,
+      previousValue,
+      correctedValue: input.correctedValue,
+      attribution: input.requesterCapacity,
+      reason: input.reason,
+      status: "accepted",
+      disputeReason: null,
+      createdAt: new Date().toISOString(),
+    });
+    return `Corrected ${input.field} (correction ${correctionId}); previous value preserved in correction history, not erased.`;
+  });
+}
+
+// "Disagreements remain attributed and are not resolved by silently
+// overwriting a source account" (§3.5), applied to a correction itself:
+// marks it disputed WITHOUT reverting it — the correction and the
+// disagreement about it both stay on record, attributed.
+export type DisputeCorrectionInput = LifecycleActionInput & {
+  correctionId: string;
+};
+
+export async function disputeCorrection(
+  fixtureStore: FixtureStore,
+  input: DisputeCorrectionInput,
+): Promise<LifecycleRequest> {
+  const request = await getOrCreateRequest(fixtureStore, "dispute-correction", input, {
+    correctionId: input.correctionId,
+  });
+  if (request.status === "completed" || request.status === "denied") {
+    return request;
+  }
+
+  const corrections = await fixtureStore.listCorrections(input.recordId);
+  const target = corrections.find((c) => c.correctionId === input.correctionId);
+  if (!target) {
+    return denyRequest(fixtureStore, request, `No correction "${input.correctionId}" exists on this record.`);
+  }
+
+  return runGuarded(fixtureStore, request, async () => {
+    await fixtureStore.putCorrection({ ...target, status: "disputed", disputeReason: input.reason });
+    return `Correction ${input.correctionId} marked disputed; the correction itself is preserved, not reverted.`;
+  });
+}
+
+// §3.5's redaction tooling, text half: masks a field with a safe
+// placeholder — the record everyone reads is simply changed to the safer
+// text — while preserving the original ONLY in redaction history, which
+// api/router.ts never serves through the normal record-read path.
+export type RedactTextInput = LifecycleActionInput & {
+  field: CorrectableField;
+};
+
+export async function redactText(
+  fixtureStore: FixtureStore,
+  input: RedactTextInput,
+): Promise<LifecycleRequest> {
+  const request = await getOrCreateRequest(fixtureStore, "redact-text", input, { field: input.field });
+  if (request.status === "completed" || request.status === "denied") {
+    return request;
+  }
+
+  const record = await fixtureStore.getRecord(input.recordId);
+  if (!record) {
+    return denyRequest(fixtureStore, request, `No record "${input.recordId}" exists to redact.`);
+  }
+
+  return runGuarded(fixtureStore, request, async () => {
+    const fresh = await fixtureStore.getRecord(input.recordId);
+    if (!fresh) {
+      throw new Error(`Record "${input.recordId}" was removed before the redaction could be applied.`);
+    }
+    const previousValue = fresh[input.field];
+    const redactionId = uuidv7();
+    const updated: FixtureRecord = {
+      ...fresh,
+      [input.field]: "[REDACTED]",
+      redactionApplied: true,
+      updatedAt: new Date().toISOString(),
+    };
+    await fixtureStore.putRecord(updated, fresh.version);
+    await fixtureStore.putRedaction({
+      recordId: input.recordId,
+      redactionId,
+      scope: "text",
+      field: input.field,
+      previousValue,
+      reason: input.reason,
+      createdAt: new Date().toISOString(),
+    });
+    return `Redacted ${input.field} (redaction ${redactionId}); original preserved only in redaction history, never served through the normal record read.`;
+  });
+}
+
+// §3.5's redaction tooling, media half: this backend cannot blur/bleep/
+// crop actual bytes (no media-processing infrastructure), so redaction
+// means permanently denying the object through every normal fetch path —
+// a HARD override in the register (evaluatePermission/services/media.ts),
+// independent of purpose/audience — while leaving the underlying S3 bytes
+// untouched. Redaction is not deletion: nothing here calls MediaStore at
+// all.
+export type RedactMediaInput = LifecycleActionInput & {
+  mediaId: string;
+};
+
+export async function redactMedia(
+  fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
+  input: RedactMediaInput,
+): Promise<LifecycleRequest> {
+  const request = await getOrCreateRequest(fixtureStore, "redact-media", input, { mediaId: input.mediaId });
+  if (request.status === "completed" || request.status === "denied") {
+    return request;
+  }
+
+  const record = await fixtureStore.getRecord(input.recordId);
+  if (!record) {
+    return denyRequest(fixtureStore, request, `No record "${input.recordId}" exists to redact.`);
+  }
+  if (!record.mediaRefs.some((m) => m.mediaId === input.mediaId)) {
+    return denyRequest(fixtureStore, request, `No media "${input.mediaId}" exists on this record.`);
+  }
+
+  return runGuarded(fixtureStore, request, async () => {
+    // The register entry is the authoritative "may this be served"
+    // answer and is updated FIRST, same ordering principle as every
+    // other register-then-record write in this file — if the record
+    // write below fails, the media is still correctly denied.
+    await transitionControl(registerStore, input.recordId, (current) => ({
+      redactedMediaIds: [...new Set([...(current?.redactedMediaIds ?? []), input.mediaId])],
+    }));
+    const fresh = await fixtureStore.getRecord(input.recordId);
+    if (fresh) {
+      await fixtureStore.putRecord({ ...fresh, redactionApplied: true, updatedAt: new Date().toISOString() }, fresh.version);
+    }
+    await fixtureStore.putRedaction({
+      recordId: input.recordId,
+      redactionId: uuidv7(),
+      scope: "media",
+      mediaId: input.mediaId,
+      reason: input.reason,
+      createdAt: new Date().toISOString(),
+    });
+    return `Media ${input.mediaId} redacted — denied through the normal fetch path for every purpose/audience; underlying bytes are preserved, not deleted.`;
+  });
 }
 
 export type { PublicationStatus, CustodyStatus };

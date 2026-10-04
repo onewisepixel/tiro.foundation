@@ -26,11 +26,13 @@ import type {
   AuditReceipt,
   AuthorityClaim,
   ConsentGrant,
+  Correction,
   CustodyCopy,
   FixtureRecord,
   LegalRight,
   LifecycleRequest,
   LifecycleRequestStatus,
+  Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
 import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
@@ -58,6 +60,8 @@ const legalRightSk = (rightId: string) => `LEGALRIGHT#${rightId}`;
 const consentSk = (consentId: string) => `CONSENT#${consentId}`;
 const copySk = (copyId: string) => `COPY#${copyId}`;
 const auditSk = (receiptId: string) => `AUDIT#${receiptId}`;
+const correctionSk = (correctionId: string) => `CORRECTION#${correctionId}`;
+const redactionSk = (redactionId: string) => `REDACTION#${redactionId}`;
 const lifecyclePk = (requestId: string) => `LIFECYCLE#${requestId}`;
 
 export class DynamoFixtureStore implements FixtureStore {
@@ -274,6 +278,32 @@ export class DynamoFixtureStore implements FixtureStore {
 
   listAuditReceipts(recordId: string): Promise<AuditReceipt[]> {
     return this.queryByPrefix<AuditReceipt>(recordId, "AUDIT#");
+  }
+
+  async putCorrection(correction: Correction): Promise<void> {
+    await this.doc.send(
+      new PutCommand({
+        TableName: this.config.primaryTableName,
+        Item: { PK: pk(correction.recordId), SK: correctionSk(correction.correctionId), ...correction },
+      }),
+    );
+  }
+
+  listCorrections(recordId: string): Promise<Correction[]> {
+    return this.queryByPrefix<Correction>(recordId, "CORRECTION#");
+  }
+
+  async putRedaction(redaction: Redaction): Promise<void> {
+    await this.doc.send(
+      new PutCommand({
+        TableName: this.config.primaryTableName,
+        Item: { PK: pk(redaction.recordId), SK: redactionSk(redaction.redactionId), ...redaction },
+      }),
+    );
+  }
+
+  listRedactions(recordId: string): Promise<Redaction[]> {
+    return this.queryByPrefix<Redaction>(recordId, "REDACTION#");
   }
 }
 

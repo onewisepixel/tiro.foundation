@@ -227,6 +227,14 @@ export async function importExport(
     for (const receipt of envelope.auditReceipts) {
       await target.putAuditReceipt(receipt);
     }
+    for (const correction of envelope.corrections) {
+      await target.putCorrection(correction);
+    }
+    if (envelope.redactions !== "redacted-for-public-export") {
+      for (const redaction of envelope.redactions) {
+        await target.putRedaction(redaction);
+      }
+    }
     imported += 1;
   }
   return { imported, mediaRebound, mediaBindingsCleared };

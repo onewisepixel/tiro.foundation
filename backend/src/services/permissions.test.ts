@@ -179,3 +179,45 @@ test("a staff role alone does not substitute for a scoped grant", async () => {
   });
   assert.equal(decision.allowed, false);
 });
+
+test("a redacted mediaId is denied regardless of an otherwise fully-authorized purpose/audience", async () => {
+  const { fixtureStore, registerStore, active } = await setup();
+  const current = await registerStore.getCurrent(active.record.recordId);
+  await registerStore.setCurrent(
+    { ...current!, redactedMediaIds: ["some-media-id"], controlVersion: current!.controlVersion + 1 },
+    current!.controlVersion,
+  );
+
+  const redactedDecision = await evaluatePermission(fixtureStore, registerStore, {
+    recordId: active.record.recordId,
+    purpose: "publication",
+    audience: "public",
+    now: new Date(),
+    mediaId: "some-media-id",
+  });
+  assert.equal(redactedDecision.allowed, false);
+  assert.match(redactedDecision.reason, /redacted/i);
+
+  // A DIFFERENT, non-redacted mediaId on the same otherwise-allowed record
+  // must still be allowed — redaction is scoped to the specific object,
+  // not a record-wide denial.
+  const otherDecision = await evaluatePermission(fixtureStore, registerStore, {
+    recordId: active.record.recordId,
+    purpose: "publication",
+    audience: "public",
+    now: new Date(),
+    mediaId: "a-different-media-id",
+  });
+  assert.equal(otherDecision.allowed, true);
+
+  // And the record-level decision (no mediaId at all, e.g. a record-detail
+  // read) must also still be allowed — media redaction doesn't withdraw
+  // the whole record.
+  const recordLevelDecision = await evaluatePermission(fixtureStore, registerStore, {
+    recordId: active.record.recordId,
+    purpose: "publication",
+    audience: "public",
+    now: new Date(),
+  });
+  assert.equal(recordLevelDecision.allowed, true);
+});

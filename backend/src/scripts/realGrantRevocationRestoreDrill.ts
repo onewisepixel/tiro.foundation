@@ -215,6 +215,8 @@ async function main() {
     auditReceipts: [],
     mediaObjects: [],
     mediaObjectsSkipped: [],
+    corrections: [],
+    redactions: [],
     controlStateAtExport: {
       publicationStatus: "published",
       custodyStatus: "preserved",

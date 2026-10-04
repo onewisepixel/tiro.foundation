@@ -2,11 +2,13 @@ import type {
   AuditReceipt,
   AuthorityClaim,
   ConsentGrant,
+  Correction,
   CustodyCopy,
   FixtureRecord,
   LegalRight,
   LifecycleRequest,
   LifecycleRequestStatus,
+  Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
 
@@ -70,6 +72,15 @@ export interface FixtureStore {
 
   putAuditReceipt(receipt: AuditReceipt): Promise<void>;
   listAuditReceipts(recordId: string): Promise<AuditReceipt[]>;
+
+  // Upsert by correctionId — disputeCorrection() (services/lifecycle.ts)
+  // updates an existing correction's status in place rather than ever
+  // deleting or replacing the correction itself.
+  listCorrections(recordId: string): Promise<Correction[]>;
+  putCorrection(correction: Correction): Promise<void>;
+
+  listRedactions(recordId: string): Promise<Redaction[]>;
+  putRedaction(redaction: Redaction): Promise<void>;
 }
 
 // The durable control register. Deliberately a SEPARATE interface backed by

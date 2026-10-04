@@ -159,6 +159,10 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
     <pre>${escapeHtml(JSON.stringify(body.custodyCopies, null, 2))}</pre>
     <h3>Audit receipts</h3>
     <pre>${escapeHtml(JSON.stringify(body.auditReceipts, null, 2))}</pre>
+    <h3>Corrections${body.access.allowed ? "" : " (count only — see below)"}</h3>
+    <pre>${escapeHtml(JSON.stringify(body.access.allowed ? body.corrections : `correctionCount: ${body.correctionCount}`, null, 2))}</pre>
+    <h3>Redactions (metadata only — never the pre-redaction original)</h3>
+    <pre>${escapeHtml(JSON.stringify(body.redactions, null, 2))}</pre>
     <h3>Actions</h3>
     <div class="actions" id="actions-container"></div>
   `;
@@ -197,6 +201,20 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
   actions.append(actionForm(recordId, "start-deletion", [], reload));
   actions.append(actionForm(recordId, "complete-deletion", [{ name: "deletionRequestId", label: "Deletion requestId (from start-deletion's response)", required: true }], reload));
   actions.append(actionForm(recordId, "revoke-consent", [{ name: "consentId", label: "Consent id", required: true }], reload));
+  actions.append(
+    actionForm(
+      recordId,
+      "correct",
+      [
+        { name: "field", label: "Field (title, summary, or provenanceRef)", required: true },
+        { name: "correctedValue", label: "Corrected value", required: true },
+      ],
+      reload,
+    ),
+  );
+  actions.append(actionForm(recordId, "dispute-correction", [{ name: "correctionId", label: "Correction id (from Corrections above)", required: true }], reload));
+  actions.append(actionForm(recordId, "redact-text", [{ name: "field", label: "Field (title, summary, or provenanceRef)", required: true }], reload));
+  actions.append(actionForm(recordId, "redact-media", [{ name: "mediaId", label: "Media id (from Media above)", required: true }], reload));
 
   // Permission-check isn't a lifecycle action (no reason/mutation), so it
   // gets its own small form rather than reusing actionForm().

@@ -2,7 +2,7 @@
 // library dependency — the request bodies are few, small, and already fully
 // typed by domain/types.ts; these just confirm an unknown JSON body actually
 // matches that shape before it's trusted as one.
-import type { ConsentGrant, Purpose } from "../domain/types";
+import type { ConsentGrant, CorrectableField, Purpose } from "../domain/types";
 import type { ExportScope } from "../services/export";
 
 export type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -33,6 +33,11 @@ export function isAudience(value: unknown): value is ConsentGrant["audience"] {
 const EXPORT_SCOPES: ExportScope[] = ["complete-preservation", "public-redacted"];
 export function isExportScope(value: unknown): value is ExportScope {
   return typeof value === "string" && (EXPORT_SCOPES as string[]).includes(value);
+}
+
+const CORRECTABLE_FIELDS: CorrectableField[] = ["title", "summary", "provenanceRef"];
+export function isCorrectableField(value: unknown): value is CorrectableField {
+  return typeof value === "string" && (CORRECTABLE_FIELDS as string[]).includes(value);
 }
 
 function asRecord(body: unknown): Record<string, unknown> | null {
@@ -172,4 +177,63 @@ export function validateExportBody(body: unknown): ValidationResult<ExportBody> 
       destinationAudience: record.destinationAudience,
     },
   };
+}
+
+export type CorrectActionBody = LifecycleActionBody & { field: CorrectableField; correctedValue: string };
+
+export function validateCorrectActionBody(body: unknown): ValidationResult<CorrectActionBody> {
+  const base = validateLifecycleActionBody(body);
+  if (!base.ok) {
+    return base;
+  }
+  const record = asRecord(body) as Record<string, unknown>;
+  if (!isCorrectableField(record.field)) {
+    return { ok: false, error: "\"field\" is required and must be one of \"title\", \"summary\", \"provenanceRef\"." };
+  }
+  if (!isNonEmptyString(record.correctedValue)) {
+    return { ok: false, error: "\"correctedValue\" is required and must be a non-empty string." };
+  }
+  return { ok: true, value: { ...base.value, field: record.field, correctedValue: record.correctedValue } };
+}
+
+export type DisputeCorrectionActionBody = LifecycleActionBody & { correctionId: string };
+
+export function validateDisputeCorrectionActionBody(body: unknown): ValidationResult<DisputeCorrectionActionBody> {
+  const base = validateLifecycleActionBody(body);
+  if (!base.ok) {
+    return base;
+  }
+  const record = asRecord(body) as Record<string, unknown>;
+  if (!isNonEmptyString(record.correctionId)) {
+    return { ok: false, error: "\"correctionId\" is required and must be a non-empty string." };
+  }
+  return { ok: true, value: { ...base.value, correctionId: record.correctionId } };
+}
+
+export type RedactTextActionBody = LifecycleActionBody & { field: CorrectableField };
+
+export function validateRedactTextActionBody(body: unknown): ValidationResult<RedactTextActionBody> {
+  const base = validateLifecycleActionBody(body);
+  if (!base.ok) {
+    return base;
+  }
+  const record = asRecord(body) as Record<string, unknown>;
+  if (!isCorrectableField(record.field)) {
+    return { ok: false, error: "\"field\" is required and must be one of \"title\", \"summary\", \"provenanceRef\"." };
+  }
+  return { ok: true, value: { ...base.value, field: record.field } };
+}
+
+export type RedactMediaActionBody = LifecycleActionBody & { mediaId: string };
+
+export function validateRedactMediaActionBody(body: unknown): ValidationResult<RedactMediaActionBody> {
+  const base = validateLifecycleActionBody(body);
+  if (!base.ok) {
+    return base;
+  }
+  const record = asRecord(body) as Record<string, unknown>;
+  if (!isNonEmptyString(record.mediaId)) {
+    return { ok: false, error: "\"mediaId\" is required and must be a non-empty string." };
+  }
+  return { ok: true, value: { ...base.value, mediaId: record.mediaId } };
 }

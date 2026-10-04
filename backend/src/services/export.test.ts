@@ -12,6 +12,7 @@ import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
 import { exportFixtureSet, MAX_EXPORT_RESPONSE_BYTES } from "./export";
 import { MAX_MEDIA_BYTES } from "./media";
+import { correctRecord, redactText } from "./lifecycle";
 
 test("public-redacted export omits a record whose authority is disputed, even though publicationStatus alone looks published", async () => {
   const fixtureStore = new InMemoryFixtureStore();
@@ -351,3 +352,73 @@ test(
     assert.ok(totalSkippedForBudget > 0, "at least one of the 20 records' media must actually be skipped — proving the budget bound real content, not that 20 objects coincidentally fit");
   },
 );
+
+test("complete-preservation export carries full correction history and the real pre-redaction text", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const [active] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [active]);
+  await correctRecord(fixtureStore, {
+    requestId: "req-export-correct",
+    recordId: active.record.recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "summary",
+    correctedValue: "[SYNTHETIC] corrected summary",
+  });
+  await redactText(fixtureStore, {
+    requestId: "req-export-redact",
+    recordId: active.record.recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "title",
+  });
+
+  const result = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    [active.record.recordId],
+    "complete-preservation",
+    "export-test-corrections-redactions",
+    "public",
+  );
+
+  const envelope = result.records[0];
+  assert.equal(envelope.corrections.length, 1);
+  assert.equal(envelope.corrections[0].correctedValue, "[SYNTHETIC] corrected summary");
+  assert.notEqual(envelope.redactions, "redacted-for-public-export");
+  if (envelope.redactions !== "redacted-for-public-export") {
+    assert.equal(envelope.redactions.length, 1);
+    const redaction = envelope.redactions[0];
+    assert.equal(redaction.scope, "text");
+    if (redaction.scope === "text") {
+      assert.ok(redaction.previousValue.length > 0, "complete-preservation custody is authorized to hold the real pre-redaction text");
+      assert.notEqual(redaction.previousValue, "[REDACTED]");
+    }
+  }
+});
+
+test("public-redacted export omits the pre-redaction original text, same as it redacts consent evidence and media", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const [active] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [active]);
+  await redactText(fixtureStore, {
+    requestId: "req-export-redact-public",
+    recordId: active.record.recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "summary",
+  });
+
+  const result = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    [active.record.recordId],
+    "public-redacted",
+    "export-test-public-redaction",
+    "public",
+  );
+
+  assert.equal(result.records[0].redactions, "redacted-for-public-export");
+});

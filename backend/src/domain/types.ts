@@ -120,9 +120,59 @@ export type LifecycleAction =
   | "withdraw"
   | "revoke-consent"
   | "correct"
+  | "dispute-correction"
+  | "redact-text"
+  | "redact-media"
   | "retain"
   | "delete"
   | "complete-deletion";
+
+// Fields a correction or text redaction may target — deliberately limited
+// to the record's own safe, already-public-facing text fields (per
+// docs/ethos.txt §4's Memory model); never evidence, identity, or consent
+// documents, which have their own distinct lifecycle actions.
+export type CorrectableField = "title" | "summary" | "provenanceRef";
+
+// §12's "Correct" action: "Add or revise an attributed factual/
+// transcription/translation correction; preserve safe provenance and
+// contested accounts." A correction REPLACES the live field (so readers
+// see the corrected text immediately — the point of fixing an error) but
+// never ERASES the prior value: it's preserved here permanently, attributed
+// and reasoned, so the record of what changed and why survives. A later
+// disagreement about the correction itself (disputeCorrection,
+// services/lifecycle.ts) marks `status: "disputed"` WITHOUT reverting the
+// correction — disagreements remain attributed, not resolved by silently
+// overwriting either account.
+export type Correction = {
+  recordId: string;
+  correctionId: string;
+  field: CorrectableField;
+  previousValue: string;
+  correctedValue: string;
+  // Non-identifying summary of who proposed/reviewed this — same shape as
+  // every other capacity field in this model (e.g. ConsentGrant's
+  // signerCapacitySummary), never a raw identity.
+  attribution: string;
+  reason: string;
+  status: "accepted" | "disputed";
+  disputeReason: string | null;
+  createdAt: string;
+};
+
+// §3.5's redaction tooling, scoped to what this backend can actually do:
+// mask a text field or permanently deny a specific media object — never
+// image/audio/video content processing (blur/bleep/crop), which needs real
+// media-processing infrastructure this project doesn't have. Redaction is
+// NOT deletion: underlying bytes/values are preserved for authorized
+// review, never erased — "Ethics or curator approval cannot expand source
+// permissions" applies here too, so redaction only ever adds a
+// restriction, never removes one. previousValue (the pre-redaction text)
+// is carried in complete-preservation exports only — never public-redacted
+// ones (services/export.ts) — and is never served through the normal
+// record-read path (api/router.ts) regardless of caller.
+export type Redaction =
+  | { recordId: string; redactionId: string; scope: "text"; field: CorrectableField; previousValue: string; reason: string; createdAt: string }
+  | { recordId: string; redactionId: string; scope: "media"; mediaId: string; reason: string; createdAt: string };
 export type LifecycleRequestStatus = "pending" | "in-progress" | "completed" | "denied";
 
 export type LifecycleRequest = {
@@ -205,5 +255,12 @@ export type RestrictionRegisterEntry = {
   // is held. Optional/nullable so existing callers that never construct
   // this field directly keep compiling unchanged. See services/lifecycle.ts.
   mediaPurgeClaim?: { requestId: string; claimedAt: string } | null;
+  // mediaIds redacted via redactMedia() (services/lifecycle.ts) — checked
+  // by evaluatePermission as a hard override, independent of and in
+  // addition to every other check: a redacted object is denied for every
+  // purpose/audience, even one that would otherwise be fully authorized.
+  // Optional/nullable for the same reason as mediaPurgeClaim — existing
+  // callers that never construct this field directly keep compiling.
+  redactedMediaIds?: string[];
   updatedAt: string;
 };

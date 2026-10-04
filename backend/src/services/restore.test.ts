@@ -14,7 +14,7 @@ import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
 import { exportFixtureSet } from "./export";
 import { importExport, reconcileRestoredRecords, validateExport } from "./restore";
-import { withdraw, startDeletion, revokeConsentGrant } from "./lifecycle";
+import { withdraw, startDeletion, revokeConsentGrant, correctRecord, redactText } from "./lifecycle";
 import { evaluatePermission } from "./permissions";
 
 test("restoring a pre-withdrawal backup does not revive access (T0-T3)", async () => {
@@ -529,3 +529,48 @@ test(
     assert.equal(afterReplay.length, 1, "replaying the same import must not duplicate the receipt");
   },
 );
+
+test("importExport restores correction history and, for a complete-preservation export, the real pre-redaction text", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const [active] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [active]);
+  await correctRecord(fixtureStore, {
+    requestId: "req-restore-correct",
+    recordId: active.record.recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "summary",
+    correctedValue: "[SYNTHETIC] corrected",
+  });
+  await redactText(fixtureStore, {
+    requestId: "req-restore-redact",
+    recordId: active.record.recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "title",
+  });
+
+  const backupExport = await exportFixtureSet(
+    fixtureStore,
+    registerStore,
+    [active.record.recordId],
+    "complete-preservation",
+    "restore-correction-redaction-test",
+    "public",
+  );
+
+  const restoredTarget = new InMemoryFixtureStore();
+  await importExport(restoredTarget, backupExport);
+
+  const restoredCorrections = await restoredTarget.listCorrections(active.record.recordId);
+  assert.equal(restoredCorrections.length, 1);
+  assert.equal(restoredCorrections[0].correctedValue, "[SYNTHETIC] corrected");
+
+  const restoredRedactions = await restoredTarget.listRedactions(active.record.recordId);
+  assert.equal(restoredRedactions.length, 1);
+  assert.equal(restoredRedactions[0].scope, "text");
+  if (restoredRedactions[0].scope === "text") {
+    assert.ok(restoredRedactions[0].previousValue.length > 0, "the complete-preservation restore must carry the real original text, not just the redacted placeholder");
+  }
+});

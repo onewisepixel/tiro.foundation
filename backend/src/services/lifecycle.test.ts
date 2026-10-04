@@ -6,10 +6,12 @@ import type {
   AuditReceipt,
   AuthorityClaim,
   ConsentGrant,
+  Correction,
   CustodyCopy,
   LegalRight,
   LifecycleRequest,
   LifecycleRequestStatus,
+  Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
 import { seedStore } from "../fixtures/load";
@@ -22,6 +24,10 @@ import {
   retainForPreservationOnly,
   startDeletion,
   completeDeletion,
+  correctRecord,
+  disputeCorrection,
+  redactText,
+  redactMedia,
   MediaPurgeInProgressError,
 } from "./lifecycle";
 import { evaluatePermission } from "./permissions";
@@ -111,6 +117,18 @@ class FailOnceOnDeleteFixtureStore implements FixtureStore {
   }
   listAuditReceipts(recordId: string) {
     return this.inner.listAuditReceipts(recordId);
+  }
+  putCorrection(correction: Correction) {
+    return this.inner.putCorrection(correction);
+  }
+  listCorrections(recordId: string) {
+    return this.inner.listCorrections(recordId);
+  }
+  putRedaction(redaction: Redaction) {
+    return this.inner.putRedaction(redaction);
+  }
+  listRedactions(recordId: string) {
+    return this.inner.listRedactions(recordId);
   }
 }
 
@@ -828,4 +846,203 @@ test("completeDeletion releases its media purge claim after finishing, so retent
   );
   const current = await registerStore.getCurrent(recordId);
   assert.equal(current?.mediaPurgeClaim ?? null, null, "the claim must be released once the purge attempt concludes, not left stuck");
+});
+
+// ------------------------------------------------- versioned correction --
+
+test("correctRecord replaces the live field but preserves the previous value in correction history", async () => {
+  const { fixtureStore, recordId } = await setupActive();
+  const before = await fixtureStore.getRecord(recordId);
+
+  const result = await correctRecord(fixtureStore, {
+    requestId: "req-correct-1",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] fixing a transcription error",
+    field: "summary",
+    correctedValue: "[SYNTHETIC] corrected summary text",
+  });
+  assert.equal(result.status, "completed");
+
+  const after = await fixtureStore.getRecord(recordId);
+  assert.equal(after?.summary, "[SYNTHETIC] corrected summary text", "readers must see the corrected text immediately");
+
+  const corrections = await fixtureStore.listCorrections(recordId);
+  assert.equal(corrections.length, 1);
+  assert.equal(corrections[0].previousValue, before?.summary, "the previous value must be preserved, not erased");
+  assert.equal(corrections[0].correctedValue, "[SYNTHETIC] corrected summary text");
+  assert.equal(corrections[0].status, "accepted");
+  assert.equal(corrections[0].attribution, "[SYNTHETIC] curator");
+});
+
+test("correctRecord denies (not crashes) when the record doesn't exist", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const result = await correctRecord(fixtureStore, {
+    requestId: "req-correct-missing",
+    recordId: "does-not-exist",
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "title",
+    correctedValue: "x",
+  });
+  assert.equal(result.status, "denied");
+});
+
+test("correctRecord is idempotent on requestId — replaying it does not re-apply or duplicate the correction", async () => {
+  const { fixtureStore, recordId } = await setupActive();
+  const input = {
+    requestId: "req-correct-idempotent",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    field: "title" as const,
+    correctedValue: "[SYNTHETIC] idempotent title",
+  };
+  const first = await correctRecord(fixtureStore, input);
+  const second = await correctRecord(fixtureStore, input);
+  assert.equal(first.status, "completed");
+  assert.equal(second.status, "completed");
+  assert.equal(first.completedAt, second.completedAt);
+  assert.equal((await fixtureStore.listCorrections(recordId)).length, 1, "replay must not duplicate the correction");
+});
+
+test(
+  "disputeCorrection marks a correction disputed WITHOUT reverting it — disagreements remain attributed",
+  async () => {
+    const { fixtureStore, recordId } = await setupActive();
+    await correctRecord(fixtureStore, {
+      requestId: "req-correct-for-dispute",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary",
+      correctedValue: "[SYNTHETIC] disputed correction text",
+    });
+    const [correction] = await fixtureStore.listCorrections(recordId);
+
+    const result = await disputeCorrection(fixtureStore, {
+      requestId: "req-dispute-1",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] subject",
+      reason: "[SYNTHETIC] this correction is wrong",
+      correctionId: correction.correctionId,
+    });
+    assert.equal(result.status, "completed");
+
+    const [afterDispute] = await fixtureStore.listCorrections(recordId);
+    assert.equal(afterDispute.status, "disputed");
+    assert.equal(afterDispute.disputeReason, "[SYNTHETIC] this correction is wrong");
+    // The correction itself must NOT be reverted — the live field still
+    // reflects it.
+    const record = await fixtureStore.getRecord(recordId);
+    assert.equal(record?.summary, "[SYNTHETIC] disputed correction text");
+  },
+);
+
+test("disputeCorrection denies when the correctionId doesn't exist on the record", async () => {
+  const { fixtureStore, recordId } = await setupActive();
+  const result = await disputeCorrection(fixtureStore, {
+    requestId: "req-dispute-missing",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] subject",
+    reason: "[SYNTHETIC] test",
+    correctionId: "does-not-exist",
+  });
+  assert.equal(result.status, "denied");
+});
+
+// ------------------------------------------------------------ redaction --
+
+test("redactText masks the live field with a placeholder and preserves the original only in redaction history", async () => {
+  const { fixtureStore, recordId } = await setupActive();
+  const before = await fixtureStore.getRecord(recordId);
+
+  const result = await redactText(fixtureStore, {
+    requestId: "req-redact-text-1",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] sensitive detail in the summary",
+    field: "summary",
+  });
+  assert.equal(result.status, "completed");
+
+  const after = await fixtureStore.getRecord(recordId);
+  assert.equal(after?.summary, "[REDACTED]");
+  assert.equal(after?.redactionApplied, true);
+
+  const redactions = await fixtureStore.listRedactions(recordId);
+  assert.equal(redactions.length, 1);
+  const redaction = redactions[0];
+  assert.equal(redaction.scope, "text");
+  if (redaction.scope === "text") {
+    assert.equal(redaction.previousValue, before?.summary, "the original must be preserved in redaction history, not erased");
+  }
+});
+
+test("redactMedia denies through evaluatePermission for every purpose/audience, even one that would otherwise be fully allowed", async () => {
+  const { fixtureStore, registerStore, recordId } = await setupActiveWithMedia();
+  const textMedia = (await fixtureStore.getRecord(recordId))!.mediaRefs[0];
+
+  const beforeDecision = await evaluatePermission(fixtureStore, registerStore, {
+    recordId,
+    purpose: "publication",
+    audience: "public",
+    now: new Date(),
+    mediaId: textMedia.mediaId,
+  });
+  assert.equal(beforeDecision.allowed, true, "sanity check: allowed before redaction");
+
+  const result = await redactMedia(fixtureStore, registerStore, {
+    requestId: "req-redact-media-1",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] sensitive media",
+    mediaId: textMedia.mediaId,
+  });
+  assert.equal(result.status, "completed");
+
+  const afterDecision = await evaluatePermission(fixtureStore, registerStore, {
+    recordId,
+    purpose: "publication",
+    audience: "public",
+    now: new Date(),
+    mediaId: textMedia.mediaId,
+  });
+  assert.equal(afterDecision.allowed, false);
+  assert.match(afterDecision.reason, /redacted/i);
+
+  const record = await fixtureStore.getRecord(recordId);
+  assert.equal(record?.redactionApplied, true);
+  const redactions = await fixtureStore.listRedactions(recordId);
+  assert.equal(redactions.length, 1);
+  assert.equal(redactions[0].scope, "media");
+});
+
+test("redactMedia leaves the underlying S3 bytes completely untouched — redaction is not deletion", async () => {
+  const { fixtureStore, registerStore, mediaStore, recordId } = await setupActiveWithMedia();
+  const binaryMedia = (await fixtureStore.getRecord(recordId))!.mediaRefs[1];
+  const versionsBefore = await mediaStore.listObjectVersions(binaryMedia.objectKey);
+
+  await redactMedia(fixtureStore, registerStore, {
+    requestId: "req-redact-media-no-delete",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    mediaId: binaryMedia.mediaId,
+  });
+
+  const versionsAfter = await mediaStore.listObjectVersions(binaryMedia.objectKey);
+  assert.deepEqual(versionsAfter, versionsBefore, "redaction must never touch S3 — only register-level access is denied");
+});
+
+test("redactMedia denies when the mediaId doesn't exist on the record", async () => {
+  const { fixtureStore, registerStore, recordId } = await setupActive();
+  const result = await redactMedia(fixtureStore, registerStore, {
+    requestId: "req-redact-media-missing",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] test",
+    mediaId: "does-not-exist",
+  });
+  assert.equal(result.status, "denied");
 });

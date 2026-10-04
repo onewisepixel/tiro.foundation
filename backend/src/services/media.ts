@@ -44,12 +44,15 @@ export async function fetchAuthorizedMedia(
 
   // The scoped permission check runs FIRST, exactly as it does for a record
   // detail read — a denial here means no bytes, no reason to even look at
-  // the media store.
+  // the media store. Passing mediaId here also enforces redactMedia()'s
+  // hard override (services/lifecycle.ts) — a redacted object denies even
+  // when the record's own purpose/audience would otherwise fully allow it.
   const decision = await evaluatePermission(fixtureStore, registerStore, {
     recordId: query.recordId,
     purpose: query.purpose,
     audience: query.audience,
     now,
+    mediaId: query.mediaId,
   });
   if (!decision.allowed) {
     return { ok: false, statusCode: 403, reason: decision.reason };

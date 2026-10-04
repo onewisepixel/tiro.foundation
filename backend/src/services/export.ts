@@ -10,10 +10,12 @@ import type {
   AuditReceipt,
   AuthorityClaim,
   ConsentGrant,
+  Correction,
   CustodyCopy,
   FixtureRecord,
   LegalRight,
   Purpose,
+  Redaction,
 } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
@@ -74,6 +76,15 @@ export type ExportedRecordEnvelope = {
   // non-sensitive by type design (domain/types.ts), never testimony or
   // consent-document content.
   auditReceipts: AuditReceipt[];
+  // Same sensitivity as the record's own title/summary (corrections are
+  // just historical edits of that same text), so included for both scopes.
+  corrections: Correction[];
+  // Unlike corrections, a text redaction's previousValue is the exact
+  // thing redaction withholds — "redacted-for-public-export" for
+  // public-redacted scope, same pattern as consentGrants/mediaObjects;
+  // full (original value included) for complete-preservation, the one
+  // scope authorized to hold the full unredacted archival history.
+  redactions: Redaction[] | "redacted-for-public-export";
   mediaObjects: ExportedMediaObject[] | "omitted-for-public-export";
   mediaObjectsSkipped: { mediaId: string; reason: string }[];
   controlStateAtExport: {
@@ -161,6 +172,14 @@ export async function exportFixtureSet(
       } else {
         const fetched: ExportedMediaObject[] = [];
         for (const media of record.mediaRefs) {
+          // Redaction is a hard override, checked first — same as
+          // evaluatePermission's mediaId check (services/permissions.ts)
+          // for the live retrieval route. A redacted object is never
+          // embedded in an export either, complete-preservation or not.
+          if (control?.redactedMediaIds?.includes(media.mediaId)) {
+            mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Media has been redacted." });
+            continue;
+          }
           if (!media.versionId) {
             mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Legacy reference has no bound S3 version." });
             continue;
@@ -219,6 +238,9 @@ export async function exportFixtureSet(
         scope === "public-redacted" ? "redacted-for-public-export" : await fixtureStore.listConsentGrants(recordId),
       custodyCopies: await fixtureStore.listCustodyCopies(recordId),
       auditReceipts: await fixtureStore.listAuditReceipts(recordId),
+      corrections: await fixtureStore.listCorrections(recordId),
+      redactions:
+        scope === "public-redacted" ? "redacted-for-public-export" : await fixtureStore.listRedactions(recordId),
       mediaObjects,
       mediaObjectsSkipped,
       controlStateAtExport: control

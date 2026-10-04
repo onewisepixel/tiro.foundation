@@ -12,11 +12,13 @@ import type {
   AuditReceipt,
   AuthorityClaim,
   ConsentGrant,
+  Correction,
   CustodyCopy,
   FixtureRecord,
   LegalRight,
   LifecycleRequest,
   LifecycleRequestStatus,
+  Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
 import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
@@ -29,6 +31,8 @@ export class InMemoryFixtureStore implements FixtureStore {
   private custodyCopies = new Map<string, CustodyCopy[]>();
   private lifecycleRequests = new Map<string, LifecycleRequest>();
   private auditReceipts = new Map<string, AuditReceipt[]>();
+  private corrections = new Map<string, Correction[]>();
+  private redactions = new Map<string, Redaction[]>();
 
   async getRecord(recordId: string): Promise<FixtureRecord | null> {
     return this.records.get(recordId) ?? null;
@@ -135,6 +139,28 @@ export class InMemoryFixtureStore implements FixtureStore {
 
   async listAuditReceipts(recordId: string): Promise<AuditReceipt[]> {
     return [...(this.auditReceipts.get(recordId) ?? [])];
+  }
+
+  async putCorrection(correction: Correction): Promise<void> {
+    const list = this.corrections.get(correction.recordId) ?? [];
+    const next = list.filter((c) => c.correctionId !== correction.correctionId);
+    next.push({ ...correction });
+    this.corrections.set(correction.recordId, next);
+  }
+
+  async listCorrections(recordId: string): Promise<Correction[]> {
+    return [...(this.corrections.get(recordId) ?? [])];
+  }
+
+  async putRedaction(redaction: Redaction): Promise<void> {
+    const list = this.redactions.get(redaction.recordId) ?? [];
+    const next = list.filter((r) => r.redactionId !== redaction.redactionId);
+    next.push({ ...redaction });
+    this.redactions.set(redaction.recordId, next);
+  }
+
+  async listRedactions(recordId: string): Promise<Redaction[]> {
+    return [...(this.redactions.get(recordId) ?? [])];
   }
 
   // Test/backup-simulation helper only — not part of the FixtureStore

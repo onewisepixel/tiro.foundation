@@ -539,3 +539,138 @@ test("GET /records/:id/media/:mediaId returns 409 for a legacy reference with no
   assert.equal(response.statusCode, 409);
   assert.equal(response.binary, undefined);
 });
+
+// ------------------------------------------------- versioned correction --
+
+test("POST /records/:id/correct replaces the field, attributes it to the authenticated caller, and preserves history", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "correct"],
+    body: { reason: "[SYNTHETIC] fix", field: "summary", correctedValue: "[SYNTHETIC] corrected via API" },
+  }));
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { status: string; requesterCapacity: string };
+  assert.equal(body.status, "completed");
+  assert.equal(body.requesterCapacity, STAFF_IDENTITY);
+
+  const record = await fixtureStore.getRecord(active.record.recordId);
+  assert.equal(record?.summary, "[SYNTHETIC] corrected via API");
+  const corrections = await fixtureStore.listCorrections(active.record.recordId);
+  assert.equal(corrections.length, 1);
+});
+
+test("POST /records/:id/correct rejects a missing/invalid field", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "correct"],
+    body: { reason: "[SYNTHETIC] fix", field: "not-a-real-field", correctedValue: "x" },
+  }));
+  assert.equal(response.statusCode, 400);
+});
+
+test("POST /records/:id/dispute-correction marks it disputed without reverting it", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "correct"],
+    body: { reason: "[SYNTHETIC] fix", field: "title", correctedValue: "[SYNTHETIC] disputed title" },
+  }));
+  const [correction] = await fixtureStore.listCorrections(active.record.recordId);
+
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "dispute-correction"],
+    body: { reason: "[SYNTHETIC] I disagree", correctionId: correction.correctionId },
+  }));
+  assert.equal(response.statusCode, 200);
+
+  const [afterDispute] = await fixtureStore.listCorrections(active.record.recordId);
+  assert.equal(afterDispute.status, "disputed");
+  const record = await fixtureStore.getRecord(active.record.recordId);
+  assert.equal(record?.title, "[SYNTHETIC] disputed title", "the correction itself must not be reverted");
+});
+
+test("GET /records/:id includes full correction history when allowed, and a count-only view when denied", async () => {
+  const { fixtureStore, registerStore, mediaStore, active, disputed } = await setup();
+  await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "correct"],
+    body: { reason: "[SYNTHETIC] fix", field: "summary", correctedValue: "[SYNTHETIC] corrected" },
+  }));
+
+  const allowed = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  const allowedBody = allowed.body as { corrections: unknown[] };
+  assert.equal(allowedBody.corrections.length, 1);
+
+  const denied = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", disputed.record.recordId],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  const deniedBody = denied.body as { correctionCount: number; corrections?: unknown };
+  assert.equal(deniedBody.correctionCount, 0);
+  assert.equal(deniedBody.corrections, undefined, "the limited view must never carry the raw corrections array");
+});
+
+// ------------------------------------------------------------ redaction --
+
+test("POST /records/:id/redact-text masks the field and never exposes the original through GET /records/:id", async () => {
+  const { fixtureStore, registerStore, mediaStore, active } = await setup();
+  const original = (await fixtureStore.getRecord(active.record.recordId))?.summary;
+
+  const redactResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "redact-text"],
+    body: { reason: "[SYNTHETIC] sensitive detail", field: "summary" },
+  }));
+  assert.equal(redactResponse.statusCode, 200);
+
+  const getResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  const body = getResponse.body as { record: { summary: string }; redactions: Array<Record<string, unknown>> };
+  assert.equal(body.record.summary, "[REDACTED]");
+  assert.equal(body.redactions.length, 1);
+  assert.equal(body.redactions[0].previousValue, undefined, "the original value must never appear in the GET response");
+  assert.notEqual(original, "[REDACTED]", "sanity check: there really was a different original value");
+});
+
+test("POST /records/:id/redact-media denies the exact mediaId through GET .../media/:mediaId, even though the record is otherwise allowed", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const mediaStore = new InMemoryMediaStore();
+  const [active] = buildSeedFixtures();
+  await bindSeedMedia(mediaStore, active);
+  await seedStore(fixtureStore, registerStore, [active]);
+  const textMedia = active.record.mediaRefs[0];
+
+  const before = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId, "media", textMedia.mediaId],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  assert.equal(before.statusCode, 200);
+
+  const redactResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "redact-media"],
+    body: { reason: "[SYNTHETIC] sensitive media", mediaId: textMedia.mediaId },
+  }));
+  assert.equal(redactResponse.statusCode, 200);
+
+  const after = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["records", active.record.recordId, "media", textMedia.mediaId],
+    queryParams: { purpose: "publication", audience: "public" },
+  }));
+  assert.equal(after.statusCode, 403);
+  assert.match((after.body as { error: string }).error, /redacted/i);
+});
