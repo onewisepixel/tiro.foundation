@@ -235,6 +235,12 @@ test("POST /records/:id/complete-deletion requires deletionRequestId, then repor
     body: { reason: "[SYNTHETIC] test", deletionRequestId },
   }));
   assert.equal((blocked.body as { status: string }).status, "in-progress");
+  // Retrying must reuse the SAME requestId the blocked attempt was assigned
+  // (either the caller's own, or — as here, since none was given — the one
+  // the server generated and returned) so it resumes the completion the
+  // claim is already held for, rather than being refused as a foreign one
+  // (lifecycle.ts's completeDeletion()).
+  const completionRequestId = (blocked.body as { requestId: string }).requestId;
 
   await fixtureStore.putCustodyCopy({
     recordId: active.record.recordId,
@@ -249,7 +255,7 @@ test("POST /records/:id/complete-deletion requires deletionRequestId, then repor
   const done = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
     method: "POST",
     pathSegments: ["records", active.record.recordId, "complete-deletion"],
-    body: { reason: "[SYNTHETIC] test", deletionRequestId, requestId: "req-complete-explicit" },
+    body: { reason: "[SYNTHETIC] test", deletionRequestId, requestId: completionRequestId },
   }));
   assert.equal((done.body as { status: string }).status, "completed");
   assert.equal(await fixtureStore.getRecord(active.record.recordId), null);
@@ -642,6 +648,45 @@ test("POST /records/:id/redact-text masks the field and never exposes the origin
   assert.equal(body.redactions[0].previousValue, undefined, "the original value must never appear in the GET response");
   assert.notEqual(original, "[REDACTED]", "sanity check: there really was a different original value");
 });
+
+test(
+  "correcting a field and then redacting that SAME field masks its correction history too, not just the live value (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, active } = await setup();
+
+    const correctResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+      method: "POST",
+      pathSegments: ["records", active.record.recordId, "correct"],
+      body: { reason: "[SYNTHETIC] fixing a typo", field: "title", correctedValue: "[SYNTHETIC] corrected title" },
+    }));
+    assert.equal(correctResponse.statusCode, 200);
+
+    const redactResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+      method: "POST",
+      pathSegments: ["records", active.record.recordId, "redact-text"],
+      body: { reason: "[SYNTHETIC] sensitive title", field: "title" },
+    }));
+    assert.equal(redactResponse.statusCode, 200);
+
+    const getResponse = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+      method: "GET",
+      pathSegments: ["records", active.record.recordId],
+      queryParams: { purpose: "publication", audience: "public" },
+    }));
+    const body = getResponse.body as {
+      record: { title: string };
+      corrections: Array<{ field: string; previousValue: string; correctedValue: string }>;
+    };
+    assert.equal(body.record.title, "[REDACTED]", "the live field must be masked");
+    assert.equal(body.corrections.length, 1);
+    assert.equal(
+      body.corrections[0].previousValue,
+      "[REDACTED]",
+      "a redacted field's correction history must be masked too — a reviewer caught this remaining a bypass",
+    );
+    assert.equal(body.corrections[0].correctedValue, "[REDACTED]", "the corrected value for that same field must be masked too");
+  },
+);
 
 test("POST /records/:id/redact-media denies the exact mediaId through GET .../media/:mediaId, even though the record is otherwise allowed", async () => {
   const fixtureStore = new InMemoryFixtureStore();

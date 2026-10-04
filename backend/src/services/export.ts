@@ -21,23 +21,32 @@ import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import { evaluatePermission } from "./permissions";
 import { MAX_MEDIA_BYTES } from "./media";
+import { applyTextRedactions, maskCorrectionsForRedactedFields } from "./redactionView";
 
 export type ExportScope = "complete-preservation" | "public-redacted";
 
-// Budgets the ACTUAL SERIALIZED contribution of included media to this
-// export's response — not raw object bytes. AWS Lambda's synchronous
-// invocation response has a hard 6 MB payload limit; a reviewer reproduced
-// a 7MB+ serialized response from 20 DISTINCT, individually-authorized,
-// individually-under-cap (256 KiB raw) records, because a raw-byte budget
-// (the first version of this fix) never accounted for base64 inflating
-// each object by ~4/3, or the JSON structure wrapping each one. This
-// budget is measured in the same units as what actually lands in the
-// response body — base64-encoded length plus a conservative per-object
-// structural estimate — with real headroom below the 6 MB hard limit for
-// the manifest, per-record metadata, and the rest of the envelope. Once
-// exceeded, further objects are recorded in mediaObjectsSkipped (not
-// silently dropped) rather than growing the response further.
+// Budgets the ACTUAL SERIALIZED size of the COMPLETE Lambda response — every
+// record's full encoded envelope (title/summary/corrections/redactions/
+// history AND media), not just media's contribution. AWS Lambda's
+// synchronous invocation response has a hard 6 MiB buffered payload limit
+// (docs.aws.amazon.com). A reviewer reproduced 9,032,712 serialized bytes
+// from 20 records with larger TEXT fields and no media at all — the
+// previous version of this budget only ever measured media's base64 +
+// structural overhead, so text-heavy records sailed straight through it.
+// Fixed by measuring each record's REAL serialized envelope size
+// (Buffer.byteLength of its JSON, not an estimate) and tracking a running
+// total across the WHOLE response; once a record's envelope would push
+// that total over budget, the ENTIRE record is excluded (not trimmed) and
+// recorded in recordsSkippedForResponseBudget — never silently dropped,
+// same as mediaObjectsSkipped. The value itself stays well below the 6 MiB
+// hard limit to leave headroom for the manifest and API Gateway/Lambda's
+// own response framing.
 export const MAX_EXPORT_RESPONSE_BYTES = 5 * 1024 * 1024;
+
+// Conservative fixed estimate for the manifest line — tiny and effectively
+// fixed-size (recordCount's digit count is the only variable), so a real
+// byte count isn't worth computing before the record count is final.
+const MANIFEST_OVERHEAD_BYTES = 512;
 
 // Conservative fixed estimate of the JSON structure wrapping ONE media
 // object — {"mediaId":"<uuidv7>","base64":"..."} — field names, quotes,
@@ -106,6 +115,10 @@ export type PreservationExportManifest = {
 export type PreservationExport = {
   manifest: PreservationExportManifest;
   records: ExportedRecordEnvelope[];
+  // Whole records excluded to keep the complete serialized response under
+  // MAX_EXPORT_RESPONSE_BYTES — never silently dropped, same pattern as
+  // each record's own mediaObjectsSkipped.
+  recordsSkippedForResponseBudget: { recordId: string; reason: string }[];
 };
 
 // destinationAudience: who this export is FOR — checked against each
@@ -132,15 +145,16 @@ export async function exportFixtureSet(
   mediaStore?: MediaStore,
 ): Promise<PreservationExport> {
   const records: ExportedRecordEnvelope[] = [];
+  const recordsSkippedForResponseBudget: { recordId: string; reason: string }[] = [];
   const purpose: Purpose = scope === "public-redacted" ? "publication" : "preservation";
   // Deduplicate: repeating one id N times must never embed that record's
   // (and its media's) content N times in the response — a reviewer
   // reproduced a multi-megabyte export this way from a single real record.
   const uniqueRecordIds = [...new Set(recordIds)];
   // Shared across every record in this call, not reset per record — the
-  // aggregate budget below. Measured in SERIALIZED bytes (post-base64,
-  // plus JSON overhead), not raw object bytes.
-  let aggregateSerializedMediaBytes = 0;
+  // WHOLE-RESPONSE budget below. Measured in real SERIALIZED bytes (every
+  // committed record's full encoded envelope), not raw object bytes.
+  let totalResponseBytes = MANIFEST_OVERHEAD_BYTES;
 
   for (const recordId of uniqueRecordIds) {
     const record = await fixtureStore.getRecord(recordId);
@@ -171,6 +185,13 @@ export async function exportFixtureSet(
         mediaObjects = [];
       } else {
         const fetched: ExportedMediaObject[] = [];
+        // This record's own provisional media total, checked against
+        // the budget REMAINING after everything already committed —
+        // purely an optimization to skip an individually-oversized
+        // object before fetching/encoding it; the real, authoritative
+        // gate is the whole-envelope check below, which also covers
+        // text/history and corrects for this estimate if it's ever off.
+        let provisionalMediaBytes = 0;
         for (const media of record.mediaRefs) {
           // Redaction is a hard override, checked first — same as
           // evaluatePermission's mediaId check (services/permissions.ts)
@@ -207,7 +228,7 @@ export async function exportFixtureSet(
           // count), so an over-budget object is skipped without ever
           // calling getObject for it.
           const estimatedSerializedBytes = base64Length(actualSize) + PER_MEDIA_OBJECT_JSON_OVERHEAD_BYTES;
-          if (aggregateSerializedMediaBytes + estimatedSerializedBytes > MAX_EXPORT_RESPONSE_BYTES) {
+          if (totalResponseBytes + provisionalMediaBytes + estimatedSerializedBytes > MAX_EXPORT_RESPONSE_BYTES) {
             mediaObjectsSkipped.push({
               mediaId: media.mediaId,
               reason: `Skipped: including it would exceed this export's ${MAX_EXPORT_RESPONSE_BYTES}-byte serialized-response budget (base64 + JSON overhead, not raw bytes).`,
@@ -220,25 +241,39 @@ export async function exportFixtureSet(
             continue;
           }
           const base64 = object.body.toString("base64");
-          // Track the REAL measured base64 length for the running total
-          // (should match the estimate almost always; using the real
-          // value keeps the budget accurate even if it doesn't).
-          aggregateSerializedMediaBytes += base64.length + PER_MEDIA_OBJECT_JSON_OVERHEAD_BYTES;
+          // Track the REAL measured base64 length for this record's
+          // provisional total (should match the estimate almost always;
+          // using the real value keeps it accurate even if it doesn't).
+          provisionalMediaBytes += base64.length + PER_MEDIA_OBJECT_JSON_OVERHEAD_BYTES;
           fetched.push({ mediaId: media.mediaId, base64 });
         }
         mediaObjects = fetched;
       }
     }
 
-    records.push({
-      record,
+    // Register-driven, not storage-driven (services/redactionView.ts):
+    // the embedded record's currently-redacted fields are forced to the
+    // placeholder from the CURRENT control state regardless of what's
+    // actually stored, so a record whose primary content was reverted to
+    // a pre-redaction original by a restore is still exported correctly
+    // redacted, for EITHER scope — same as redactedMediaIds above. A
+    // correction's OWN historical previousValue/correctedValue for that
+    // field is masked too, but only for public-redacted scope:
+    // complete-preservation is the one scope authorized to hold the full
+    // unredacted archival history, same exemption Redaction.previousValue
+    // already has for it.
+    const maskedRecord = applyTextRedactions(record, control);
+    const corrections = await fixtureStore.listCorrections(recordId);
+
+    const envelope: ExportedRecordEnvelope = {
+      record: maskedRecord,
       authorityClaims: await fixtureStore.listAuthorityClaims(recordId),
       legalRights: await fixtureStore.listLegalRights(recordId),
       consentGrants:
         scope === "public-redacted" ? "redacted-for-public-export" : await fixtureStore.listConsentGrants(recordId),
       custodyCopies: await fixtureStore.listCustodyCopies(recordId),
       auditReceipts: await fixtureStore.listAuditReceipts(recordId),
-      corrections: await fixtureStore.listCorrections(recordId),
+      corrections: scope === "public-redacted" ? maskCorrectionsForRedactedFields(corrections, control) : corrections,
       redactions:
         scope === "public-redacted" ? "redacted-for-public-export" : await fixtureStore.listRedactions(recordId),
       mediaObjects,
@@ -251,7 +286,24 @@ export async function exportFixtureSet(
             controlVersion: control.controlVersion,
           }
         : null,
-    });
+    };
+
+    // The authoritative, whole-envelope gate: measures the REAL serialized
+    // size of everything this record would add to the response — title,
+    // summary, corrections, redactions, history, AND media — not an
+    // estimate of any one part of it. A record that would push the WHOLE
+    // response over budget is excluded entirely (never trimmed down
+    // further here) and reported, same as mediaObjectsSkipped.
+    const envelopeBytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+    if (totalResponseBytes + envelopeBytes > MAX_EXPORT_RESPONSE_BYTES) {
+      recordsSkippedForResponseBudget.push({
+        recordId,
+        reason: `Skipped: this record's complete envelope (${envelopeBytes} bytes) would exceed this export's ${MAX_EXPORT_RESPONSE_BYTES}-byte serialized-response budget (covers the full encoded response, not just media).`,
+      });
+      continue;
+    }
+    totalResponseBytes += envelopeBytes;
+    records.push(envelope);
   }
 
   return {
@@ -263,19 +315,36 @@ export async function exportFixtureSet(
       recordCount: records.length,
     },
     records,
+    recordsSkippedForResponseBudget,
   };
 }
 
-// JSONL serialization: manifest line first, then one record envelope per line.
+// JSONL serialization: manifest line first, then one record envelope per
+// line. recordsSkippedForResponseBudget rides along on the manifest line
+// (not a record of its own) — folding it in rather than dropping it keeps
+// this round-trip lossless; omitting it here would silently lose which
+// whole records a prior export excluded for budget reasons the moment it
+// was written to S3 and read back, the same "never silently drop" standard
+// mediaObjectsSkipped is already held to.
+type ManifestLine = PreservationExportManifest & {
+  recordsSkippedForResponseBudget?: { recordId: string; reason: string }[];
+};
+
 export function toJsonl(exportData: PreservationExport): string {
-  const lines = [JSON.stringify(exportData.manifest), ...exportData.records.map((r) => JSON.stringify(r))];
+  const manifestLine: ManifestLine = {
+    ...exportData.manifest,
+    recordsSkippedForResponseBudget: exportData.recordsSkippedForResponseBudget,
+  };
+  const lines = [JSON.stringify(manifestLine), ...exportData.records.map((r) => JSON.stringify(r))];
   return lines.join("\n") + "\n";
 }
 
 export function fromJsonl(jsonl: string): PreservationExport {
   const lines = jsonl.split("\n").filter((line) => line.trim().length > 0);
   const [manifestLine, ...recordLines] = lines;
-  const manifest = JSON.parse(manifestLine) as PreservationExportManifest;
+  const { recordsSkippedForResponseBudget, ...manifest } = JSON.parse(manifestLine) as ManifestLine;
   const records = recordLines.map((line) => JSON.parse(line) as ExportedRecordEnvelope);
-  return { manifest, records };
+  // Defaulted, not required: older exports written before this field
+  // existed are still valid JSONL to restore from.
+  return { manifest, records, recordsSkippedForResponseBudget: recordsSkippedForResponseBudget ?? [] };
 }

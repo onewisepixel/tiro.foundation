@@ -16,6 +16,7 @@ import { exportFixtureSet } from "./export";
 import { importExport, reconcileRestoredRecords, validateExport } from "./restore";
 import { withdraw, startDeletion, revokeConsentGrant, correctRecord, redactText } from "./lifecycle";
 import { evaluatePermission } from "./permissions";
+import { applyTextRedactions } from "./redactionView";
 
 test("restoring a pre-withdrawal backup does not revive access (T0-T3)", async () => {
   // --- T0: seed an authorized record, take a backup (export) while access is allowed.
@@ -543,7 +544,7 @@ test("importExport restores correction history and, for a complete-preservation 
     field: "summary",
     correctedValue: "[SYNTHETIC] corrected",
   });
-  await redactText(fixtureStore, {
+  await redactText(fixtureStore, registerStore, {
     requestId: "req-restore-redact",
     recordId: active.record.recordId,
     requesterCapacity: "[SYNTHETIC] curator",
@@ -574,3 +575,84 @@ test("importExport restores correction history and, for a complete-preservation 
     assert.ok(restoredRedactions[0].previousValue.length > 0, "the complete-preservation restore must carry the real original text, not just the redacted placeholder");
   }
 });
+
+test(
+  "restoring a backup taken BEFORE a text redaction does not revive the pre-redaction text (reviewer-caught finding)",
+  async () => {
+    // --- Export a pristine backup BEFORE any redaction exists.
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+    const originalTitle = (await fixtureStore.getRecord(recordId))?.title;
+    assert.ok(originalTitle && originalTitle.length > 0, "sanity check: there is a real title to protect");
+
+    const preRedactionBackup = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [recordId],
+      "complete-preservation",
+      "pre-redaction-backup",
+      "public",
+    );
+
+    // --- AFTER that backup, redact the title. The live store and the
+    // register both now correctly reflect the redaction.
+    await redactText(fixtureStore, registerStore, {
+      requestId: "req-restore-survives-redact",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] sensitive title",
+      field: "title",
+    });
+    assert.equal((await fixtureStore.getRecord(recordId))?.title, "[REDACTED]", "sanity check: redaction really did mask the live field");
+
+    // --- Restore the PRE-redaction backup — exactly "export before
+    // redaction, redact the source, then restore that backup". This
+    // reverts the FixtureStore's title back to the pristine original.
+    // registerStore is passed to NOTHING here — importExport is
+    // structurally incapable of writing to it — so it still durably says
+    // "title" is redacted the whole time.
+    await importExport(fixtureStore, preRedactionBackup);
+    assert.equal(
+      (await fixtureStore.getRecord(recordId))?.title,
+      originalTitle,
+      "sanity check: the restore really did revive the pre-redaction original in primary storage",
+    );
+
+    // --- The actual finding: against this now-stale primary store and the
+    // UNCHANGED live register, the record must still come back masked.
+    // Register-driven enforcement (services/redactionView.ts) is what
+    // makes this independent of whatever restore just put back in
+    // storage.
+    const decision = await evaluatePermission(fixtureStore, registerStore, {
+      recordId,
+      purpose: "publication",
+      audience: "public",
+      now: new Date(),
+    });
+    assert.equal(decision.allowed, true, "text redaction does not deny overall access, unlike media redaction — allowed:true is correct here");
+
+    const control = await registerStore.getCurrent(recordId);
+    const restoredRecord = await fixtureStore.getRecord(recordId);
+    const served = applyTextRedactions(restoredRecord!, control);
+    assert.equal(
+      served.title,
+      "[REDACTED]",
+      "even though access is allowed and the restored primary store reverted to the pre-redaction original, the served title must stay masked",
+    );
+
+    // A fresh export taken AFTER the restore must also come back masked,
+    // not resurface the reverted original through a NEW backup either.
+    const postRestoreExport = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [recordId],
+      "complete-preservation",
+      "post-restore-export",
+      "public",
+    );
+    assert.equal(postRestoreExport.records[0].record.title, "[REDACTED]");
+  },
+);

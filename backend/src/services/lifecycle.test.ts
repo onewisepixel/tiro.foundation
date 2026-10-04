@@ -8,6 +8,7 @@ import type {
   ConsentGrant,
   Correction,
   CustodyCopy,
+  FixtureRecord,
   LegalRight,
   LifecycleRequest,
   LifecycleRequestStatus,
@@ -129,6 +130,103 @@ class FailOnceOnDeleteFixtureStore implements FixtureStore {
   }
   listRedactions(recordId: string) {
     return this.inner.listRedactions(recordId);
+  }
+  putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
+    return this.inner.putRecordWithCorrection(record, expectedVersion, correction);
+  }
+  putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
+    return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
+  }
+}
+
+// Delegates to a real FixtureStore for everything, except its atomic
+// putRecordWithCorrection/putRecordWithRedaction, which throw ONCE (then
+// behave normally) — simulating the history half of the atomic write
+// failing after the field change was computed but before either part
+// committed. Used to prove correctRecord()/redactText() genuinely commit
+// the field and its history together: a reviewer caught that the
+// PREVIOUS version wrote the field first and history separately, so a
+// failure in between (or a retry after full success) could lose the true
+// original or corrupt history.
+class FailOnceOnHistoryWriteFixtureStore implements FixtureStore {
+  private failed = false;
+  constructor(private inner: FixtureStore) {}
+  getRecord(recordId: string) {
+    return this.inner.getRecord(recordId);
+  }
+  putRecord(record: Parameters<FixtureStore["putRecord"]>[0], expectedVersion: number | undefined) {
+    return this.inner.putRecord(record, expectedVersion);
+  }
+  deleteRecord(recordId: string, expectedVersion: number) {
+    return this.inner.deleteRecord(recordId, expectedVersion);
+  }
+  listAuthorityClaims(recordId: string) {
+    return this.inner.listAuthorityClaims(recordId);
+  }
+  putAuthorityClaim(claim: AuthorityClaim) {
+    return this.inner.putAuthorityClaim(claim);
+  }
+  listLegalRights(recordId: string) {
+    return this.inner.listLegalRights(recordId);
+  }
+  putLegalRight(right: LegalRight) {
+    return this.inner.putLegalRight(right);
+  }
+  listConsentGrants(recordId: string) {
+    return this.inner.listConsentGrants(recordId);
+  }
+  putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
+    return this.inner.putConsentGrant(grant, expectedVersion);
+  }
+  listCustodyCopies(recordId: string) {
+    return this.inner.listCustodyCopies(recordId);
+  }
+  putCustodyCopy(copy: CustodyCopy) {
+    return this.inner.putCustodyCopy(copy);
+  }
+  createLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.createLifecycleRequest(request);
+  }
+  getLifecycleRequest(requestId: string) {
+    return this.inner.getLifecycleRequest(requestId);
+  }
+  updateLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.updateLifecycleRequest(request);
+  }
+  listLifecycleRequestsByStatus(status: LifecycleRequestStatus) {
+    return this.inner.listLifecycleRequestsByStatus(status);
+  }
+  putAuditReceipt(receipt: AuditReceipt) {
+    return this.inner.putAuditReceipt(receipt);
+  }
+  listAuditReceipts(recordId: string) {
+    return this.inner.listAuditReceipts(recordId);
+  }
+  putCorrection(correction: Correction) {
+    return this.inner.putCorrection(correction);
+  }
+  listCorrections(recordId: string) {
+    return this.inner.listCorrections(recordId);
+  }
+  putRedaction(redaction: Redaction) {
+    return this.inner.putRedaction(redaction);
+  }
+  listRedactions(recordId: string) {
+    return this.inner.listRedactions(recordId);
+  }
+  async putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
+    if (!this.failed) {
+      this.failed = true;
+      throw new Error("simulated history-write failure");
+    }
+    return this.inner.putRecordWithCorrection(record, expectedVersion, correction);
+  }
+  async putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
+    if (!this.failed) {
+      this.failed = true;
+      throw new Error("simulated history-write failure");
+    }
+    return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
   }
 }
 
@@ -703,13 +801,21 @@ test(
 // since it only depends on the RestrictionRegisterStore interface.
 class InterleavingRegisterStore implements RestrictionRegisterStore {
   private triggered = false;
+  private callCount = 0;
   constructor(
     private readonly inner: RestrictionRegisterStore,
     private readonly interleave: () => Promise<void>,
+    // Which getCurrent() call (1-indexed) runs the interleave — defaults
+    // to the first, matching every existing use of this class. A later
+    // call lets a test land the interleave at a LATER point in a
+    // multi-read function (e.g. completeDeletion's claim read is call 1,
+    // its final-commit read is call 2) without needing a second class.
+    private readonly triggerOnCall: number = 1,
   ) {}
   async getCurrent(recordId: string) {
+    this.callCount += 1;
     const snapshot = await this.inner.getCurrent(recordId);
-    if (!this.triggered) {
+    if (!this.triggered && this.callCount === this.triggerOnCall) {
       this.triggered = true;
       await this.interleave();
     }
@@ -848,6 +954,126 @@ test("completeDeletion releases its media purge claim after finishing, so retent
   assert.equal(current?.mediaPurgeClaim ?? null, null, "the claim must be released once the purge attempt concludes, not left stuck");
 });
 
+test(
+  "a retention action racing into the window AFTER media purge but BEFORE the final commit is refused — the claim is held continuously, not released early (reviewer-caught finding, round three)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const realRegisterStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const [active] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await seedStore(fixtureStore, realRegisterStore, [active]);
+    const recordId = active.record.recordId;
+
+    const startResult = await startDeletion(fixtureStore, realRegisterStore, {
+      requestId: "req-postpurge-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    let retentionOutcome: unknown;
+    // Interleave on the SECOND getCurrent() call: completeDeletion's
+    // claim-write read is the first; its final-commit read (AFTER
+    // purgeMediaCustody has already run) is the second. The old bug
+    // released the claim right after the purge, before this exact read —
+    // a retention action landing here could then win the register even
+    // though the media was already destroyed. The fix holds the claim
+    // continuously through this read, so retention here must still lose.
+    const interleavingStore = new InterleavingRegisterStore(
+      realRegisterStore,
+      async () => {
+        retentionOutcome = await retainForPreservationOnly(fixtureStore, realRegisterStore, {
+          requestId: "req-postpurge-retain",
+          recordId,
+          requesterCapacity: "[SYNTHETIC] steward",
+          reason: "[SYNTHETIC] races into the post-purge window",
+        }).catch((error: unknown) => error);
+      },
+      2,
+    );
+
+    const result = await completeDeletion(
+      fixtureStore,
+      interleavingStore,
+      {
+        requestId: "req-postpurge-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    );
+
+    assert.ok(
+      retentionOutcome instanceof MediaPurgeInProgressError,
+      "retention racing into the post-purge, pre-commit window must still be refused, not silently win it",
+    );
+    assert.equal(result.status, "completed", "the deletion itself must still complete — the claim it held was never actually released early");
+    assert.equal(await fixtureStore.getRecord(recordId), null);
+  },
+);
+
+test(
+  "completeDeletion resumes a claim it already owns instead of refusing it as foreign — only a DIFFERENT requestId's claim is refused (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, recordId } = await setupActiveWithMedia();
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-claim-owner-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    // Simulate a claim left over from an earlier attempt under THIS SAME
+    // completion requestId — e.g. a purge that failed, and whose release
+    // in the deny/abandon path then ALSO failed, leaving the claim stuck
+    // but still correctly attributed to the request that's about to retry.
+    const current = await registerStore.getCurrent(recordId);
+    await registerStore.setCurrent(
+      {
+        ...current!,
+        mediaPurgeClaim: { requestId: "req-claim-owner-complete", claimedAt: new Date().toISOString() },
+        controlVersion: current!.controlVersion + 1,
+      },
+      current!.controlVersion,
+    );
+
+    // A DIFFERENT requestId must still be refused — the claim is foreign to it.
+    const foreignAttempt = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-claim-other-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    ).catch((error: unknown) => error);
+    assert.ok(foreignAttempt instanceof MediaPurgeInProgressError, "a claim held by a DIFFERENT requestId must still refuse");
+
+    // The SAME requestId that owns the claim must be able to resume —
+    // never denied just because a claim already exists.
+    const resumed = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-claim-owner-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    );
+    assert.equal(resumed.status, "completed", "the claim's OWN requestId must resume it, not be refused as a foreign conflict");
+    assert.equal(await fixtureStore.getRecord(recordId), null);
+  },
+);
+
 // ------------------------------------------------- versioned correction --
 
 test("correctRecord replaces the live field but preserves the previous value in correction history", async () => {
@@ -907,6 +1133,46 @@ test("correctRecord is idempotent on requestId — replaying it does not re-appl
 });
 
 test(
+  "correctRecord commits the field change and its history atomically — a failed history write loses neither, and retrying preserves the TRUE original (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore: realStore, recordId } = await setupActive();
+    const flaky = new FailOnceOnHistoryWriteFixtureStore(realStore);
+    const before = await realStore.getRecord(recordId);
+
+    const input = {
+      requestId: "req-atomic-correct",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary" as const,
+      correctedValue: "[SYNTHETIC] corrected summary",
+    };
+
+    await assert.rejects(() => correctRecord(flaky, input), /simulated history-write failure/);
+
+    // The failed attempt must leave NEITHER the field NOR the history
+    // changed — never a half-applied state where the field moved but its
+    // true original was lost with nothing preserving it.
+    const afterFailure = await realStore.getRecord(recordId);
+    assert.equal(afterFailure?.summary, before?.summary, "the live field must be unchanged after a failed atomic write");
+    assert.equal((await realStore.listCorrections(recordId)).length, 0, "no history row must exist after a failed atomic write");
+
+    const retryResult = await correctRecord(flaky, input);
+    assert.equal(retryResult.status, "completed");
+
+    const afterRetry = await realStore.getRecord(recordId);
+    assert.equal(afterRetry?.summary, "[SYNTHETIC] corrected summary");
+    const corrections = await realStore.listCorrections(recordId);
+    assert.equal(corrections.length, 1);
+    assert.equal(
+      corrections[0].previousValue,
+      before?.summary,
+      "the retry must preserve the TRUE original, not re-capture the live value from a prior partial attempt as a fake 'previous' one",
+    );
+  },
+);
+
+test(
   "disputeCorrection marks a correction disputed WITHOUT reverting it — disagreements remain attributed",
   async () => {
     const { fixtureStore, recordId } = await setupActive();
@@ -954,10 +1220,10 @@ test("disputeCorrection denies when the correctionId doesn't exist on the record
 // ------------------------------------------------------------ redaction --
 
 test("redactText masks the live field with a placeholder and preserves the original only in redaction history", async () => {
-  const { fixtureStore, recordId } = await setupActive();
+  const { fixtureStore, registerStore, recordId } = await setupActive();
   const before = await fixtureStore.getRecord(recordId);
 
-  const result = await redactText(fixtureStore, {
+  const result = await redactText(fixtureStore, registerStore, {
     requestId: "req-redact-text-1",
     recordId,
     requesterCapacity: "[SYNTHETIC] curator",
@@ -978,6 +1244,44 @@ test("redactText masks the live field with a placeholder and preserves the origi
     assert.equal(redaction.previousValue, before?.summary, "the original must be preserved in redaction history, not erased");
   }
 });
+
+test(
+  "redactText commits the field change and its history atomically — a failed history write loses neither, and retrying preserves the TRUE original (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore: realStore, registerStore, recordId } = await setupActive();
+    const flaky = new FailOnceOnHistoryWriteFixtureStore(realStore);
+    const before = await realStore.getRecord(recordId);
+
+    const input = {
+      requestId: "req-atomic-redact",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary" as const,
+    };
+
+    await assert.rejects(() => redactText(flaky, registerStore, input), /simulated history-write failure/);
+
+    const afterFailure = await realStore.getRecord(recordId);
+    assert.equal(afterFailure?.summary, before?.summary, "the live field must be unchanged after a failed atomic write");
+    assert.equal((await realStore.listRedactions(recordId)).length, 0, "no history row must exist after a failed atomic write");
+
+    const retryResult = await redactText(flaky, registerStore, input);
+    assert.equal(retryResult.status, "completed");
+
+    const afterRetry = await realStore.getRecord(recordId);
+    assert.equal(afterRetry?.summary, "[REDACTED]");
+    const redactions = await realStore.listRedactions(recordId);
+    assert.equal(redactions.length, 1);
+    if (redactions[0].scope === "text") {
+      assert.equal(
+        redactions[0].previousValue,
+        before?.summary,
+        "the retry must preserve the TRUE original, not re-capture the live value from a prior partial attempt as a fake 'previous' one",
+      );
+    }
+  },
+);
 
 test("redactMedia denies through evaluatePermission for every purpose/audience, even one that would otherwise be fully allowed", async () => {
   const { fixtureStore, registerStore, recordId } = await setupActiveWithMedia();

@@ -305,6 +305,84 @@ export class DynamoFixtureStore implements FixtureStore {
   listRedactions(recordId: string): Promise<Redaction[]> {
     return this.queryByPrefix<Redaction>(recordId, "REDACTION#");
   }
+
+  // Real DynamoDB TransactWriteItems: the record and its history entry are
+  // DIFFERENT items (different SK) under the same PK, written in ONE
+  // all-or-nothing transaction — genuinely atomic, not just "both calls
+  // happened to succeed". A reviewer caught that two SEPARATE PutCommands
+  // (the previous version of this code) could leave the field changed
+  // with no history entry if the second call failed.
+  async putRecordWithCorrection(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    correction: Correction,
+  ): Promise<void> {
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record },
+                ConditionExpression:
+                  expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
+                ExpressionAttributeValues:
+                  expectedVersion === undefined ? undefined : { ":expectedVersion": expectedVersion },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(correction.recordId), SK: correctionSk(correction.correctionId), ...correction },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("FixtureRecord", record.recordId);
+      }
+      throw error;
+    }
+  }
+
+  async putRecordWithRedaction(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    redaction: Redaction,
+  ): Promise<void> {
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record },
+                ConditionExpression:
+                  expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
+                ExpressionAttributeValues:
+                  expectedVersion === undefined ? undefined : { ":expectedVersion": expectedVersion },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(redaction.recordId), SK: redactionSk(redaction.redactionId), ...redaction },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("FixtureRecord", record.recordId);
+      }
+      throw error;
+    }
+  }
 }
 
 export type RestrictionRegisterConfig = {

@@ -81,6 +81,18 @@ export interface FixtureStore {
 
   listRedactions(recordId: string): Promise<Redaction[]>;
   putRedaction(redaction: Redaction): Promise<void>;
+
+  // ATOMIC: the field change and its history entry commit together, or
+  // neither does. Reviewer-caught finding: correctRecord()/redactText()
+  // used to write the new field value FIRST, then the history row
+  // separately — a failure in between (or just after) left the live field
+  // already changed with no history entry preserving the original, and a
+  // RETRY would then capture the ALREADY-CHANGED value as if it were the
+  // "previous" one, losing the true original forever. expectedVersion
+  // guards the record exactly like putRecord; throws VersionConflictError
+  // on mismatch, in which case NEITHER write lands.
+  putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction): Promise<void>;
+  putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction): Promise<void>;
 }
 
 // The durable control register. Deliberately a SEPARATE interface backed by

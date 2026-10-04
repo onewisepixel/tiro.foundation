@@ -163,6 +163,43 @@ export class InMemoryFixtureStore implements FixtureStore {
     return [...(this.redactions.get(recordId) ?? [])];
   }
 
+  // Deliberately does NOT call this.putRecord()/this.putCorrection() —
+  // calling through those (overridable) public methods would reintroduce
+  // exactly the gap this exists to close: a subclass (or future code)
+  // could observe or fail in between the two writes. Both mutations below
+  // happen with no `await` between them, so nothing can interleave.
+  async putRecordWithCorrection(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    correction: Correction,
+  ): Promise<void> {
+    const existing = this.records.get(record.recordId);
+    if (existing?.version !== expectedVersion) {
+      throw new VersionConflictError("FixtureRecord", record.recordId);
+    }
+    this.records.set(record.recordId, { ...record });
+    const list = this.corrections.get(correction.recordId) ?? [];
+    const next = list.filter((c) => c.correctionId !== correction.correctionId);
+    next.push({ ...correction });
+    this.corrections.set(correction.recordId, next);
+  }
+
+  async putRecordWithRedaction(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    redaction: Redaction,
+  ): Promise<void> {
+    const existing = this.records.get(record.recordId);
+    if (existing?.version !== expectedVersion) {
+      throw new VersionConflictError("FixtureRecord", record.recordId);
+    }
+    this.records.set(record.recordId, { ...record });
+    const list = this.redactions.get(redaction.recordId) ?? [];
+    const next = list.filter((r) => r.redactionId !== redaction.redactionId);
+    next.push({ ...redaction });
+    this.redactions.set(redaction.recordId, next);
+  }
+
   // Test/backup-simulation helper only — not part of the FixtureStore
   // interface. Produces a deep snapshot usable to simulate "restore an old
   // backup" in tests, without touching the restriction register.

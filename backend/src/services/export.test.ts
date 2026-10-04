@@ -353,6 +353,52 @@ test(
   },
 );
 
+test(
+  "twenty records with large TEXT fields and no media stay under Lambda's 6 MB synchronous limit — the budget covers the whole response, not just media (exact reviewer reproduction)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const recordIds: string[] = [];
+    const largeText = "x".repeat(400_000); // ~400 KB of text, no media at all
+    for (let i = 0; i < 20; i++) {
+      const [fixture] = buildSeedFixtures();
+      fixture.record.mediaRefs = [];
+      fixture.record.summary = largeText;
+      await seedStore(fixtureStore, registerStore, [fixture]);
+      recordIds.push(fixture.record.recordId);
+    }
+
+    const result = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      recordIds,
+      "complete-preservation",
+      "lambda-limit-text-test",
+      "public",
+    );
+
+    const LAMBDA_SYNC_RESPONSE_LIMIT_BYTES = 6 * 1024 * 1024;
+    const serializedSize = Buffer.byteLength(JSON.stringify(result), "utf8");
+    assert.ok(
+      serializedSize < LAMBDA_SYNC_RESPONSE_LIMIT_BYTES,
+      `the full serialized export response (${serializedSize} bytes) must stay under Lambda's ${LAMBDA_SYNC_RESPONSE_LIMIT_BYTES}-byte synchronous response limit — this reproduced 9,032,712 bytes before the fix, because the old budget only ever measured media's contribution`,
+    );
+    assert.ok(
+      result.records.length < 20,
+      "with no media at all, the ONLY way this budget can bind is by excluding whole records for their text content — fewer than all 20 must make it in",
+    );
+    assert.ok(
+      result.recordsSkippedForResponseBudget.length > 0,
+      "excluded records must be reported, never silently dropped — same as mediaObjectsSkipped",
+    );
+    assert.equal(
+      result.records.length + result.recordsSkippedForResponseBudget.length,
+      20,
+      "every record must be accounted for: either included or explicitly reported as skipped for the budget",
+    );
+  },
+);
+
 test("complete-preservation export carries full correction history and the real pre-redaction text", async () => {
   const fixtureStore = new InMemoryFixtureStore();
   const registerStore = new InMemoryRestrictionRegisterStore();
@@ -366,7 +412,7 @@ test("complete-preservation export carries full correction history and the real 
     field: "summary",
     correctedValue: "[SYNTHETIC] corrected summary",
   });
-  await redactText(fixtureStore, {
+  await redactText(fixtureStore, registerStore, {
     requestId: "req-export-redact",
     recordId: active.record.recordId,
     requesterCapacity: "[SYNTHETIC] curator",
@@ -403,7 +449,7 @@ test("public-redacted export omits the pre-redaction original text, same as it r
   const registerStore = new InMemoryRestrictionRegisterStore();
   const [active] = buildSeedFixtures();
   await seedStore(fixtureStore, registerStore, [active]);
-  await redactText(fixtureStore, {
+  await redactText(fixtureStore, registerStore, {
     requestId: "req-export-redact-public",
     recordId: active.record.recordId,
     requesterCapacity: "[SYNTHETIC] curator",
@@ -422,3 +468,58 @@ test("public-redacted export omits the pre-redaction original text, same as it r
 
   assert.equal(result.records[0].redactions, "redacted-for-public-export");
 });
+
+test(
+  "public-redacted export masks a redacted field's correction history too, not just the live value — complete-preservation keeps the full archival history (reviewer-caught finding)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    await correctRecord(fixtureStore, {
+      requestId: "req-export-mask-correct",
+      recordId: active.record.recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] fixing a typo",
+      field: "title",
+      correctedValue: "[SYNTHETIC] corrected title",
+    });
+    await redactText(fixtureStore, registerStore, {
+      requestId: "req-export-mask-redact",
+      recordId: active.record.recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] sensitive title",
+      field: "title",
+    });
+
+    const publicResult = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [active.record.recordId],
+      "public-redacted",
+      "export-test-mask-public",
+      "public",
+    );
+    const publicEnvelope = publicResult.records[0];
+    assert.equal(publicEnvelope.record.title, "[REDACTED]", "the live field must be masked in a public export");
+    assert.equal(publicEnvelope.corrections.length, 1);
+    assert.equal(publicEnvelope.corrections[0].previousValue, "[REDACTED]", "a redacted field's correction history must be masked in a public export too");
+    assert.equal(publicEnvelope.corrections[0].correctedValue, "[REDACTED]");
+
+    const archivalResult = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [active.record.recordId],
+      "complete-preservation",
+      "export-test-mask-archival",
+      "public",
+    );
+    const archivalEnvelope = archivalResult.records[0];
+    assert.equal(archivalEnvelope.record.title, "[REDACTED]", "the live field stays masked even for the archival scope — the register, not the scope, controls this");
+    assert.equal(
+      archivalEnvelope.corrections[0].correctedValue,
+      "[SYNTHETIC] corrected title",
+      "complete-preservation is the one scope authorized to hold the full unredacted archival correction history",
+    );
+  },
+);

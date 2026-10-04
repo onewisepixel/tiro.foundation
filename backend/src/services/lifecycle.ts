@@ -166,6 +166,7 @@ type ControlPatch = Partial<
     | "revokedConsentIds"
     | "mediaPurgeClaim"
     | "redactedMediaIds"
+    | "redactedTextFields"
   >
 >;
 
@@ -199,6 +200,7 @@ async function transitionControl(
     // the only thing that should preserve the current value.
     mediaPurgeClaim: patch.mediaPurgeClaim !== undefined ? patch.mediaPurgeClaim : current?.mediaPurgeClaim ?? null,
     redactedMediaIds: patch.redactedMediaIds ?? current?.redactedMediaIds ?? [],
+    redactedTextFields: patch.redactedTextFields ?? current?.redactedTextFields ?? [],
     updatedAt: new Date().toISOString(),
   };
   await registerStore.setCurrent(next, current?.controlVersion);
@@ -474,17 +476,25 @@ export async function completeDeletion(
   // function's previous fix) still left a real gap — a retention action
   // landing in the window between the read and purgeMediaCustody starting
   // could win the register but still have its media destroyed, because
-  // the read never CLAIMED anything. Checked custody must become COMMITTED
-  // custody before anything irreversible runs. Fixed by claiming the purge
-  // via a CONDITIONAL WRITE (transitionControl), not a bare read:
-  // retainForPreservationOnly's own computePatch (above) now also checks
-  // for an active claim and refuses while one is held. Whichever of the
-  // two writes — this claim, or a racing retention — actually lands first
-  // in the register wins; the loser either denies (sees stale/wrong
-  // custody, or a version conflict meaning someone else just wrote) or is
-  // refused (sees an active claim), and in neither case does any S3 call
-  // happen. The claim is released in a `finally` so a purge failure never
-  // leaves retention permanently blocked.
+  // the read never CLAIMED anything. Fixed by claiming the purge via a
+  // CONDITIONAL WRITE (transitionControl), not a bare read:
+  // retainForPreservationOnly's own computePatch (above) also checks for
+  // an active claim and refuses while one is held. Whichever of the two
+  // writes — this claim, or a racing retention — actually lands first in
+  // the register wins.
+  //
+  // Round three: that fix still RELEASED the claim right after the purge
+  // attempt, before the final commit below — reopening the exact race,
+  // just moved later: retention could win in the window between that
+  // release and the final write, after the media was already gone,
+  // leaving "preserved" custody with zero media versions. The claim must
+  // be held CONTINUOUSLY from here through to the final write, and is
+  // only ever released there (success) or in the deny branch below
+  // (abandoned) — as part of THOSE writes, never as a separate step with
+  // its own failure window. A claim already held by THIS SAME requestId
+  // (a resumption after an earlier partial failure — e.g. a failed purge)
+  // is re-asserted, not treated as a foreign conflict; only a claim held
+  // by a DIFFERENT requestId refuses.
   if (mediaStore) {
     try {
       await transitionControl(registerStore, input.recordId, (current) => {
@@ -493,12 +503,17 @@ export async function completeDeletion(
             `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — refusing to purge media or complete deletion. If a retention action ran after startDeletion(), this is correct: retained media must not be destroyed.`,
           );
         }
-        if (current?.mediaPurgeClaim) {
-          throw new StaleCustodyStatusError(
+        if (current?.mediaPurgeClaim && current.mediaPurgeClaim.requestId !== input.requestId) {
+          throw new MediaPurgeInProgressError(
             `A media purge is already in progress for this record (requestId ${current.mediaPurgeClaim.requestId}); refusing to start a concurrent one.`,
           );
         }
-        return { mediaPurgeClaim: { requestId: input.requestId, claimedAt: new Date().toISOString() } };
+        return {
+          mediaPurgeClaim: {
+            requestId: input.requestId,
+            claimedAt: current?.mediaPurgeClaim?.claimedAt ?? new Date().toISOString(),
+          },
+        };
       });
     } catch (error) {
       if (error instanceof StaleCustodyStatusError) {
@@ -506,23 +521,18 @@ export async function completeDeletion(
       }
       // A VersionConflictError here means a racing write (most plausibly
       // retention) landed first — retryable, not a terminal denial; the
-      // next attempt sees the fresh (now possibly ineligible) state.
-      const message = error instanceof VersionConflictError ? error.message : "Unexpected error claiming the media purge.";
+      // next attempt sees the fresh (now possibly ineligible) state. A
+      // foreign MediaPurgeInProgressError is the same: try again shortly.
+      const message =
+        error instanceof VersionConflictError || error instanceof MediaPurgeInProgressError
+          ? error.message
+          : "Unexpected error claiming the media purge.";
       await recordFailure(fixtureStore, request, message);
       throw error;
     }
 
-    try {
-      await purgeMediaCustody(fixtureStore, mediaStore, input.recordId);
-    } finally {
-      await transitionControl(registerStore, input.recordId, () => ({ mediaPurgeClaim: null })).catch(() => {
-        // Best-effort release. If even this fails (a genuine, separate
-        // outage), the claim stays set and retention stays blocked until a
-        // later completeDeletion retry naturally claims+releases it again
-        // — never silently ignored, but also never allowed to crash or
-        // mask the purge's own outcome.
-      });
-    }
+    await purgeMediaCustody(fixtureStore, mediaStore, input.recordId);
+    // No release here — see the final write and its deny branch below.
   }
 
   const copies = await fixtureStore.listCustodyCopies(input.recordId);
@@ -530,7 +540,9 @@ export async function completeDeletion(
   if (outstanding.length > 0) {
     // Retryable (unlike the deny above) — leave the request in-progress so
     // a later call, once copies ARE reconciled, can still complete it under
-    // the same requestId.
+    // the same requestId. The claim (if any) stays held; the ownership
+    // check above lets this SAME requestId resume it, never refused as a
+    // foreign one.
     await recordFailure(
       fixtureStore,
       request,
@@ -557,14 +569,15 @@ export async function completeDeletion(
       // retry after this exact partial failure (register flipped to
       // "deleted", then deleteRecord below threw) can resume and finish
       // removing the still-present record, instead of being permanently
-      // denied for no longer being "deletion-pending".
+      // denied for no longer being "deletion-pending". mediaPurgeClaim is
+      // released HERE, atomically with this same write — not before it.
       await transitionControl(registerStore, input.recordId, (current) => {
         if (!isDeletionEligibleCustody(current?.currentCustodyStatus)) {
           throw new StaleCustodyStatusError(
             `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — it changed after the prerequisite check (e.g. a retention action), so completion cannot proceed.`,
           );
         }
-        return { currentCustodyStatus: "deleted" };
+        return { currentCustodyStatus: "deleted", mediaPurgeClaim: null };
       });
       const record = await fixtureStore.getRecord(input.recordId);
       if (record) {
@@ -575,6 +588,13 @@ export async function completeDeletion(
     return await completeRequest(fixtureStore, request, safeNote);
   } catch (error) {
     if (error instanceof StaleCustodyStatusError) {
+      // The deletion is being abandoned — release the claim here too
+      // (best-effort), so retention isn't permanently blocked by an
+      // operation that's no longer proceeding. If this release itself
+      // fails, the claim stays stuck until a human investigates — a
+      // documented, known-rare residual (it requires two failures in a
+      // row), not a silently ignored one.
+      await transitionControl(registerStore, input.recordId, () => ({ mediaPurgeClaim: null })).catch(() => {});
       return denyRequest(fixtureStore, request, error.message);
     }
     const message = error instanceof VersionConflictError ? error.message : "Unexpected error applying lifecycle action.";
@@ -612,21 +632,38 @@ export async function correctRecord(
     return denyRequest(fixtureStore, request, `No record "${input.recordId}" exists to correct.`);
   }
 
+  // Stable, deterministic identity — NOT uuidv7(). A fresh random id on
+  // every retry let a retry-after-full-success (e.g. the field changed
+  // and the correction was written, but completeRequest itself then
+  // failed) re-read the ALREADY-corrected live value and write a SECOND,
+  // wrong correction claiming that as the "previous" value — the true
+  // original, overwritten in storage by the first attempt, would then be
+  // gone with nothing left pointing back to it. Using the requestId
+  // directly means every attempt of the SAME operation targets the SAME
+  // correction row, and the alreadyApplied guard below makes a retry
+  // after full success a safe no-op instead of a second, corrupting write.
+  const correctionId = input.requestId;
+
   return runGuarded(fixtureStore, request, async () => {
-    // Re-read fresh inside the guarded work, not the outer `record` above
-    // (used only for the existence precondition) — the same
-    // single-fresh-snapshot discipline transitionControl uses for the
-    // register, applied here to the record's own optimistic-concurrency
-    // version.
+    const alreadyApplied = (await fixtureStore.listCorrections(input.recordId)).some((c) => c.correctionId === correctionId);
+    if (alreadyApplied) {
+      return `Correction ${correctionId} was already applied on an earlier attempt; resuming safely without re-capturing the live value as a new "previous" one.`;
+    }
+    // Re-read fresh here, not the outer `record` above (used only for the
+    // existence precondition) — the same single-fresh-snapshot discipline
+    // transitionControl uses for the register, applied to the record's
+    // own optimistic-concurrency version.
     const fresh = await fixtureStore.getRecord(input.recordId);
     if (!fresh) {
       throw new Error(`Record "${input.recordId}" was removed before the correction could be applied.`);
     }
     const previousValue = fresh[input.field];
-    const correctionId = uuidv7();
     const updated: FixtureRecord = { ...fresh, [input.field]: input.correctedValue, updatedAt: new Date().toISOString() };
-    await fixtureStore.putRecord(updated, fresh.version);
-    await fixtureStore.putCorrection({
+    // Atomic: the field change and its history entry commit together or
+    // not at all (store/store.ts's putRecordWithCorrection) — a reviewer
+    // caught that two separate writes could leave the field changed with
+    // no history preserving the original if the second write failed.
+    await fixtureStore.putRecordWithCorrection(updated, fresh.version, {
       recordId: input.recordId,
       correctionId,
       field: input.field,
@@ -677,12 +714,22 @@ export async function disputeCorrection(
 // placeholder — the record everyone reads is simply changed to the safer
 // text — while preserving the original ONLY in redaction history, which
 // api/router.ts never serves through the normal record-read path.
+//
+// Takes a RestrictionRegisterStore now (it didn't used to) — a reviewer
+// caught that text redaction had NO durable control state: it lived only
+// in the primary FixtureStore (the live field + a Redaction row), the one
+// place restoring an old backup can silently resurrect it. Fixed by
+// writing a redactedTextFields entry to the register too, the same
+// pattern redactMedia() already used for media — services/redactionView.ts
+// enforces from THAT field at serve time, not from whatever the record's
+// own (restorable) content happens to say.
 export type RedactTextInput = LifecycleActionInput & {
   field: CorrectableField;
 };
 
 export async function redactText(
   fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
   input: RedactTextInput,
 ): Promise<LifecycleRequest> {
   const request = await getOrCreateRequest(fixtureStore, "redact-text", input, { field: input.field });
@@ -695,21 +742,39 @@ export async function redactText(
     return denyRequest(fixtureStore, request, `No record "${input.recordId}" exists to redact.`);
   }
 
+  // Stable identity — see correctRecord's comment; the same retry-after-
+  // full-success hazard applies here.
+  const redactionId = input.requestId;
+
   return runGuarded(fixtureStore, request, async () => {
+    // Durable, restore-proof control state — written FIRST, same
+    // ordering principle as redactMedia(): if the FixtureStore write
+    // below fails, the field is already correctly masked at serve time
+    // regardless (applyTextRedactions reads this register field, not the
+    // record's own content).
+    await transitionControl(registerStore, input.recordId, (current) => ({
+      redactedTextFields: [...new Set([...(current?.redactedTextFields ?? []), input.field])],
+    }));
+
+    const alreadyApplied = (await fixtureStore.listRedactions(input.recordId)).some((r) => r.redactionId === redactionId);
+    if (alreadyApplied) {
+      return `Redaction ${redactionId} was already applied on an earlier attempt; resuming safely without re-capturing the live value as a new "previous" one.`;
+    }
     const fresh = await fixtureStore.getRecord(input.recordId);
     if (!fresh) {
       throw new Error(`Record "${input.recordId}" was removed before the redaction could be applied.`);
     }
     const previousValue = fresh[input.field];
-    const redactionId = uuidv7();
     const updated: FixtureRecord = {
       ...fresh,
       [input.field]: "[REDACTED]",
       redactionApplied: true,
       updatedAt: new Date().toISOString(),
     };
-    await fixtureStore.putRecord(updated, fresh.version);
-    await fixtureStore.putRedaction({
+    // Atomic — see correctRecord's putRecordWithCorrection comment; the
+    // same risk applied here (field changed, history lost on a failure
+    // between two separate writes).
+    await fixtureStore.putRecordWithRedaction(updated, fresh.version, {
       recordId: input.recordId,
       redactionId,
       scope: "text",
@@ -751,6 +816,12 @@ export async function redactMedia(
     return denyRequest(fixtureStore, request, `No media "${input.mediaId}" exists on this record.`);
   }
 
+  // Stable identity — see correctRecord's comment. No text content is at
+  // risk here (scope "media" has no previousValue), but a stable id still
+  // makes a retry-after-success a clean no-op instead of a redundant
+  // second history row.
+  const redactionId = input.requestId;
+
   return runGuarded(fixtureStore, request, async () => {
     // The register entry is the authoritative "may this be served"
     // answer and is updated FIRST, same ordering principle as every
@@ -759,18 +830,28 @@ export async function redactMedia(
     await transitionControl(registerStore, input.recordId, (current) => ({
       redactedMediaIds: [...new Set([...(current?.redactedMediaIds ?? []), input.mediaId])],
     }));
+    const alreadyApplied = (await fixtureStore.listRedactions(input.recordId)).some((r) => r.redactionId === redactionId);
+    if (alreadyApplied) {
+      return `Redaction ${redactionId} was already applied; the media remains denied via the register regardless.`;
+    }
     const fresh = await fixtureStore.getRecord(input.recordId);
     if (fresh) {
-      await fixtureStore.putRecord({ ...fresh, redactionApplied: true, updatedAt: new Date().toISOString() }, fresh.version);
+      // Atomic (store/store.ts's putRecordWithRedaction) — consistent
+      // with correctRecord/redactText, even though no original text is
+      // at risk here.
+      await fixtureStore.putRecordWithRedaction(
+        { ...fresh, redactionApplied: true, updatedAt: new Date().toISOString() },
+        fresh.version,
+        {
+          recordId: input.recordId,
+          redactionId,
+          scope: "media",
+          mediaId: input.mediaId,
+          reason: input.reason,
+          createdAt: new Date().toISOString(),
+        },
+      );
     }
-    await fixtureStore.putRedaction({
-      recordId: input.recordId,
-      redactionId: uuidv7(),
-      scope: "media",
-      mediaId: input.mediaId,
-      reason: input.reason,
-      createdAt: new Date().toISOString(),
-    });
     return `Media ${input.mediaId} redacted — denied through the normal fetch path for every purpose/audience; underlying bytes are preserved, not deleted.`;
   });
 }

@@ -11,7 +11,7 @@
 // here bypasses evaluatePermission for any purpose/audience check. What
 // authentication DOES gate is who may invoke a lifecycle MUTATION at all,
 // and whose identity lands in the audit trail for it.
-import type { LifecycleRequestStatus, Redaction } from "../domain/types";
+import type { LifecycleRequestStatus } from "../domain/types";
 import { uuidv7 } from "../domain/id";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import { IdempotencyKeyConflictError, VersionConflictError } from "../store/store";
@@ -30,6 +30,7 @@ import {
   MediaPurgeInProgressError,
 } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
+import { applyTextRedactions, maskCorrectionsForRedactedFields, redactionsSafeView } from "../services/redactionView";
 import { exportFixtureSet } from "../services/export";
 import { fetchAuthorizedMedia } from "../services/media";
 import {
@@ -75,16 +76,6 @@ function notFound(message: string): ApiResponse {
 }
 function badRequest(message: string): ApiResponse {
   return { statusCode: 400, body: { error: message } };
-}
-
-// Redaction metadata (scope, field/mediaId, reason, timestamps) is safe —
-// it's the whole POINT of redaction that the ORIGINAL text never appears
-// here. Used for every GET /records/:id response, allowed or not: safe by
-// construction, same as custodyCopies/auditReceipts.
-function redactionsSafeView(redactions: Redaction[]) {
-  return redactions.map((r) =>
-    r.scope === "text" ? { recordId: r.recordId, redactionId: r.redactionId, scope: r.scope, field: r.field, reason: r.reason, createdAt: r.createdAt } : r,
-  );
 }
 
 async function withConflictHandling(work: () => Promise<ApiResponse>): Promise<ApiResponse> {
@@ -228,7 +219,13 @@ export async function routeRequest(
       statusCode: 200,
       body: {
         access: decision,
-        record,
+        // Register-driven, not storage-driven (services/redactionView.ts):
+        // enforced from the CURRENT control state, never from whatever the
+        // record's own (restorable) content happens to say — a reviewer
+        // caught that a restored pre-redaction backup could otherwise
+        // silently un-redact a field here even though the register still
+        // lists it redacted.
+        record: applyTextRedactions(record, control),
         control,
         authorityClaims,
         legalRights,
@@ -236,10 +233,13 @@ export async function routeRequest(
         custodyCopies,
         auditReceipts,
         // Full correction history is safe (same sensitivity as the
-        // record's own title/summary) — but redactions NEVER include the
+        // record's own title/summary) — but a field currently redacted
+        // masks its correction history too, same register, same reason:
+        // leaving historical values readable would be a complete end-run
+        // around the redaction. Redactions themselves NEVER include the
         // pre-redaction original through this general-purpose route, even
         // when the caller is otherwise fully authorized for the record.
-        corrections,
+        corrections: maskCorrectionsForRedactedFields(corrections, control),
         redactions: redactionsSafeView(redactions),
       },
     };
@@ -391,7 +391,7 @@ export async function routeRequest(
         return badRequest(validated.error);
       }
       return withConflictHandling(async () => {
-        const result = await redactText(fixtureStore, {
+        const result = await redactText(fixtureStore, registerStore, {
           requestId: validated.value.requestId ?? uuidv7(),
           recordId,
           requesterCapacity: callerIdentity,

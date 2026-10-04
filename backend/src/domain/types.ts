@@ -262,5 +262,16 @@ export type RestrictionRegisterEntry = {
   // Optional/nullable for the same reason as mediaPurgeClaim — existing
   // callers that never construct this field directly keep compiling.
   redactedMediaIds?: string[];
+  // Reviewer-caught finding: text redaction used to live ONLY in the
+  // primary FixtureStore (the live field value + a Redaction row) — the
+  // one place restoring an old backup can silently resurrect it, since
+  // restore legitimately overwrites FixtureStore content with old data.
+  // This durable register field is checked wherever a record's fields are
+  // actually served (services/redactionView.ts's applyTextRedactions),
+  // the SAME pattern redactedMediaIds already uses for media — so even a
+  // restored record carrying the pre-redaction original text is masked at
+  // serve time, because the register (never touched by restore) still
+  // says the field is redacted.
+  redactedTextFields?: CorrectableField[];
   updatedAt: string;
 };
