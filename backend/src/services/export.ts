@@ -57,6 +57,37 @@ export type ExportScope = "complete-preservation" | "public-redacted";
 // Gateway/Lambda's own response framing on top of everything measured here.
 export const MAX_EXPORT_RESPONSE_BYTES = 5 * 1024 * 1024;
 
+// AWS Lambda's real, hard limit on a synchronous invocation's buffered
+// response (docs.aws.amazon.com) — the actual ceiling every budgeting
+// mechanism in this file exists to stay comfortably under.
+// MAX_EXPORT_RESPONSE_BYTES already leaves generous headroom below this;
+// api/router.ts uses this constant directly for ONE final, outermost
+// guard — see its comment there for why that's still needed even with
+// everything else here working correctly.
+export const LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES = 6 * 1024 * 1024;
+
+// A reviewer reproduced two further ways to blow the response budget that
+// per-record accounting alone can't catch, because they aren't about any
+// one record's content:
+//   - A caller-supplied `fixtureSetId` with NO length limit — 20 ordinary
+//     records plus a 2 MiB fixtureSetId produced a 7,026,838-byte real
+//     response, because the MANIFEST (which embeds fixtureSetId verbatim)
+//     was budgeted with a fixed, optimistic estimate that assumed it was
+//     always small.
+//   - 8,000 requested records, almost all individually skipped-for-budget
+//     (903 included, 7,097 skipped) — because each skip entry's own small
+//     cost WAS being counted (see responseEncodedByteLength below), but
+//     entries were still appended UNCONDITIONALLY no matter how large the
+//     skip list itself grew, so the report meant to document the overage
+//     became a second, unbounded source of it (7,291,455 bytes).
+// Fixed with defense in depth: bounded input (MAX_FIXTURE_SET_ID_LENGTH,
+// MAX_EXPORT_RECORD_IDS below) closes both at the door; the manifest is
+// now budgeted from its REAL encoded size, not a guess; and the skip-list
+// loop stops (recordsNotProcessed) the moment reporting even one more
+// skip would itself exceed the budget, rather than growing forever.
+export const MAX_FIXTURE_SET_ID_LENGTH = 256;
+export const MAX_EXPORT_RECORD_IDS = 2000;
+
 // What a value will actually cost once embedded as a SUBSTRING of the
 // Lambda response's escaped `body` field, not just its own single
 // JSON.stringify length — see MAX_EXPORT_RESPONSE_BYTES's comment. JSON
@@ -69,8 +100,9 @@ export const MAX_EXPORT_RESPONSE_BYTES = 5 * 1024 * 1024;
 // brackets) needs no escaping either way, so it contributes the same byte
 // count regardless; only PAYLOAD content (text, which may contain quotes
 // or backslashes) is actually sensitive to this, and this measures that
-// real cost directly.
-function responseEncodedByteLength(value: unknown): number {
+// real cost directly. Exported for api/router.ts's final response-size
+// guard, which needs the identical measurement.
+export function responseEncodedByteLength(value: unknown): number {
   const singleEncoded = JSON.stringify(value);
   // JSON.stringify(aString) always wraps it in exactly one leading and one
   // trailing '"' before escaping its content — subtracting those 2 bytes
@@ -79,16 +111,15 @@ function responseEncodedByteLength(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(singleEncoded), "utf8") - 2;
 }
 
-// Conservative fixed estimate covering the manifest line AND the fixed
-// JSON/wrapper punctuation around it — the handler's own
-// {"statusCode":...,"headers":{...},"body":"..."} structure, the two outer
-// quotes wrapping the whole body string, and the "records":[...]/
-// "recordsSkippedForResponseBudget":[...] key wrapping. All of that is
-// effectively fixed-size (recordCount's digit count is the only real
-// variable) and made entirely of structural punctuation that needs no
-// escaping either way, so a real byte count isn't worth computing — this
-// is deliberately generous, not optimistic.
-const MANIFEST_OVERHEAD_BYTES = 1024;
+// Fixed structural overhead that genuinely IS constant: the handler's own
+// {"statusCode":...,"headers":{...},"body":"..."} punctuation, the two
+// outer quotes wrapping the whole body string, and the "manifest":{...}/
+// "records":[...]/"recordsSkippedForResponseBudget":[...] key wrapping.
+// Unlike the manifest's own CONTENT (budgeted for real below, since it
+// embeds the caller-supplied fixtureSetId this constant must never be
+// asked to cover), none of this is escaping-sensitive, so a real byte
+// count isn't worth computing — deliberately generous, not optimistic.
+const RESPONSE_STRUCTURAL_OVERHEAD_BYTES = 256;
 
 // Conservative fixed estimate of the JSON structure wrapping ONE media
 // object — {"mediaId":"<uuidv7>","base64":"..."} — field names, quotes,
@@ -161,6 +192,13 @@ export type PreservationExport = {
   // MAX_EXPORT_RESPONSE_BYTES — never silently dropped, same pattern as
   // each record's own mediaObjectsSkipped.
   recordsSkippedForResponseBudget: { recordId: string; reason: string }[];
+  // Set only in the rare case where even ITEMIZING further skips would
+  // itself exceed the budget — processing stops there rather than letting
+  // recordsSkippedForResponseBudget grow without bound. `count` is how
+  // many requested record ids, from that point on, were never evaluated
+  // at all (not denied, not skipped — simply not reached). Never silently
+  // dropped: this field is the honest record that they weren't.
+  recordsNotProcessed: { reason: string; count: number } | null;
 };
 
 // destinationAudience: who this export is FOR — checked against each
@@ -186,8 +224,22 @@ export async function exportFixtureSet(
   // without them.
   mediaStore?: MediaStore,
 ): Promise<PreservationExport> {
+  // Defense in depth: the HTTP boundary (api/validation.ts's
+  // validateExportBody) is the primary gate for both of these, but this
+  // function is also called directly (scripts, tests) without ever
+  // passing through it — these two reviewer-named inputs get checked
+  // here too, so no caller can accidentally reproduce the finding this
+  // guards against.
+  if (fixtureSetId.length > MAX_FIXTURE_SET_ID_LENGTH) {
+    throw new Error(`fixtureSetId is ${fixtureSetId.length} characters, over the ${MAX_FIXTURE_SET_ID_LENGTH}-character limit.`);
+  }
+  if (recordIds.length > MAX_EXPORT_RECORD_IDS) {
+    throw new Error(`Requested ${recordIds.length} record ids, over the ${MAX_EXPORT_RECORD_IDS}-id limit for a single export call.`);
+  }
+
   const records: ExportedRecordEnvelope[] = [];
   const recordsSkippedForResponseBudget: { recordId: string; reason: string }[] = [];
+  let recordsNotProcessed: { reason: string; count: number } | null = null;
   const purpose: Purpose = scope === "public-redacted" ? "publication" : "preservation";
   // Deduplicate: repeating one id N times must never embed that record's
   // (and its media's) content N times in the response — a reviewer
@@ -196,9 +248,24 @@ export async function exportFixtureSet(
   // Shared across every record in this call, not reset per record — the
   // WHOLE-RESPONSE budget below. Measured in real SERIALIZED bytes (every
   // committed record's full encoded envelope), not raw object bytes.
-  let totalResponseBytes = MANIFEST_OVERHEAD_BYTES;
+  // Seeded from the manifest's OWN real encoded size — not a fixed
+  // guess — because the manifest embeds the caller-supplied fixtureSetId
+  // verbatim, which a fixed allowance can't account for. recordCount
+  // isn't final yet, but uniqueRecordIds.length is the same or a
+  // negligible few digits off, nowhere near enough to matter against a
+  // multi-megabyte budget.
+  let totalResponseBytes =
+    RESPONSE_STRUCTURAL_OVERHEAD_BYTES +
+    responseEncodedByteLength({
+      manifestVersion: 1 as const,
+      scope,
+      exportedAt: new Date().toISOString(),
+      fixtureSetId,
+      recordCount: uniqueRecordIds.length,
+    });
 
-  for (const recordId of uniqueRecordIds) {
+  for (let recordIndex = 0; recordIndex < uniqueRecordIds.length; recordIndex++) {
+    const recordId = uniqueRecordIds[recordIndex];
     const record = await fixtureStore.getRecord(recordId);
     if (!record) {
       continue;
@@ -351,8 +418,24 @@ export async function exportFixtureSet(
       };
       // The skip entry itself also lands in the final response — its own
       // cost counts against later records' remaining budget too, the same
-      // "skipped-record reporting" a reviewer named as missing.
-      totalResponseBytes += responseEncodedByteLength(skipEntry);
+      // "skipped-record reporting" a reviewer named as missing. But that
+      // accounting alone isn't the fix: with enough requested records
+      // almost all needing a skip entry, the REPORT ITSELF becomes a
+      // second, unbounded source of the same overage (a reviewer
+      // reproduced 7,097 skip entries this way). So this is also checked
+      // BEFORE appending — if even this one more entry would exceed the
+      // budget, stop processing entirely here rather than keep growing
+      // the list past the same limit it exists to enforce.
+      const skipEntryBytes = responseEncodedByteLength(skipEntry);
+      if (totalResponseBytes + skipEntryBytes > MAX_EXPORT_RESPONSE_BYTES) {
+        const remaining = uniqueRecordIds.length - recordIndex;
+        recordsNotProcessed = {
+          reason: `Stopped after evaluating ${recordIndex} of ${uniqueRecordIds.length} requested records: even reporting one more entry in recordsSkippedForResponseBudget would itself exceed this export's ${MAX_EXPORT_RESPONSE_BYTES}-byte serialized-response budget. The remaining ${remaining} record id(s), starting with "${recordId}", were never evaluated — request fewer records, or a narrower scope, and retry.`,
+          count: remaining,
+        };
+        break;
+      }
+      totalResponseBytes += skipEntryBytes;
       recordsSkippedForResponseBudget.push(skipEntry);
       continue;
     }
@@ -370,6 +453,7 @@ export async function exportFixtureSet(
     },
     records,
     recordsSkippedForResponseBudget,
+    recordsNotProcessed,
   };
 }
 
@@ -382,12 +466,14 @@ export async function exportFixtureSet(
 // mediaObjectsSkipped is already held to.
 type ManifestLine = PreservationExportManifest & {
   recordsSkippedForResponseBudget?: { recordId: string; reason: string }[];
+  recordsNotProcessed?: { reason: string; count: number } | null;
 };
 
 export function toJsonl(exportData: PreservationExport): string {
   const manifestLine: ManifestLine = {
     ...exportData.manifest,
     recordsSkippedForResponseBudget: exportData.recordsSkippedForResponseBudget,
+    recordsNotProcessed: exportData.recordsNotProcessed,
   };
   const lines = [JSON.stringify(manifestLine), ...exportData.records.map((r) => JSON.stringify(r))];
   return lines.join("\n") + "\n";
@@ -396,9 +482,14 @@ export function toJsonl(exportData: PreservationExport): string {
 export function fromJsonl(jsonl: string): PreservationExport {
   const lines = jsonl.split("\n").filter((line) => line.trim().length > 0);
   const [manifestLine, ...recordLines] = lines;
-  const { recordsSkippedForResponseBudget, ...manifest } = JSON.parse(manifestLine) as ManifestLine;
+  const { recordsSkippedForResponseBudget, recordsNotProcessed, ...manifest } = JSON.parse(manifestLine) as ManifestLine;
   const records = recordLines.map((line) => JSON.parse(line) as ExportedRecordEnvelope);
-  // Defaulted, not required: older exports written before this field
+  // Defaulted, not required: older exports written before these fields
   // existed are still valid JSONL to restore from.
-  return { manifest, records, recordsSkippedForResponseBudget: recordsSkippedForResponseBudget ?? [] };
+  return {
+    manifest,
+    records,
+    recordsSkippedForResponseBudget: recordsSkippedForResponseBudget ?? [],
+    recordsNotProcessed: recordsNotProcessed ?? null,
+  };
 }

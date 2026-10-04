@@ -31,7 +31,7 @@ import {
 } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
 import { applyTextRedactions, maskCorrectionsForRedactedFields, redactionsSafeView } from "../services/redactionView";
-import { exportFixtureSet } from "../services/export";
+import { exportFixtureSet, LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES } from "../services/export";
 import { fetchAuthorizedMedia } from "../services/media";
 import {
   validateLifecycleActionBody,
@@ -437,6 +437,30 @@ export async function routeRequest(
       validated.value.destinationAudience,
       mediaStore,
     );
+    // Final, outermost guard. Every upstream budgeting mechanism
+    // (per-record, per-skip-entry, the manifest's own real size, the
+    // input-size caps in validation.ts) is meant to keep the response
+    // comfortably under Lambda's real limit on its own — this replicates
+    // EXACTLY what handler.ts's real Lambda response wrapping produces
+    // ({statusCode, headers, body: JSON.stringify(result)}, itself
+    // JSON-stringified once more to become the actual transmitted bytes),
+    // so it is the true byte count, not an estimate. A reviewer's
+    // reproductions are exactly why this exists even with those other
+    // mechanisms in place: whatever edge case still gets through gets a
+    // small, honest 413 here instead of Lambda ever being asked to
+    // transmit something it can't.
+    const wrappedBytes = Buffer.byteLength(
+      JSON.stringify({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(result) }),
+      "utf8",
+    );
+    if (wrappedBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES) {
+      return {
+        statusCode: 413,
+        body: {
+          error: `This export's complete response (${wrappedBytes} bytes) would exceed Lambda's ${LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES}-byte synchronous response limit. Request fewer records, or a narrower scope, and retry.`,
+        },
+      };
+    }
     return { statusCode: 200, body: result };
   }
 

@@ -3,7 +3,7 @@
 // typed by domain/types.ts; these just confirm an unknown JSON body actually
 // matches that shape before it's trusted as one.
 import type { ConsentGrant, CorrectableField, Purpose } from "../domain/types";
-import type { ExportScope } from "../services/export";
+import { MAX_EXPORT_RECORD_IDS, MAX_FIXTURE_SET_ID_LENGTH, type ExportScope } from "../services/export";
 
 export type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -159,11 +159,27 @@ export function validateExportBody(body: unknown): ValidationResult<ExportBody> 
   ) {
     return { ok: false, error: "\"recordIds\" is required and must be a non-empty array of strings." };
   }
+  // Reviewer-caught finding: an unbounded recordIds count let a single
+  // export call request thousands of records — most skipped-for-budget,
+  // but the skip REPORT itself then became a second, unbounded source of
+  // the same response-size overage it exists to document. Bounding the
+  // batch size here, at the trust boundary, closes that at the door for
+  // every caller going through the API (exportFixtureSet itself also
+  // enforces this independently, for callers that don't).
+  if (record.recordIds.length > MAX_EXPORT_RECORD_IDS) {
+    return { ok: false, error: `"recordIds" must not exceed ${MAX_EXPORT_RECORD_IDS} ids in a single export call.` };
+  }
   if (!isExportScope(record.scope)) {
     return { ok: false, error: "\"scope\" is required and must be \"complete-preservation\" or \"public-redacted\"." };
   }
   if (!isNonEmptyString(record.fixtureSetId)) {
     return { ok: false, error: "\"fixtureSetId\" is required and must be a non-empty string." };
+  }
+  // Reviewer-caught finding: fixtureSetId had no length limit, and the
+  // manifest embeds it verbatim — a 2 MiB fixtureSetId alone could blow
+  // the response budget before a single record was even considered.
+  if (record.fixtureSetId.length > MAX_FIXTURE_SET_ID_LENGTH) {
+    return { ok: false, error: `"fixtureSetId" must not exceed ${MAX_FIXTURE_SET_ID_LENGTH} characters.` };
   }
   if (!isAudience(record.destinationAudience)) {
     return { ok: false, error: "\"destinationAudience\" is required and must be one of \"public\", \"staff\", \"research-partner\"." };

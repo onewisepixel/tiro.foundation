@@ -10,7 +10,13 @@ import { InMemoryMediaStore } from "../store/mediaStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
-import { exportFixtureSet, MAX_EXPORT_RESPONSE_BYTES } from "./export";
+import {
+  exportFixtureSet,
+  MAX_EXPORT_RESPONSE_BYTES,
+  MAX_EXPORT_RECORD_IDS,
+  MAX_FIXTURE_SET_ID_LENGTH,
+  LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES,
+} from "./export";
 import { MAX_MEDIA_BYTES } from "./media";
 import { correctRecord, redactText } from "./lifecycle";
 
@@ -460,6 +466,125 @@ test(
     assert.ok(
       result.recordsSkippedForResponseBudget.length > 0,
       "the budget must have actually bound here — proving the fix measures the REAL re-escaped cost, not just the single encoding that looked fine on its own",
+    );
+  },
+);
+
+test(
+  "a caller-supplied fixtureSetId with no length limit is rejected outright, not left to blow the manifest's budget (exact reviewer reproduction, round three)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const recordIds: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const [fixture] = buildSeedFixtures();
+      fixture.record.mediaRefs = [];
+      await seedStore(fixtureStore, registerStore, [fixture]);
+      recordIds.push(fixture.record.recordId);
+    }
+    // Exact reviewer reproduction: 20 ordinary records plus a 2 MiB
+    // fixtureSetId. The manifest embeds fixtureSetId verbatim, so this
+    // alone used to blow the response budget (7,026,838 bytes) before a
+    // single record's content even mattered — the fixed manifest
+    // allowance assumed fixtureSetId was always small.
+    const oversizedFixtureSetId = "x".repeat(2 * 1024 * 1024);
+    assert.ok(oversizedFixtureSetId.length > MAX_FIXTURE_SET_ID_LENGTH, "sanity check: the reproduction input must actually exceed the new limit");
+
+    await assert.rejects(
+      () => exportFixtureSet(fixtureStore, registerStore, recordIds, "complete-preservation", oversizedFixtureSetId, "public"),
+      /fixtureSetId/,
+      "exportFixtureSet itself must reject an oversized fixtureSetId — defense in depth for callers that bypass HTTP validation",
+    );
+  },
+);
+
+test(
+  "an oversized export batch is rejected outright, and even within a safe batch size the skip report stops instead of growing without bound (exact reviewer reproduction, round three)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+
+    // Half of the reviewer's exact repro: 8,000 requested record ids is
+    // itself over the batch-size limit — rejected before any record is
+    // even looked at, closing this specific reproduction at the door.
+    const tooManyIds = Array.from({ length: 8000 }, (_, i) => `does-not-exist-${i}`);
+    assert.ok(tooManyIds.length > MAX_EXPORT_RECORD_IDS, "sanity check: the reproduction input must actually exceed the new limit");
+    await assert.rejects(
+      () => exportFixtureSet(fixtureStore, registerStore, tooManyIds, "complete-preservation", "oversized-batch-test", "public"),
+      /record ids/,
+      "exportFixtureSet itself must reject an oversized batch — defense in depth for callers that bypass HTTP validation",
+    );
+
+    // The deeper, structural half of the SAME reviewer finding: even
+    // comfortably WITHIN the batch-size limit, "skipped-record entries
+    // are counted but appended unconditionally, allowing the report
+    // itself to exceed the budget" (the reviewer's exact words) — that a
+    // smaller batch size doesn't fix on its own if a single skip entry
+    // can be made large enough. Reproduced at a scale this test can run
+    // quickly: records with a deliberately long recordId (legal — recordId
+    // is just a string) make their OWN skip entry large, so a few hundred
+    // of them — nowhere near the 2,000-id batch cap — are enough to make
+    // the skip REPORT itself a second, unbounded source of the same
+    // overage the reviewer found with 7,097 ordinary skip entries.
+    const longIdSuffix = "y".repeat(40_000);
+    const manyRecordIds: string[] = [];
+    const recordCount = 200;
+    for (let i = 0; i < recordCount; i++) {
+      const [fixture] = buildSeedFixtures();
+      fixture.record.mediaRefs = [];
+      // Rename the id consistently across every sub-entity, not just the
+      // record itself — authorityClaims/legalRights/consentGrants/
+      // custodyCopies are all keyed by recordId too, and evaluatePermission
+      // looks THEM up by the record's id; leaving them on the old id would
+      // make every record look unauthorized (no claims/grants found) and
+      // silently absent from the export, never reaching the budget logic
+      // this test means to exercise at all.
+      const longId = `${fixture.record.recordId}-${i}-${longIdSuffix}`;
+      fixture.record.recordId = longId;
+      fixture.authorityClaims = fixture.authorityClaims.map((c) => ({ ...c, recordId: longId }));
+      fixture.legalRights = fixture.legalRights.map((r) => ({ ...r, recordId: longId }));
+      fixture.consentGrants = fixture.consentGrants.map((g) => ({ ...g, recordId: longId }));
+      fixture.custodyCopies = fixture.custodyCopies.map((c) => ({ ...c, recordId: longId }));
+      await seedStore(fixtureStore, registerStore, [fixture]);
+      manyRecordIds.push(longId);
+    }
+
+    const result = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      manyRecordIds,
+      "complete-preservation",
+      "long-id-skip-report-test",
+      "public",
+    );
+
+    assert.ok(
+      result.recordsNotProcessed !== null && result.recordsNotProcessed.count > 0,
+      `expected processing to stop early once the skip report itself approached budget, with the remaining count reported honestly: ${JSON.stringify(result.recordsNotProcessed)}`,
+    );
+    // Every requested id must be accounted for: included, individually
+    // skipped-and-reported, or honestly reported as never evaluated —
+    // the counts here must add up to the full request, never silently
+    // short by the unprocessed tail.
+    assert.equal(
+      result.records.length + result.recordsSkippedForResponseBudget.length + (result.recordsNotProcessed?.count ?? 0),
+      recordCount,
+      "every requested record id must be accounted for across included + skipped + not-processed",
+    );
+
+    // The actual claim: wrapped exactly as api/handler.ts wraps a real
+    // response, the result must stay under Lambda's real limit — proving
+    // the fix actually bounds the real response, not just this object's
+    // own single encoding.
+    const wrapped = JSON.stringify({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(result),
+    });
+    const wrappedBytes = Buffer.byteLength(wrapped, "utf8");
+    assert.ok(
+      wrappedBytes < LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES,
+      `the real wrapped response (${wrappedBytes} bytes) must stay under Lambda's ${LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES}-byte limit — this reproduced 7,291,455 bytes from an unbounded skip report before the fix`,
     );
   },
 );

@@ -350,6 +350,49 @@ test("POST /export rejects a missing/invalid scope", async () => {
   assert.equal(response.statusCode, 400);
 });
 
+test(
+  "POST /export rejects an oversized fixtureSetId at the API boundary, before any record is even looked at (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, active } = await setup();
+    // Exact reviewer reproduction: a 2 MiB fixtureSetId, which the
+    // manifest used to embed verbatim with only a fixed, optimistic
+    // budget allowance — this must never reach export logic at all.
+    const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+      method: "POST",
+      pathSegments: ["export"],
+      body: {
+        recordIds: [active.record.recordId],
+        scope: "public-redacted",
+        fixtureSetId: "x".repeat(2 * 1024 * 1024),
+        destinationAudience: "public",
+      },
+    }));
+    assert.equal(response.statusCode, 400);
+  },
+);
+
+test(
+  "POST /export rejects an oversized recordIds batch at the API boundary, before any record is even looked at (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore } = await setup();
+    // Exact reviewer reproduction (scaled only for a fast test run): a
+    // batch far larger than this system was ever meant to process in one
+    // synchronous call — closing the door on "almost all skipped" response
+    // sizes at the input boundary, not just inside the export loop.
+    const response = await routeRequest(fixtureStore, registerStore, mediaStore, STAFF_IDENTITY, req({
+      method: "POST",
+      pathSegments: ["export"],
+      body: {
+        recordIds: Array.from({ length: 2001 }, (_, i) => `does-not-exist-${i}`),
+        scope: "public-redacted",
+        fixtureSetId: "oversized-batch-api-test",
+        destinationAudience: "public",
+      },
+    }));
+    assert.equal(response.statusCode, 400);
+  },
+);
+
 // A register store that always rejects the write with VersionConflictError —
 // isolates the router's error-translation path (VersionConflictError -> 409)
 // from the actual race-condition mechanics, which lifecycle.test.ts already
