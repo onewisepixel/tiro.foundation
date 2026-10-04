@@ -24,6 +24,27 @@ export class VersionConflictError extends Error {
   }
 }
 
+// Thrown by putRecordWithCorrection/putRecordWithRedaction when a history
+// row with that exact id ALREADY exists — i.e. this exact operation already
+// committed on an earlier attempt. Reviewer-caught finding: a stable,
+// requestId-derived history id alone is not a sufficient guard against a
+// retry corrupting history, because the PRE-CHECK that was supposed to
+// detect "already applied" (a query across all corrections/redactions) can
+// itself be stale — DynamoDB's default (eventually consistent) reads can
+// miss a write that committed only moments earlier. Conditioning the
+// history row's write itself on non-existence (attribute_not_exists) closes
+// this for real: even if the pre-check wrongly says "not applied yet", the
+// write that would corrupt the existing row fails instead of succeeding.
+// services/lifecycle.ts catches this specifically and treats it as the
+// SAME safe "already applied, resume without re-capturing a bad previous
+// value" outcome the pre-check was meant to produce — never a hard failure.
+export class AlreadyAppliedError extends Error {
+  constructor(entity: string, id: string) {
+    super(`${entity} ${id} already exists — this operation already committed on an earlier attempt`);
+    this.name = "AlreadyAppliedError";
+  }
+}
+
 // Thrown when a lifecycle requestId is reused for a DIFFERENT operation
 // (different record, action, caller, or payload) than the one it was first
 // created for. An idempotency key is a promise that replaying it replays the
@@ -45,6 +66,22 @@ export interface FixtureStore {
   getRecord(recordId: string): Promise<FixtureRecord | null>;
   // expectedVersion: undefined means "must not already exist". Throws
   // VersionConflictError on mismatch.
+  //
+  // Reviewer-caught finding: every caller of this (and
+  // putRecordWithCorrection/putRecordWithRedaction) used to construct
+  // `record` by spreading a freshly-read copy and never actually
+  // incrementing its `version` field — so the STORED version never
+  // advanced, and the conditional-write check below was comparing
+  // `expectedVersion` against a value that could never change. Two
+  // concurrent corrections both reading version N would both pass that
+  // check and both "succeed", the second silently clobbering the first.
+  // Fixed by making the implementation itself the sole authority over
+  // what version gets PERSISTED — it always writes `expectedVersion + 1`
+  // (or `1` for a first write, when expectedVersion is undefined),
+  // ignoring whatever `record.version` the caller's object happens to
+  // carry. This closes the whole class of bug structurally: no future
+  // caller can forget to bump a version that was never theirs to set in
+  // the first place.
   putRecord(record: FixtureRecord, expectedVersion: number | undefined): Promise<void>;
   // Actually removes the record (not a status flag) — the only thing that
   // makes completeDeletion() true rather than cosmetic. expectedVersion must
@@ -58,6 +95,9 @@ export interface FixtureStore {
   putLegalRight(right: LegalRight): Promise<void>;
 
   listConsentGrants(recordId: string): Promise<ConsentGrant[]>;
+  // Same store-owns-the-version-counter contract as putRecord, and for the
+  // same reason: revokeConsentGrant() (services/lifecycle.ts) had the exact
+  // same never-advances bug.
   putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined): Promise<void>;
 
   listCustodyCopies(recordId: string): Promise<CustodyCopy[]>;
@@ -78,9 +118,18 @@ export interface FixtureStore {
   // deleting or replacing the correction itself.
   listCorrections(recordId: string): Promise<Correction[]>;
   putCorrection(correction: Correction): Promise<void>;
+  // Strongly consistent lookup by the EXACT id — never a query/scan across
+  // every correction on the record, and never eventually consistent. Used
+  // ONLY as the retry-safety guard in correctRecord() (services/
+  // lifecycle.ts), which must never observe a stale "not found" for a
+  // correction its own earlier attempt already committed.
+  getCorrection(recordId: string, correctionId: string): Promise<Correction | null>;
 
   listRedactions(recordId: string): Promise<Redaction[]>;
   putRedaction(redaction: Redaction): Promise<void>;
+  // Same strongly-consistent, by-exact-id contract as getCorrection, for
+  // redactText()/redactMedia()'s equivalent retry-safety guard.
+  getRedaction(recordId: string, redactionId: string): Promise<Redaction | null>;
 
   // ATOMIC: the field change and its history entry commit together, or
   // neither does. Reviewer-caught finding: correctRecord()/redactText()
@@ -90,7 +139,15 @@ export interface FixtureStore {
   // RETRY would then capture the ALREADY-CHANGED value as if it were the
   // "previous" one, losing the true original forever. expectedVersion
   // guards the record exactly like putRecord; throws VersionConflictError
-  // on mismatch, in which case NEITHER write lands.
+  // on mismatch, in which case NEITHER write lands. Also owns the stored
+  // version counter exactly like putRecord — see its comment.
+  //
+  // The history row's own write is ALSO conditional — on that exact id not
+  // already existing — throwing AlreadyAppliedError (never overwriting it)
+  // if it does. This is deliberate defense in depth, not redundant with
+  // the stable requestId-derived id: a stale pre-check (see getCorrection/
+  // getRedaction above) could otherwise still let a retry through to
+  // overwrite an existing history row with a corrupted "previous" value.
   putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction): Promise<void>;
   putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction): Promise<void>;
 }

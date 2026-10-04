@@ -18,6 +18,7 @@ import type {
 } from "../domain/types";
 import { uuidv7 } from "../domain/id";
 import {
+  AlreadyAppliedError,
   IdempotencyKeyConflictError,
   VersionConflictError,
   type FixtureStore,
@@ -229,6 +230,14 @@ async function runGuarded(
     const safeNote = await work();
     return await completeRequest(fixtureStore, request, safeNote);
   } catch (error) {
+    // Terminal, not retryable — unlike VersionConflictError/
+    // MediaPurgeInProgressError below (transient races a retry can win),
+    // a stale custody status (e.g. retention attempted against an already
+    // "deleted" record) will never become valid by retrying. Denied, like
+    // completeDeletion's own StaleCustodyStatusError handling.
+    if (error instanceof StaleCustodyStatusError) {
+      return denyRequest(fixtureStore, request, error.message);
+    }
     const message =
       error instanceof VersionConflictError || error instanceof MediaPurgeInProgressError
         ? error.message
@@ -295,6 +304,22 @@ export async function retainForPreservationOnly(
       if (current?.mediaPurgeClaim) {
         throw new MediaPurgeInProgressError(
           `A media purge is currently in progress for this record (requestId ${current.mediaPurgeClaim.requestId}); retention cannot be applied until it finishes. This is not an error to work around — retry shortly.`,
+        );
+      }
+      // Reviewer-caught finding: retention never checked custody status at
+      // all, only the purge claim — so retention landing immediately AFTER
+      // completeDeletion's final write (which clears the claim as part of
+      // that SAME write, once the purge is done) could still flip an
+      // already-"deleted" tombstone back to "preserved", even though the
+      // record and its media are genuinely gone. "deleted" here also
+      // covers the WINDOW during deletion recovery where the register
+      // already reads "deleted" but the physical record-removal write
+      // hasn't landed yet (completeDeletion's own partial-failure-resume
+      // state) — retention must reject it there too, not just once
+      // deletion is fully finished.
+      if (current?.currentCustodyStatus === "deleted") {
+        throw new StaleCustodyStatusError(
+          `Custody status is "deleted" — retention cannot be applied to a record that has already been deleted, including while deletion recovery is still reconciling its custody copies.`,
         );
       }
       return {
@@ -645,7 +670,17 @@ export async function correctRecord(
   const correctionId = input.requestId;
 
   return runGuarded(fixtureStore, request, async () => {
-    const alreadyApplied = (await fixtureStore.listCorrections(input.recordId)).some((c) => c.correctionId === correctionId);
+    // Strongly consistent, by-exact-id (store.ts's getCorrection) — NOT a
+    // list/query scan. Reviewer-caught finding, round two: a plain query
+    // here can be served from an eventually consistent read on the real
+    // adapter and MISS a correction this exact retry already committed in
+    // an earlier attempt (the transaction succeeded but request
+    // completion failed afterward) — proceeding past a false "not
+    // applied" would re-read the ALREADY-corrected live value as if it
+    // were the original. getCorrection closes the common case; the
+    // conditional write below is the actual, unconditional guard even if
+    // this check is somehow still wrong.
+    const alreadyApplied = await fixtureStore.getCorrection(input.recordId, correctionId);
     if (alreadyApplied) {
       return `Correction ${correctionId} was already applied on an earlier attempt; resuming safely without re-capturing the live value as a new "previous" one.`;
     }
@@ -659,22 +694,32 @@ export async function correctRecord(
     }
     const previousValue = fresh[input.field];
     const updated: FixtureRecord = { ...fresh, [input.field]: input.correctedValue, updatedAt: new Date().toISOString() };
-    // Atomic: the field change and its history entry commit together or
-    // not at all (store/store.ts's putRecordWithCorrection) — a reviewer
-    // caught that two separate writes could leave the field changed with
-    // no history preserving the original if the second write failed.
-    await fixtureStore.putRecordWithCorrection(updated, fresh.version, {
-      recordId: input.recordId,
-      correctionId,
-      field: input.field,
-      previousValue,
-      correctedValue: input.correctedValue,
-      attribution: input.requesterCapacity,
-      reason: input.reason,
-      status: "accepted",
-      disputeReason: null,
-      createdAt: new Date().toISOString(),
-    });
+    try {
+      // Atomic: the field change and its history entry commit together or
+      // not at all (store/store.ts's putRecordWithCorrection) — a reviewer
+      // caught that two separate writes could leave the field changed with
+      // no history preserving the original if the second write failed. The
+      // history write is ALSO conditional on correctionId not already
+      // existing — the real guard against the stale-pre-check hazard above,
+      // not just the pre-check itself.
+      await fixtureStore.putRecordWithCorrection(updated, fresh.version, {
+        recordId: input.recordId,
+        correctionId,
+        field: input.field,
+        previousValue,
+        correctedValue: input.correctedValue,
+        attribution: input.requesterCapacity,
+        reason: input.reason,
+        status: "accepted",
+        disputeReason: null,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof AlreadyAppliedError) {
+        return `Correction ${correctionId} was already applied on an earlier attempt; resuming safely without re-capturing the live value as a new "previous" one.`;
+      }
+      throw error;
+    }
     return `Corrected ${input.field} (correction ${correctionId}); previous value preserved in correction history, not erased.`;
   });
 }
@@ -756,7 +801,9 @@ export async function redactText(
       redactedTextFields: [...new Set([...(current?.redactedTextFields ?? []), input.field])],
     }));
 
-    const alreadyApplied = (await fixtureStore.listRedactions(input.recordId)).some((r) => r.redactionId === redactionId);
+    // Strongly consistent, by-exact-id — see correctRecord's getCorrection
+    // comment; the same stale-pre-check hazard applies here.
+    const alreadyApplied = await fixtureStore.getRedaction(input.recordId, redactionId);
     if (alreadyApplied) {
       return `Redaction ${redactionId} was already applied on an earlier attempt; resuming safely without re-capturing the live value as a new "previous" one.`;
     }
@@ -771,18 +818,26 @@ export async function redactText(
       redactionApplied: true,
       updatedAt: new Date().toISOString(),
     };
-    // Atomic — see correctRecord's putRecordWithCorrection comment; the
-    // same risk applied here (field changed, history lost on a failure
-    // between two separate writes).
-    await fixtureStore.putRecordWithRedaction(updated, fresh.version, {
-      recordId: input.recordId,
-      redactionId,
-      scope: "text",
-      field: input.field,
-      previousValue,
-      reason: input.reason,
-      createdAt: new Date().toISOString(),
-    });
+    try {
+      // Atomic — see correctRecord's putRecordWithCorrection comment; the
+      // same risk applied here (field changed, history lost on a failure
+      // between two separate writes), and the same conditional-write
+      // guard against a stale pre-check.
+      await fixtureStore.putRecordWithRedaction(updated, fresh.version, {
+        recordId: input.recordId,
+        redactionId,
+        scope: "text",
+        field: input.field,
+        previousValue,
+        reason: input.reason,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof AlreadyAppliedError) {
+        return `Redaction ${redactionId} was already applied on an earlier attempt; resuming safely without re-capturing the live value as a new "previous" one.`;
+      }
+      throw error;
+    }
     return `Redacted ${input.field} (redaction ${redactionId}); original preserved only in redaction history, never served through the normal record read.`;
   });
 }
@@ -830,27 +885,37 @@ export async function redactMedia(
     await transitionControl(registerStore, input.recordId, (current) => ({
       redactedMediaIds: [...new Set([...(current?.redactedMediaIds ?? []), input.mediaId])],
     }));
-    const alreadyApplied = (await fixtureStore.listRedactions(input.recordId)).some((r) => r.redactionId === redactionId);
+    // Strongly consistent, by-exact-id — see correctRecord's getCorrection
+    // comment.
+    const alreadyApplied = await fixtureStore.getRedaction(input.recordId, redactionId);
     if (alreadyApplied) {
       return `Redaction ${redactionId} was already applied; the media remains denied via the register regardless.`;
     }
     const fresh = await fixtureStore.getRecord(input.recordId);
     if (fresh) {
-      // Atomic (store/store.ts's putRecordWithRedaction) — consistent
-      // with correctRecord/redactText, even though no original text is
-      // at risk here.
-      await fixtureStore.putRecordWithRedaction(
-        { ...fresh, redactionApplied: true, updatedAt: new Date().toISOString() },
-        fresh.version,
-        {
-          recordId: input.recordId,
-          redactionId,
-          scope: "media",
-          mediaId: input.mediaId,
-          reason: input.reason,
-          createdAt: new Date().toISOString(),
-        },
-      );
+      try {
+        // Atomic (store/store.ts's putRecordWithRedaction) — consistent
+        // with correctRecord/redactText, even though no original text is
+        // at risk here. Conditional on redactionId not already existing,
+        // same stale-pre-check guard.
+        await fixtureStore.putRecordWithRedaction(
+          { ...fresh, redactionApplied: true, updatedAt: new Date().toISOString() },
+          fresh.version,
+          {
+            recordId: input.recordId,
+            redactionId,
+            scope: "media",
+            mediaId: input.mediaId,
+            reason: input.reason,
+            createdAt: new Date().toISOString(),
+          },
+        );
+      } catch (error) {
+        if (error instanceof AlreadyAppliedError) {
+          return `Redaction ${redactionId} was already applied; the media remains denied via the register regardless.`;
+        }
+        throw error;
+      }
     }
     return `Media ${input.mediaId} redacted — denied through the normal fetch path for every purpose/audience; underlying bytes are preserved, not deleted.`;
   });

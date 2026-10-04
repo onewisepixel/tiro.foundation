@@ -38,15 +38,57 @@ export type ExportScope = "complete-preservation" | "public-redacted";
 // total across the WHOLE response; once a record's envelope would push
 // that total over budget, the ENTIRE record is excluded (not trimmed) and
 // recorded in recordsSkippedForResponseBudget — never silently dropped,
-// same as mediaObjectsSkipped. The value itself stays well below the 6 MiB
-// hard limit to leave headroom for the manifest and API Gateway/Lambda's
-// own response framing.
+// same as mediaObjectsSkipped.
+//
+// Second round, reviewer-caught finding: that fix still measured only this
+// export object's OWN single JSON.stringify length — not what api/
+// handler.ts actually returns. The real Lambda invocation response is
+// `{statusCode, headers, body: JSON.stringify(exportResult)}`, itself
+// JSON-stringified ONE more time to become the actual bytes Lambda
+// transmits — meaning the already-JSON `body` gets embedded as a STRING
+// VALUE, and every quote/backslash in it is escaped again. Records whose
+// text happened to be rich in quotes/backslashes measured safely under
+// budget by one encoding (4,935,651 bytes) but nearly DOUBLED once
+// actually wrapped this way (9,852,931 bytes) — ordinary text inflates far
+// less, so a single fixed multiplier would be wrong either way. Fixed by
+// measuring the REAL cost of that eventual re-escaping directly
+// (responseEncodedByteLength below) instead of assuming one. The value
+// itself stays well below the 6 MiB hard limit to leave headroom for API
+// Gateway/Lambda's own response framing on top of everything measured here.
 export const MAX_EXPORT_RESPONSE_BYTES = 5 * 1024 * 1024;
 
-// Conservative fixed estimate for the manifest line — tiny and effectively
-// fixed-size (recordCount's digit count is the only variable), so a real
-// byte count isn't worth computing before the record count is final.
-const MANIFEST_OVERHEAD_BYTES = 512;
+// What a value will actually cost once embedded as a SUBSTRING of the
+// Lambda response's escaped `body` field, not just its own single
+// JSON.stringify length — see MAX_EXPORT_RESPONSE_BYTES's comment. JSON
+// string-escaping (quotes -> \", backslashes -> \\, control characters ->
+// \n etc.) is additive over concatenation: escaping two pieces separately
+// and concatenating the results is byte-for-byte identical to escaping
+// their concatenation. That's what makes tracking a RUNNING total of each
+// record's own call to this function exactly correct, not an
+// approximation — the structural punctuation joining records (commas,
+// brackets) needs no escaping either way, so it contributes the same byte
+// count regardless; only PAYLOAD content (text, which may contain quotes
+// or backslashes) is actually sensitive to this, and this measures that
+// real cost directly.
+function responseEncodedByteLength(value: unknown): number {
+  const singleEncoded = JSON.stringify(value);
+  // JSON.stringify(aString) always wraps it in exactly one leading and one
+  // trailing '"' before escaping its content — subtracting those 2 bytes
+  // isolates just the escaped PAYLOAD length that would actually appear
+  // embedded inside the outer body string.
+  return Buffer.byteLength(JSON.stringify(singleEncoded), "utf8") - 2;
+}
+
+// Conservative fixed estimate covering the manifest line AND the fixed
+// JSON/wrapper punctuation around it — the handler's own
+// {"statusCode":...,"headers":{...},"body":"..."} structure, the two outer
+// quotes wrapping the whole body string, and the "records":[...]/
+// "recordsSkippedForResponseBudget":[...] key wrapping. All of that is
+// effectively fixed-size (recordCount's digit count is the only real
+// variable) and made entirely of structural punctuation that needs no
+// escaping either way, so a real byte count isn't worth computing — this
+// is deliberately generous, not optimistic.
+const MANIFEST_OVERHEAD_BYTES = 1024;
 
 // Conservative fixed estimate of the JSON structure wrapping ONE media
 // object — {"mediaId":"<uuidv7>","base64":"..."} — field names, quotes,
@@ -191,6 +233,10 @@ export async function exportFixtureSet(
         // object before fetching/encoding it; the real, authoritative
         // gate is the whole-envelope check below, which also covers
         // text/history and corrects for this estimate if it's ever off.
+        // Unlike text, base64's alphabet (A-Z a-z 0-9 + / =) contains no
+        // quote or backslash characters, so it is NEVER inflated by the
+        // re-escaping responseEncodedByteLength exists for — a single
+        // encoding's length is already exact for this part.
         let provisionalMediaBytes = 0;
         for (const media of record.mediaRefs) {
           // Redaction is a hard override, checked first — same as
@@ -288,18 +334,26 @@ export async function exportFixtureSet(
         : null,
     };
 
-    // The authoritative, whole-envelope gate: measures the REAL serialized
-    // size of everything this record would add to the response — title,
-    // summary, corrections, redactions, history, AND media — not an
-    // estimate of any one part of it. A record that would push the WHOLE
-    // response over budget is excluded entirely (never trimmed down
-    // further here) and reported, same as mediaObjectsSkipped.
-    const envelopeBytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+    // The authoritative, whole-envelope gate: measures the REAL cost of
+    // everything this record would add to the ACTUAL returned response —
+    // title, summary, corrections, redactions, history, AND media, as it
+    // will actually be re-escaped once wrapped as the Lambda response
+    // body (see responseEncodedByteLength) — not an estimate of any one
+    // part of it, and not just this object's own single encoding. A
+    // record that would push the WHOLE response over budget is excluded
+    // entirely (never trimmed down further here) and reported, same as
+    // mediaObjectsSkipped.
+    const envelopeBytes = responseEncodedByteLength(envelope);
     if (totalResponseBytes + envelopeBytes > MAX_EXPORT_RESPONSE_BYTES) {
-      recordsSkippedForResponseBudget.push({
+      const skipEntry = {
         recordId,
-        reason: `Skipped: this record's complete envelope (${envelopeBytes} bytes) would exceed this export's ${MAX_EXPORT_RESPONSE_BYTES}-byte serialized-response budget (covers the full encoded response, not just media).`,
-      });
+        reason: `Skipped: this record's complete envelope (${envelopeBytes} bytes, as it would actually appear in the response) would exceed this export's ${MAX_EXPORT_RESPONSE_BYTES}-byte serialized-response budget (covers the full encoded response, not just media).`,
+      };
+      // The skip entry itself also lands in the final response — its own
+      // cost counts against later records' remaining budget too, the same
+      // "skipped-record reporting" a reviewer named as missing.
+      totalResponseBytes += responseEncodedByteLength(skipEntry);
+      recordsSkippedForResponseBudget.push(skipEntry);
       continue;
     }
     totalResponseBytes += envelopeBytes;

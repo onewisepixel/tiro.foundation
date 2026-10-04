@@ -1,13 +1,11 @@
 // Real AWS adapter for FixtureStore/RestrictionRegisterStore. Single-table
 // design per docs/backend/decision-and-cost.md.
 //
-// THIS FILE HAS NOT BEEN RUN AGAINST REAL DYNAMODB — this environment has no
-// AWS CLI, no CDK CLI, no Docker, and no Java (so no DynamoDB Local either).
-// It type-checks and its shape mirrors the already-tested InMemoryFixtureStore
-// implementation of the same interface, but "type-checks" is not "proven
-// correct against the real service" — treat this as prepared, not verified,
-// until it's actually exercised against a live table. See
-// docs/backend/evidence-matrix.md.
+// Run against real DynamoDB repeatedly via the live acceptance drills in
+// backend/src/scripts/ — see docs/backend/evidence-matrix.md for exactly
+// what's been exercised and what hasn't (this stale comment used to say
+// otherwise, from before AWS credentials were available in this
+// environment; left corrected here rather than silently dropped).
 import {
   DynamoDBClient,
   ConditionalCheckFailedException,
@@ -35,7 +33,7 @@ import type {
   Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
-import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
+import { AlreadyAppliedError, VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
 
 export type DynamoStoreConfig = {
   client: DynamoDBClient;
@@ -89,7 +87,10 @@ export class DynamoFixtureStore implements FixtureStore {
       await this.doc.send(
         new PutCommand({
           TableName: this.config.primaryTableName,
-          Item: { PK: pk(record.recordId), SK: recordSk(), ...record },
+          // version is store-owned — see store.ts's putRecord comment.
+          // Placed AFTER the spread so it always wins over whatever stale
+          // value the caller's `record` object carries.
+          Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
           ConditionExpression:
             expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
           ExpressionAttributeValues:
@@ -168,7 +169,8 @@ export class DynamoFixtureStore implements FixtureStore {
       await this.doc.send(
         new PutCommand({
           TableName: this.config.primaryTableName,
-          Item: { PK: pk(grant.recordId), SK: consentSk(grant.consentId), ...grant },
+          // version is store-owned — same reasoning as putRecord.
+          Item: { PK: pk(grant.recordId), SK: consentSk(grant.consentId), ...grant, version: (expectedVersion ?? 0) + 1 },
           ConditionExpression:
             expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
           ExpressionAttributeValues:
@@ -293,6 +295,25 @@ export class DynamoFixtureStore implements FixtureStore {
     return this.queryByPrefix<Correction>(recordId, "CORRECTION#");
   }
 
+  async getCorrection(recordId: string, correctionId: string): Promise<Correction | null> {
+    // Strongly consistent GetItem by the EXACT key — never a Query (which,
+    // even scoped to one item via begins_with, is still not what this
+    // needs to guarantee) and never the table's default eventually
+    // consistent read. Reviewer-caught finding: a retry's "already
+    // applied" guard using a plain (eventually consistent) query could
+    // miss a correction its own earlier attempt already committed —
+    // DynamoDB's default reads can lag recent writes by a short,
+    // unbounded window — and then proceed to corrupt that row's history.
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: correctionSk(correctionId) },
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as Correction | undefined) ?? null;
+  }
+
   async putRedaction(redaction: Redaction): Promise<void> {
     await this.doc.send(
       new PutCommand({
@@ -304,6 +325,18 @@ export class DynamoFixtureStore implements FixtureStore {
 
   listRedactions(recordId: string): Promise<Redaction[]> {
     return this.queryByPrefix<Redaction>(recordId, "REDACTION#");
+  }
+
+  async getRedaction(recordId: string, redactionId: string): Promise<Redaction | null> {
+    // Same strongly-consistent, by-exact-key contract as getCorrection.
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: redactionSk(redactionId) },
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as Redaction | undefined) ?? null;
   }
 
   // Real DynamoDB TransactWriteItems: the record and its history entry are
@@ -324,7 +357,10 @@ export class DynamoFixtureStore implements FixtureStore {
             {
               Put: {
                 TableName: this.config.primaryTableName,
-                Item: { PK: pk(record.recordId), SK: recordSk(), ...record },
+                // version is store-owned — see putRecord's comment. Placed
+                // AFTER the spread so it always wins over whatever stale
+                // value the caller's `record` object carries.
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
                 ConditionExpression:
                   expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
                 ExpressionAttributeValues:
@@ -335,12 +371,28 @@ export class DynamoFixtureStore implements FixtureStore {
               Put: {
                 TableName: this.config.primaryTableName,
                 Item: { PK: pk(correction.recordId), SK: correctionSk(correction.correctionId), ...correction },
+                // Reviewer-caught finding: without this, a retry whose
+                // pre-check (getCorrection) was somehow stale could still
+                // land here and silently overwrite an ALREADY-committed
+                // correction row with a corrupted "previous" value. This
+                // condition is the actual guard; the pre-check is just the
+                // fast path that avoids reaching this far at all.
+                ConditionExpression: "attribute_not_exists(PK)",
               },
             },
           ],
         }),
       );
     } catch (error) {
+      if (error instanceof TransactionCanceledException) {
+        const reasons = error.CancellationReasons ?? [];
+        if (reasons[1]?.Code === "ConditionalCheckFailed") {
+          throw new AlreadyAppliedError("Correction", correction.correctionId);
+        }
+        if (reasons[0]?.Code === "ConditionalCheckFailed") {
+          throw new VersionConflictError("FixtureRecord", record.recordId);
+        }
+      }
       if (isConditionalFailure(error)) {
         throw new VersionConflictError("FixtureRecord", record.recordId);
       }
@@ -360,7 +412,7 @@ export class DynamoFixtureStore implements FixtureStore {
             {
               Put: {
                 TableName: this.config.primaryTableName,
-                Item: { PK: pk(record.recordId), SK: recordSk(), ...record },
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
                 ConditionExpression:
                   expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
                 ExpressionAttributeValues:
@@ -371,12 +423,23 @@ export class DynamoFixtureStore implements FixtureStore {
               Put: {
                 TableName: this.config.primaryTableName,
                 Item: { PK: pk(redaction.recordId), SK: redactionSk(redaction.redactionId), ...redaction },
+                // Same guard as putRecordWithCorrection's history Put.
+                ConditionExpression: "attribute_not_exists(PK)",
               },
             },
           ],
         }),
       );
     } catch (error) {
+      if (error instanceof TransactionCanceledException) {
+        const reasons = error.CancellationReasons ?? [];
+        if (reasons[1]?.Code === "ConditionalCheckFailed") {
+          throw new AlreadyAppliedError("Redaction", redaction.redactionId);
+        }
+        if (reasons[0]?.Code === "ConditionalCheckFailed") {
+          throw new VersionConflictError("FixtureRecord", record.recordId);
+        }
+      }
       if (isConditionalFailure(error)) {
         throw new VersionConflictError("FixtureRecord", record.recordId);
       }

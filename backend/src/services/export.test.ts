@@ -399,6 +399,71 @@ test(
   },
 );
 
+test(
+  "records whose text is rich in quotes/backslashes can measure safely under a SINGLE encoding but exceed Lambda's real limit once actually wrapped as the HTTP response body — the budget must account for that re-escaping (exact reviewer reproduction, round two)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const recordIds: string[] = [];
+    // Deliberately quote-heavy: every one of these characters doubles in
+    // size on the FIRST JSON encoding (" -> \") and doubles AGAIN on the
+    // SECOND encoding that happens when the already-encoded JSON is
+    // embedded as a string value inside api/handler.ts's response
+    // wrapper (\" -> \\\") — a specifically worse case than plain text,
+    // which is exactly why a single-encoding budget check can measure
+    // "safely under" while the real wrapped response is not.
+    const quoteHeavyText = '"'.repeat(100_000);
+    for (let i = 0; i < 20; i++) {
+      const [fixture] = buildSeedFixtures();
+      fixture.record.mediaRefs = [];
+      fixture.record.summary = quoteHeavyText;
+      await seedStore(fixtureStore, registerStore, [fixture]);
+      recordIds.push(fixture.record.recordId);
+    }
+
+    const result = await exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      recordIds,
+      "complete-preservation",
+      "quote-heavy-budget-test",
+      "public",
+    );
+
+    // Sanity check, not the actual claim: a naive SINGLE encoding of the
+    // raw result looks safely under the old (pre-fix) budget — this is
+    // exactly how this slipped through before; if this assertion ever
+    // fails, the fixture needs adjusting, not the fix below.
+    const singleEncodedBytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+    assert.ok(
+      singleEncodedBytes < MAX_EXPORT_RESPONSE_BYTES,
+      `expected the single-encoded size (${singleEncodedBytes}) to look safely under the ${MAX_EXPORT_RESPONSE_BYTES}-byte budget on its own`,
+    );
+
+    // The actual claim: wrapped exactly as api/handler.ts wraps a real
+    // response — body: JSON.stringify(result), then the whole wrapper
+    // JSON-stringified again, precisely what AWS Lambda actually
+    // transmits — the result must stay under Lambda's real 6 MiB
+    // synchronous response limit.
+    const wrapped = JSON.stringify({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(result),
+    });
+    const LAMBDA_SYNC_RESPONSE_LIMIT_BYTES = 6 * 1024 * 1024;
+    const wrappedBytes = Buffer.byteLength(wrapped, "utf8");
+    assert.ok(
+      wrappedBytes < LAMBDA_SYNC_RESPONSE_LIMIT_BYTES,
+      `the real wrapped response (${wrappedBytes} bytes) must stay under Lambda's ${LAMBDA_SYNC_RESPONSE_LIMIT_BYTES}-byte limit — this reproduced 9,852,931 bytes from a single-encoded 4,935,651-byte export before the fix`,
+    );
+
+    assert.ok(
+      result.recordsSkippedForResponseBudget.length > 0,
+      "the budget must have actually bound here — proving the fix measures the REAL re-escaped cost, not just the single encoding that looked fine on its own",
+    );
+  },
+);
+
 test("complete-preservation export carries full correction history and the real pre-redaction text", async () => {
   const fixtureStore = new InMemoryFixtureStore();
   const registerStore = new InMemoryRestrictionRegisterStore();

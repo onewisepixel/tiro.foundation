@@ -21,7 +21,7 @@ import type {
   Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
-import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
+import { AlreadyAppliedError, VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
 
 export class InMemoryFixtureStore implements FixtureStore {
   private records = new Map<string, FixtureRecord>();
@@ -44,7 +44,12 @@ export class InMemoryFixtureStore implements FixtureStore {
     if (currentVersion !== expectedVersion) {
       throw new VersionConflictError("FixtureRecord", record.recordId);
     }
-    this.records.set(record.recordId, { ...record });
+    // The store owns the persisted version — see store.ts's comment. A
+    // caller's `record.version` is never trusted; without this, two
+    // concurrent writers both reading the same expectedVersion would both
+    // pass the check above and both "succeed", the second clobbering the
+    // first, because nothing ever actually advanced the stored version.
+    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
   }
 
   async deleteRecord(recordId: string, expectedVersion: number): Promise<void> {
@@ -88,7 +93,8 @@ export class InMemoryFixtureStore implements FixtureStore {
       throw new VersionConflictError("ConsentGrant", grant.consentId);
     }
     const next = list.filter((g) => g.consentId !== grant.consentId);
-    next.push({ ...grant });
+    // Store-owned version counter — same reasoning as putRecord.
+    next.push({ ...grant, version: (expectedVersion ?? 0) + 1 });
     this.consentGrants.set(grant.recordId, next);
   }
 
@@ -152,6 +158,15 @@ export class InMemoryFixtureStore implements FixtureStore {
     return [...(this.corrections.get(recordId) ?? [])];
   }
 
+  async getCorrection(recordId: string, correctionId: string): Promise<Correction | null> {
+    // A plain Map read has no eventual-consistency window at all — every
+    // read reflects every prior write instantly. Still a SEPARATE method
+    // from listCorrections (rather than `(await listCorrections()).find`)
+    // so the real adapter's strongly-consistent-by-exact-key contract has
+    // a fake counterpart with the identical signature and semantics.
+    return (this.corrections.get(recordId) ?? []).find((c) => c.correctionId === correctionId) ?? null;
+  }
+
   async putRedaction(redaction: Redaction): Promise<void> {
     const list = this.redactions.get(redaction.recordId) ?? [];
     const next = list.filter((r) => r.redactionId !== redaction.redactionId);
@@ -161,6 +176,10 @@ export class InMemoryFixtureStore implements FixtureStore {
 
   async listRedactions(recordId: string): Promise<Redaction[]> {
     return [...(this.redactions.get(recordId) ?? [])];
+  }
+
+  async getRedaction(recordId: string, redactionId: string): Promise<Redaction | null> {
+    return (this.redactions.get(recordId) ?? []).find((r) => r.redactionId === redactionId) ?? null;
   }
 
   // Deliberately does NOT call this.putRecord()/this.putCorrection() —
@@ -177,11 +196,23 @@ export class InMemoryFixtureStore implements FixtureStore {
     if (existing?.version !== expectedVersion) {
       throw new VersionConflictError("FixtureRecord", record.recordId);
     }
-    this.records.set(record.recordId, { ...record });
+    // Reviewer-caught finding, round two: a stale (eventually consistent,
+    // on the real adapter) pre-check could miss a correction this SAME
+    // retry already committed in an earlier attempt (request completion
+    // failing AFTER the transaction succeeded) and wrongly proceed to
+    // overwrite that row with the ALREADY-corrected live value as its
+    // "previous" one — destroying the true original. Conditioning this
+    // write on the id NOT already existing is the actual guard (defense
+    // in depth beyond the pre-check, which getCorrection now makes
+    // strongly consistent too) — checked and applied with no `await` in
+    // between, so nothing can interleave even in the fake.
+    if ((this.corrections.get(correction.recordId) ?? []).some((c) => c.correctionId === correction.correctionId)) {
+      throw new AlreadyAppliedError("Correction", correction.correctionId);
+    }
+    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
     const list = this.corrections.get(correction.recordId) ?? [];
-    const next = list.filter((c) => c.correctionId !== correction.correctionId);
-    next.push({ ...correction });
-    this.corrections.set(correction.recordId, next);
+    list.push({ ...correction });
+    this.corrections.set(correction.recordId, list);
   }
 
   async putRecordWithRedaction(
@@ -193,11 +224,13 @@ export class InMemoryFixtureStore implements FixtureStore {
     if (existing?.version !== expectedVersion) {
       throw new VersionConflictError("FixtureRecord", record.recordId);
     }
-    this.records.set(record.recordId, { ...record });
+    if ((this.redactions.get(redaction.recordId) ?? []).some((r) => r.redactionId === redaction.redactionId)) {
+      throw new AlreadyAppliedError("Redaction", redaction.redactionId);
+    }
+    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
     const list = this.redactions.get(redaction.recordId) ?? [];
-    const next = list.filter((r) => r.redactionId !== redaction.redactionId);
-    next.push({ ...redaction });
-    this.redactions.set(redaction.recordId, next);
+    list.push({ ...redaction });
+    this.redactions.set(redaction.recordId, list);
   }
 
   // Test/backup-simulation helper only — not part of the FixtureStore

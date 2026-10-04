@@ -125,11 +125,17 @@ class FailOnceOnDeleteFixtureStore implements FixtureStore {
   listCorrections(recordId: string) {
     return this.inner.listCorrections(recordId);
   }
+  getCorrection(recordId: string, correctionId: string) {
+    return this.inner.getCorrection(recordId, correctionId);
+  }
   putRedaction(redaction: Redaction) {
     return this.inner.putRedaction(redaction);
   }
   listRedactions(recordId: string) {
     return this.inner.listRedactions(recordId);
+  }
+  getRedaction(recordId: string, redactionId: string) {
+    return this.inner.getRedaction(recordId, redactionId);
   }
   putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
     return this.inner.putRecordWithCorrection(record, expectedVersion, correction);
@@ -208,11 +214,17 @@ class FailOnceOnHistoryWriteFixtureStore implements FixtureStore {
   listCorrections(recordId: string) {
     return this.inner.listCorrections(recordId);
   }
+  getCorrection(recordId: string, correctionId: string) {
+    return this.inner.getCorrection(recordId, correctionId);
+  }
   putRedaction(redaction: Redaction) {
     return this.inner.putRedaction(redaction);
   }
   listRedactions(recordId: string) {
     return this.inner.listRedactions(recordId);
+  }
+  getRedaction(recordId: string, redactionId: string) {
+    return this.inner.getRedaction(recordId, redactionId);
   }
   async putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
     if (!this.failed) {
@@ -1074,6 +1086,81 @@ test(
   },
 );
 
+test(
+  "retainForPreservationOnly rejects an already-deleted tombstone, never flipping it back to preserved (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore, registerStore, mediaStore, recordId } = await setupActiveWithMedia();
+    const startResult = await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-tombstone-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+    const completed = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: "req-tombstone-complete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+        deletionRequestId: startResult.requestId,
+      },
+      mediaStore,
+    );
+    assert.equal(completed.status, "completed");
+    const registerAfterDeletion = await registerStore.getCurrent(recordId);
+    assert.equal(registerAfterDeletion?.currentCustodyStatus, "deleted");
+    assert.equal(registerAfterDeletion?.mediaPurgeClaim ?? null, null, "sanity check: completeDeletion's final write clears the claim as part of that SAME write");
+
+    // Exact reviewer repro: retention inserted immediately after
+    // deletion's final register write cleared the purge claim — nothing
+    // is holding a claim, so the OLD code's only check (mediaPurgeClaim)
+    // saw nothing wrong and would have happily flipped the tombstone back
+    // to "preserved", even though the record and its media are gone.
+    const retainResult = await retainForPreservationOnly(fixtureStore, registerStore, {
+      requestId: "req-tombstone-retain",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+    assert.equal(retainResult.status, "denied", "retention against an already-deleted record must be denied, not silently applied");
+
+    const registerAfterRetain = await registerStore.getCurrent(recordId);
+    assert.equal(registerAfterRetain?.currentCustodyStatus, "deleted", "the tombstone must still read \"deleted\" — never overwritten back to \"preserved\"");
+    assert.equal(await fixtureStore.getRecord(recordId), null, "the record must still be gone");
+  },
+);
+
+test(
+  "retainForPreservationOnly also rejects custody=\"deleted\" DURING deletion recovery, before the physical record removal has even landed",
+  async () => {
+    const { fixtureStore, registerStore, recordId } = await setupActive();
+    // Simulate exactly the state completeDeletion's own partial-failure
+    // resumption leaves behind: the register already reads "deleted" (its
+    // final write succeeded) but the physical record-removal write hasn't
+    // happened yet (or failed) — the record is still physically present.
+    // Retention must reject this window too, not just once deletion is
+    // fully finished and the record is gone.
+    const current = await registerStore.getCurrent(recordId);
+    await registerStore.setCurrent(
+      { ...current!, currentCustodyStatus: "deleted", controlVersion: current!.controlVersion + 1 },
+      current!.controlVersion,
+    );
+    assert.ok(await fixtureStore.getRecord(recordId), "sanity check: the record is still physically present during this window");
+
+    const retainResult = await retainForPreservationOnly(fixtureStore, registerStore, {
+      requestId: "req-recovery-window-retain",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+    assert.equal(retainResult.status, "denied", "retention must reject \"deleted\" custody even mid-recovery, before removal has physically landed");
+    const registerAfter = await registerStore.getCurrent(recordId);
+    assert.equal(registerAfter?.currentCustodyStatus, "deleted");
+  },
+);
+
 // ------------------------------------------------- versioned correction --
 
 test("correctRecord replaces the live field but preserves the previous value in correction history", async () => {
@@ -1169,6 +1256,346 @@ test(
       before?.summary,
       "the retry must preserve the TRUE original, not re-capture the live value from a prior partial attempt as a fake 'previous' one",
     );
+  },
+);
+
+// Wraps a real FixtureStore and, on a chosen getRecord() call (1-indexed,
+// matching InterleavingRegisterStore's pattern above for the register),
+// runs an "interleave" callback to completion BEFORE returning the
+// (now-stale) snapshot — simulating two concurrent corrections that both
+// read the record at the SAME version, deterministically rather than
+// hoping real concurrency reproduces it.
+class InterleavingFixtureStore implements FixtureStore {
+  private triggered = false;
+  private callCount = 0;
+  constructor(
+    private readonly inner: FixtureStore,
+    private readonly interleave: () => Promise<void>,
+    private readonly triggerOnCall: number = 1,
+  ) {}
+  async getRecord(recordId: string) {
+    this.callCount += 1;
+    const snapshot = await this.inner.getRecord(recordId);
+    if (!this.triggered && this.callCount === this.triggerOnCall) {
+      this.triggered = true;
+      await this.interleave();
+    }
+    return snapshot;
+  }
+  putRecord(record: FixtureRecord, expectedVersion: number | undefined) {
+    return this.inner.putRecord(record, expectedVersion);
+  }
+  deleteRecord(recordId: string, expectedVersion: number) {
+    return this.inner.deleteRecord(recordId, expectedVersion);
+  }
+  listAuthorityClaims(recordId: string) {
+    return this.inner.listAuthorityClaims(recordId);
+  }
+  putAuthorityClaim(claim: AuthorityClaim) {
+    return this.inner.putAuthorityClaim(claim);
+  }
+  listLegalRights(recordId: string) {
+    return this.inner.listLegalRights(recordId);
+  }
+  putLegalRight(right: LegalRight) {
+    return this.inner.putLegalRight(right);
+  }
+  listConsentGrants(recordId: string) {
+    return this.inner.listConsentGrants(recordId);
+  }
+  putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
+    return this.inner.putConsentGrant(grant, expectedVersion);
+  }
+  listCustodyCopies(recordId: string) {
+    return this.inner.listCustodyCopies(recordId);
+  }
+  putCustodyCopy(copy: CustodyCopy) {
+    return this.inner.putCustodyCopy(copy);
+  }
+  createLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.createLifecycleRequest(request);
+  }
+  getLifecycleRequest(requestId: string) {
+    return this.inner.getLifecycleRequest(requestId);
+  }
+  updateLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.updateLifecycleRequest(request);
+  }
+  listLifecycleRequestsByStatus(status: LifecycleRequestStatus) {
+    return this.inner.listLifecycleRequestsByStatus(status);
+  }
+  putAuditReceipt(receipt: AuditReceipt) {
+    return this.inner.putAuditReceipt(receipt);
+  }
+  listAuditReceipts(recordId: string) {
+    return this.inner.listAuditReceipts(recordId);
+  }
+  putCorrection(correction: Correction) {
+    return this.inner.putCorrection(correction);
+  }
+  listCorrections(recordId: string) {
+    return this.inner.listCorrections(recordId);
+  }
+  getCorrection(recordId: string, correctionId: string) {
+    return this.inner.getCorrection(recordId, correctionId);
+  }
+  putRedaction(redaction: Redaction) {
+    return this.inner.putRedaction(redaction);
+  }
+  listRedactions(recordId: string) {
+    return this.inner.listRedactions(recordId);
+  }
+  getRedaction(recordId: string, redactionId: string) {
+    return this.inner.getRedaction(recordId, redactionId);
+  }
+  putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
+    return this.inner.putRecordWithCorrection(record, expectedVersion, correction);
+  }
+  putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
+    return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
+  }
+}
+
+test(
+  "two concurrent corrections that both read the same version: the second write is rejected, not silently clobbering the first (reviewer-caught finding)",
+  async () => {
+    const { fixtureStore: realStore, recordId } = await setupActive();
+
+    // The interleave runs on correctRecord's SECOND getRecord() call — the
+    // "fresh" read immediately before it computes `updated` and writes.
+    // That is the exact snapshot a concurrent writer would also have read,
+    // before either one's write lands.
+    const interleaving = new InterleavingFixtureStore(
+      realStore,
+      async () => {
+        const result = await correctRecord(realStore, {
+          requestId: "req-race-b",
+          recordId,
+          requesterCapacity: "[SYNTHETIC] curator B",
+          reason: "[SYNTHETIC] race test B",
+          field: "title",
+          correctedValue: "[SYNTHETIC] B's title",
+        });
+        assert.equal(result.status, "completed", "the interleaved correction must land normally");
+      },
+      2,
+    );
+
+    await assert.rejects(
+      () =>
+        correctRecord(interleaving, {
+          requestId: "req-race-a",
+          recordId,
+          requesterCapacity: "[SYNTHETIC] curator A",
+          reason: "[SYNTHETIC] race test A",
+          field: "summary",
+          correctedValue: "[SYNTHETIC] A's summary",
+        }),
+      (error: unknown) => error instanceof VersionConflictError,
+      "A's write used a version that was already stale by the time it landed — it must be rejected, never silently applied on top of B's already-committed change",
+    );
+
+    const finalRecord = await realStore.getRecord(recordId);
+    assert.equal(finalRecord?.title, "[SYNTHETIC] B's title", "B's change must have actually landed");
+    assert.notEqual(finalRecord?.summary, "[SYNTHETIC] A's summary", "A's change must NOT have landed — it was rejected, not silently merged or clobbering");
+
+    // The real-world recovery path: A's caller sees the rejection and
+    // retries. A retry (even reusing the same requestId — the fingerprint
+    // matches, so this is a legitimate replay of a request that never
+    // completed) must succeed cleanly against the now-current version,
+    // losing neither its own change nor B's.
+    const retryA = await correctRecord(realStore, {
+      requestId: "req-race-a",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator A",
+      reason: "[SYNTHETIC] race test A",
+      field: "summary",
+      correctedValue: "[SYNTHETIC] A's summary",
+    });
+    assert.equal(retryA.status, "completed");
+    const afterRetry = await realStore.getRecord(recordId);
+    assert.equal(afterRetry?.summary, "[SYNTHETIC] A's summary", "A's retried change must land");
+    assert.equal(afterRetry?.title, "[SYNTHETIC] B's title", "B's earlier change must still be intact");
+  },
+);
+
+// Wraps a real FixtureStore, making getCorrection/getRedaction LIE about a
+// specific id — returning null (not found) exactly once, as if served from
+// an eventually consistent read that missed a write which, in reality,
+// already committed. Simulates the EXACT hazard the reviewer named: "a
+// stale history query can miss the existing correction" — DynamoDB's
+// default reads can lag recent writes by a short, unbounded window. Used
+// to prove the fix is genuinely the CONDITIONAL WRITE inside
+// putRecordWithCorrection/putRecordWithRedaction, not merely the pre-check
+// (getCorrection/getRedaction) — a stable, requestId-derived id alone, or a
+// pre-check alone, would not be enough.
+class LyingAboutExistingHistoryFixtureStore implements FixtureStore {
+  private liedCorrectionIds = new Set<string>();
+  private liedRedactionIds = new Set<string>();
+  constructor(
+    private readonly inner: FixtureStore,
+    private readonly lieAboutCorrectionId?: string,
+    private readonly lieAboutRedactionId?: string,
+  ) {}
+  getRecord(recordId: string) {
+    return this.inner.getRecord(recordId);
+  }
+  putRecord(record: FixtureRecord, expectedVersion: number | undefined) {
+    return this.inner.putRecord(record, expectedVersion);
+  }
+  deleteRecord(recordId: string, expectedVersion: number) {
+    return this.inner.deleteRecord(recordId, expectedVersion);
+  }
+  listAuthorityClaims(recordId: string) {
+    return this.inner.listAuthorityClaims(recordId);
+  }
+  putAuthorityClaim(claim: AuthorityClaim) {
+    return this.inner.putAuthorityClaim(claim);
+  }
+  listLegalRights(recordId: string) {
+    return this.inner.listLegalRights(recordId);
+  }
+  putLegalRight(right: LegalRight) {
+    return this.inner.putLegalRight(right);
+  }
+  listConsentGrants(recordId: string) {
+    return this.inner.listConsentGrants(recordId);
+  }
+  putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
+    return this.inner.putConsentGrant(grant, expectedVersion);
+  }
+  listCustodyCopies(recordId: string) {
+    return this.inner.listCustodyCopies(recordId);
+  }
+  putCustodyCopy(copy: CustodyCopy) {
+    return this.inner.putCustodyCopy(copy);
+  }
+  createLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.createLifecycleRequest(request);
+  }
+  getLifecycleRequest(requestId: string) {
+    return this.inner.getLifecycleRequest(requestId);
+  }
+  updateLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.updateLifecycleRequest(request);
+  }
+  listLifecycleRequestsByStatus(status: LifecycleRequestStatus) {
+    return this.inner.listLifecycleRequestsByStatus(status);
+  }
+  putAuditReceipt(receipt: AuditReceipt) {
+    return this.inner.putAuditReceipt(receipt);
+  }
+  listAuditReceipts(recordId: string) {
+    return this.inner.listAuditReceipts(recordId);
+  }
+  putCorrection(correction: Correction) {
+    return this.inner.putCorrection(correction);
+  }
+  listCorrections(recordId: string) {
+    return this.inner.listCorrections(recordId);
+  }
+  async getCorrection(recordId: string, correctionId: string) {
+    if (correctionId === this.lieAboutCorrectionId && !this.liedCorrectionIds.has(correctionId)) {
+      this.liedCorrectionIds.add(correctionId);
+      return null;
+    }
+    return this.inner.getCorrection(recordId, correctionId);
+  }
+  putRedaction(redaction: Redaction) {
+    return this.inner.putRedaction(redaction);
+  }
+  listRedactions(recordId: string) {
+    return this.inner.listRedactions(recordId);
+  }
+  async getRedaction(recordId: string, redactionId: string) {
+    if (redactionId === this.lieAboutRedactionId && !this.liedRedactionIds.has(redactionId)) {
+      this.liedRedactionIds.add(redactionId);
+      return null;
+    }
+    return this.inner.getRedaction(recordId, redactionId);
+  }
+  putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
+    return this.inner.putRecordWithCorrection(record, expectedVersion, correction);
+  }
+  putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
+    return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
+  }
+}
+
+test(
+  "a retry whose 'already applied' pre-check is stale (misses an existing correction, as an eventually consistent read could) does not corrupt history — the conditional write is the real guard (reviewer-caught finding, round two)",
+  async () => {
+    const { fixtureStore: realStore, recordId } = await setupActive();
+    const before = await realStore.getRecord(recordId);
+    const correctionId = "req-stale-precheck";
+
+    const first = await correctRecord(realStore, {
+      requestId: correctionId,
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary",
+      correctedValue: "[SYNTHETIC] corrected summary",
+    });
+    assert.equal(first.status, "completed");
+
+    // Simulate "request completion failed AFTER the transaction
+    // succeeded" by just retrying with the SAME requestId — but through a
+    // store whose getCorrection() lies about this exact id once, exactly
+    // as a real eventually-consistent read could right after the write
+    // that created it.
+    const lying = new LyingAboutExistingHistoryFixtureStore(realStore, correctionId);
+    const retry = await correctRecord(lying, {
+      requestId: correctionId,
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary",
+      correctedValue: "[SYNTHETIC] corrected summary",
+    });
+    assert.equal(retry.status, "completed", "a retry must still resolve as a safe success, even when its pre-check was stale");
+
+    const corrections = await realStore.listCorrections(recordId);
+    assert.equal(corrections.length, 1, "must still be exactly one correction — never a second, corrupting write");
+    assert.equal(
+      corrections[0].previousValue,
+      before?.summary,
+      "the TRUE original must survive — the stale pre-check must not have let the retry re-capture the already-corrected value as a fake 'previous' one",
+    );
+  },
+);
+
+test(
+  "a retry whose 'already applied' pre-check is stale for a redaction does not corrupt redaction history either",
+  async () => {
+    const { fixtureStore: realStore, registerStore, recordId } = await setupActive();
+    const before = await realStore.getRecord(recordId);
+    const redactionId = "req-stale-precheck-redact";
+
+    const first = await redactText(realStore, registerStore, {
+      requestId: redactionId,
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary",
+    });
+    assert.equal(first.status, "completed");
+
+    const lying = new LyingAboutExistingHistoryFixtureStore(realStore, undefined, redactionId);
+    const retry = await redactText(lying, registerStore, {
+      requestId: redactionId,
+      recordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] test",
+      field: "summary",
+    });
+    assert.equal(retry.status, "completed");
+
+    const redactions = await realStore.listRedactions(recordId);
+    assert.equal(redactions.length, 1);
+    if (redactions[0].scope === "text") {
+      assert.equal(redactions[0].previousValue, before?.summary, "the TRUE original must survive the stale pre-check on retry");
+    }
   },
 );
 
