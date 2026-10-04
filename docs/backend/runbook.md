@@ -169,12 +169,16 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
   npx tsx backend/src/scripts/realFullFixtureChecks.ts
 ```
 
-Runs 9 checks and exits non-zero if any fails: 4 permission-parity checks (one per fixture case),
+Runs 13 checks and exits non-zero if any fails: 4 permission-parity checks (one per fixture case),
 a grant-revocation check, two concurrency checks (a direct `RestrictionRegisterStore.setCurrent`
-compare-and-swap race, plus a full `startDeletion`/`restrict` integration race), and two
+compare-and-swap race, plus a full `startDeletion`/`restrict` integration race), two
 export-authorization checks (`public-redacted` and `complete-preservation` scopes both excluding
-the expired-consent and disputed-authority records). Last run 2026-10-03: all 9 passed on the first
-try — see `docs/backend/evidence-matrix.md` for the full results.
+the expired-consent and disputed-authority records), and four combinatorial-case checks added for
+operational-readiness review: revocation racing restriction (both an exactly-one-wins check and a
+retry-converges-both-changes check), and export racing withdrawal/deletion (one each) — see
+`docs/backend/evidence-matrix.md`'s "Combinatorial cases" note for the expected outcome this
+defines for each possible ordering. Last run 2026-10-04: all 13 passed on the first try — see
+`docs/backend/evidence-matrix.md` for the full results.
 
 ## Grant-level revocation restore drill against real DynamoDB
 
@@ -259,6 +263,98 @@ this provisioning (AWS documents burst capacity beyond the nominal provisioned r
 explicit instruction this shared table's capacity stays unchanged for now (see the evidence
 matrix's seventh-review-round note); that exact scale stays proven by `export.test.ts` locally
 instead.
+
+## Staff API smoke test against real AWS
+
+Scripts the manual "Real staff API smoke test" steps from
+`docs/backend/evidence-matrix.md` into a reusable, repeatable drill — same
+env vars as the S3 media drill above:
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=tiro-fixture-primary-drill-20261002 \
+  TIRO_REGISTER_TABLE=tiro-restriction-register-drill-20261002 \
+  TIRO_MEDIA_BUCKET=<MediaBucketName output from cdk deploy> \
+  TIRO_STAFF_API_URL=<StaffApiUrl output> \
+  TIRO_STAFF_USER_POOL_ID=<StaffUserPoolId output> \
+  TIRO_STAFF_USER_POOL_CLIENT_ID=<StaffUserPoolClientId output> \
+  npx tsx backend/src/scripts/realStaffApiSmokeTest.ts
+```
+
+Creates its own disposable Cognito test user (deleted at the end), seeds a
+fresh `active` fixture and a fresh `disputed`-authority fixture, and walks
+both through the real deployed API: unauthenticated and malformed requests
+are rejected, a real allowed fixture returns the full detail bundle, and —
+separately — a real disputed-authority fixture is correctly DENIED (no
+title, no content). That second check replaces an earlier, stale manual
+observation (dated 2026-10-03) that used the disputed fixture to assert a
+full bundle; that observation predates Finding 1's fix, which started
+enforcing `evaluatePermission` on this route. Exits non-zero if any of its
+8 checks fail. Last run 2026-10-04: all 8 passed on the first try.
+
+## Legacy media migration against real AWS
+
+Inventories every live `MediaRef` with `versionId: null` (seeded before S3 version binding
+existed) and reports which match this project's one known, exact placeholder signature
+(rebindable) versus which don't (stay unavailable — never guessed at). Dry run by default:
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=tiro-fixture-primary-drill-20261002 \
+  TIRO_REGISTER_TABLE=tiro-restriction-register-drill-20261002 \
+  TIRO_MEDIA_BUCKET=<MediaBucketName output from cdk deploy> \
+  npx tsx backend/src/scripts/realLegacyMediaMigration.ts
+```
+
+Last run 2026-10-04 against the drill stack: 215 records scanned, 29 legacy references found, all
+29 rebindable, 0 with no trustworthy origin — see `docs/backend/evidence-matrix.md`'s "Legacy
+media migration" entry for the full result and why this needs real throttle-aware retry (the same
+215-record enumeration that throttles every full-register scan in this project). Pass `--apply` to
+actually rebind the rebindable entries — uploads a deterministic synthetic analog to a new
+`fixtures/legacy-migration/<recordId>/<mediaId>.txt` key and rewrites the matching `MediaRef` plus
+a `CustodyCopy`. `--apply` has NOT been run against the live drill stack; that is a separate,
+real-data-mutating decision left to whoever operates this stack, not something this script does
+on its own.
+
+## S3 noncurrent-version expiry observation
+
+A two-step, DATED observation of the real, deployed
+`noncurrentVersionExpiration: Duration.days(30)` S3 lifecycle rule
+actually firing — distinct from DynamoDB TTL, which this project has never
+configured on any table (no `timeToLiveAttribute` anywhere; deletion is
+always explicit via `completeDeletion`). Seed step (uploads two versions
+to one dedicated key so the first becomes noncurrent immediately):
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_MEDIA_BUCKET=<MediaBucketName output from cdk deploy> \
+  npx tsx backend/src/scripts/realS3ExpiryObservationSeed.ts
+```
+
+Seeded 2026-10-04T22:44:18.761Z against the drill stack's media bucket —
+see `docs/backend/evidence-matrix.md`'s "S3 noncurrent-version expiration
+observation" entry for the exact version ids. On or after
+2026-11-03T22:44:18.761Z, re-run with `--check` to see whether the
+noncurrent version has actually expired; running `--check` earlier is
+harmless and just reports "too early" rather than fabricating a result.
+
+## Browser acceptance checklist
+
+`docs/backend/browser-acceptance-checklist.md` is a human-run, 16-step
+click-through of the full admin workflow (denied access, correction,
+dispute, text/media redaction, export, deletion, audit attribution)
+against the real deployed staff UI. Seed the three fixtures it refers to
+and print their record ids with:
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=<table> TIRO_REGISTER_TABLE=<table> TIRO_MEDIA_BUCKET=<bucket> \
+  npx tsx backend/src/scripts/realSeedBrowserAcceptanceFixtures.ts
+```
+
+then follow `staff-ui/README.md` to serve the UI and walk the checklist by
+hand — no browser-automation tool exists in this environment, so this
+step genuinely requires a human. Status: prepared, not yet executed.
 
 ## Seeding real, version-bound media into a fixture
 

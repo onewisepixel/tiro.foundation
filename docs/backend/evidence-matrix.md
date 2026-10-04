@@ -548,10 +548,10 @@ a misleading log message, not a false-passing check.
 
 ## Real full-fixture checks — what actually happened
 
-Dated 2026-10-03. `backend/src/scripts/realFullFixtureChecks.ts`, run once against the same deployed
-stack (`TiroFixtureBackend-drill-20261002`), seeded the FULL four-fixture set (`active`,
-expired-consent, disputed-authority, preservation-only — not just the one `active` case the restore
-drill uses) and ran 9 checks against real DynamoDB. **All 9 passed on the first run:**
+Dated 2026-10-03, extended 2026-10-04. `backend/src/scripts/realFullFixtureChecks.ts`, run against
+the same deployed stack (`TiroFixtureBackend-drill-20261002`), seeded the FULL four-fixture set
+(`active`, expired-consent, disputed-authority, preservation-only — not just the one `active` case
+the restore drill uses) and ran 13 checks against real DynamoDB. **All 13 passed:**
 
 - 4 parity checks confirming the real adapter's query paths produce the same permission outcomes as
   the local fake for every fixture case.
@@ -574,35 +574,70 @@ temporary table + backup) — this script only writes a handful of small synthet
 already-deployed primary/register tables, left in place afterward as part of the real-AWS fixture
 baseline, same precedent as the restore drill's one surviving `active` record.
 
+### Combinatorial cases added 2026-10-04 — operational-readiness review
+
+Two additional races, each defining the expected outcome for EITHER possible ordering (not just
+"a race exists"):
+
+- **Revocation racing restriction.** `revokeConsentGrant()` and `restrict()` fired concurrently
+  against the same fresh register item via `Promise.allSettled`. This is a genuine two-WRITER race
+  on one versioned item, so the outcome is symmetric: whichever lands first wins unconditionally
+  (observed live as a real `VersionConflictError`/`TransactionCanceledException` on the loser, both
+  orderings occur in practice depending on network timing) — and because the two changes are not
+  semantically conflicting, retrying the loser against a fresh read always converges to a register
+  state with BOTH changes present. Confirmed live: after retry, the register held both
+  `revokedConsentIds` containing the raced consent id AND `restrictedPurposes` containing
+  `"research"` together.
+- **Export racing withdrawal, and export racing deletion.** `withdraw()`/`startDeletion()` raced
+  against `exportFixtureSet()` on a fresh fixture. This is a WRITER-vs-READER case, not symmetric:
+  the writer always fulfills (sole writer on that field), and the real invariant is
+  self-consistency, not win/loss — `evaluatePermission` (`services/permissions.ts`) reads the
+  control register exactly ONCE per call and reuses that single snapshot for every check inside
+  that call, so a record can only ever be excluded from the export (the race was caught) or
+  included with a FULLY self-consistent pre-race snapshot — never a torn mix of pre- and
+  post-race state within one record. Confirmed live for both withdrawal and deletion variants.
+
+All four combinatorial checks passed, bringing the script's total to 13/13. See
+`docs/backend/runbook.md`'s "Full-fixture seed and correctness checks against real DynamoDB"
+section for the run command.
+
 ## Real staff API smoke test — what actually happened
 
-Dated 2026-10-03. Deployed the new Lambda + HTTP API + Cognito JWT authorizer to the same stack
-(`TiroFixtureBackend-drill-20261002`) and manually exercised it against real AWS — not scripted into
-a reusable drill (unlike the three above), run by hand via the AWS CLI and PowerShell:
+Dated 2026-10-03 (manual), scripted into a reusable drill 2026-10-04
+(`backend/src/scripts/realStaffApiSmokeTest.ts`) — closing the "script the staff API smoke test
+into a reusable drill" item from the AWS-checks-still-not-run table below. Deployed the Lambda +
+HTTP API + Cognito JWT authorizer to the same stack (`TiroFixtureBackend-drill-20261002`):
 
 1. Created a synthetic test staff user (`admin-create-user` + `admin-set-user-password`), authenticated
    via `admin-initiate-auth` (`ADMIN_USER_PASSWORD_AUTH` — added to the app client specifically to make
    this kind of scripted check possible without implementing SRP by hand; gated by IAM, never reachable
    from the public internet).
 2. `GET /lifecycle-requests` with no `Authorization` header → **401**, confirming the Cognito authorizer
-   actually rejects unauthenticated requests (the one real-AWS check that was explicitly pending — see
-   the previous revision of this document).
+   actually rejects unauthenticated requests.
 3. The same call with a real ID token → **200**, `{"requests":[]}`, reading the real GSI1-status-index.
-4. `GET /records/:id` on a real disputed-authority fixture → full detail bundle (record, control,
-   claims, grants, copies, receipts) read correctly from live DynamoDB.
-5. `POST /records/:id/permission-check` on the same record → `{"allowed":false,"reason":"Authority
+4. `GET /records/:id` on a real ALLOWED (active-authorized) fixture → the full detail bundle (record,
+   control, claims, grants, copies, receipts) read correctly from live DynamoDB.
+5. **The SAME call on a real disputed-authority fixture → correctly DENIED** (limited view, no
+   content). Note: the original manual run of this step (2026-10-03) used the disputed-authority
+   fixture for the *allowed* case above and observed a full bundle — but that was BEFORE Finding 1's
+   fix started enforcing `evaluatePermission` on this route; under the current, correct behavior a
+   disputed authority claim denies every purpose/audience unconditionally, so this script seeds a
+   separate `active` fixture for the allowed case and keeps the disputed fixture only for this
+   denial check.
+6. `POST /records/:id/permission-check` on the disputed fixture → `{"allowed":false,"reason":"Authority
    claim ... is \"disputed\"."}` — the real `evaluatePermission` path, unchanged by any of this.
-6. `POST /records/:id/restrict`, with the request body attempting to set `requesterCapacity` to
+7. `POST /records/:id/restrict`, with the request body attempting to set `requesterCapacity` to
    `"someone-else-entirely"` → the real response's `requesterCapacity` was
    `"staff:staff-smoke-test@example.invalid"` — the spoofed value was silently ignored, exactly as
    designed (`handler.ts`'s `extractCallerIdentity` never reads the body). The action itself landed
    correctly (`restrictedPurposes: ["model-training"]` on a live table scan afterward).
-7. `POST /export` (`public-redacted` scope) against an expired-consent record and a
+8. `POST /export` (`public-redacted` scope) against an expired-consent record and a
    since-restricted record → `recordCount: 0`, correctly excluding both.
 
-All seven checks passed. The test user was deleted immediately afterward
-(`admin-delete-user`); the one mutated fixture record (step 6) was left in place, same precedent as
-every other synthetic fixture mutation in this milestone.
+All 8 checks passed. The test user was deleted immediately afterward (`admin-delete-user`); the
+mutated/seeded fixture records were left in place, same precedent as every other synthetic fixture
+mutation in this milestone. See `docs/backend/runbook.md`'s "Staff API smoke test against real AWS"
+section for the run command.
 
 ## Real defect-fix verification — what actually happened
 
@@ -963,18 +998,114 @@ tests, up from 164 — `export.test.ts`'s direct `exportFixtureSet` reproduction
 Cleanup: only the drill's own disposable Cognito test user was deleted each run. Every fixture it
 seeded was left in place, same precedent as every other real-AWS check in this project.
 
+## Legacy media migration — what actually happened
+
+Dated 2026-10-04. `backend/src/scripts/realLegacyMediaMigration.ts`, run in dry-run mode (the
+default; `--apply` requires an explicit flag and was NOT passed) against the same deployed stack.
+Enumerated all 215 records currently in the live restriction register (accumulated across this
+entire engagement's history, via `RestrictionRegisterStore.listAll()`'s full table scan, reused
+rather than adding a new primary-table scan method), read each one's `MediaRef`s, and classified
+every reference with `versionId: null` against a narrow, EXACT signature match — never fuzzy —
+against this project's one known placeholder (`objectKey: "fixtures/active-authorized/dummy.txt"`,
+`checksumSha256` all-zeros, `contentType: "text/plain"`, `bytes: 128`), the exact shape
+`buildSeedFixtures()` has always produced before `bindSeedMedia` binds it to real S3 bytes.
+
+**Result: 29 legacy (`versionId: null`) references found. All 29 matched the known placeholder
+signature exactly (rebindable). Zero had no trustworthy origin.** This is expected, not a sign the
+check is too permissive: every legacy reference across this project's history came from the same
+`buildSeedFixtures()` template, so there was never a case of an unrelated or ambiguous placeholder
+to reject — the zero-count for "no trustworthy origin" reflects this project's actual history, not
+an unexercised code path. (The classification logic itself, including the reject path, is real:
+any reference differing in even one field — object key, checksum, content type, or byte count —
+would NOT match and would be correctly left alone rather than guessed at.)
+
+Rebinding here means giving a known, synthetic, reconstructable placeholder its real analog — NOT
+"recovering lost original bytes," since the placeholder was never backed by anything real to begin
+with. `--apply` would upload a deterministic synthetic text file
+(`fixtures/legacy-migration/<recordId>/<mediaId>.txt`), rewrite the matching `MediaRef`
+(`objectKey`/`bytes`/`checksumSha256`/`versionId`) via a version-guarded `putRecord`, and add a
+matching `CustodyCopy`, mirroring `bindSeedMedia`'s own side effects exactly. **`--apply` was
+deliberately NOT run against this shared, live stack** — the request was for a dry-run report;
+actually mutating 29 real records' media is a separate decision left open for the user (see the
+end-of-round summary).
+
+A first run without throttle-aware retry hit `ProvisionedThroughputExceededException` partway
+through (around record 16 of 215) — expected, given this deliberately tiny 5-RCU table and the
+same pattern seen in every other drill in this project's history. Fixed with the same
+`withThrottleRetry` backoff pattern used elsewhere; the corrected re-run completed cleanly
+(`EXIT:0`), taking several minutes of real backoff waiting across ~200 individually-throttled
+reads. See `docs/backend/runbook.md`'s "Legacy media migration against real AWS" section for the
+run command.
+
+## Real cost and billing-alert reconciliation — what actually happened
+
+Dated 2026-10-04. Queried AWS Cost Explorer directly (`aws ce get-cost-and-usage`, itemized by
+service, daily granularity) rather than relying on the CloudWatch `AWS/Billing EstimatedCharges`
+metric (coarser, ~6hr granularity, whole-account total only) — covering 2026-09-30 through
+2026-10-05, the full span this stack has existed under this round's drills:
+
+**Real total: $0.0021379822** across that window. By service: S3 $0.0018588114, API Gateway
+$0.00023, CloudWatch $0.00002, Secrets Manager $0.000015, DynamoDB $0.0000141708, everything else
+(Lambda, Cognito, SNS, SQS, KMS, Glue, CloudFormation) $0. This confirms
+`docs/backend/decision-and-cost.md`'s **$0-2/month** estimate with real, itemized billing data —
+actual spend is several orders of magnitude under even the low end, and no line item (not even API
+Gateway, the one the estimate flagged as "not confirmed free") is a meaningful contributor at this
+volume.
+
+**Billing alarm, confirmed real and correctly configured:** `tiro-fixture-backend-billing-drill-20261002`,
+threshold $5.00, current state `OK` (`aws cloudwatch describe-alarms`) — correctly far from
+triggering given actual spend.
+
+**One real, human-actionable gap found:** the alarm's SNS topic
+(`tiro-fixture-backend-billing-drill-20261002`) has exactly one subscription, and
+`aws sns list-subscriptions-by-topic` shows its `SubscriptionArn` as **`PendingConfirmation`** for
+`onewisepixel@gmail.com`, not a real ARN. The alarm and topic are deployed and wired correctly, but
+no one is actually being notified yet — AWS only sends the subscription a confirmation link by
+email once, at creation time; nothing in this codebase can click that link. This is not a code
+defect — it requires a human to check that inbox and confirm the subscription.
+
+## S3 noncurrent-version expiration observation — pending, dated
+
+Dated 2026-10-04. Two distinct mechanisms get conflated in casual phrasing: DynamoDB
+**Time-To-Live** and S3's **`noncurrentVersionExpiration`** lifecycle rule. A grep across
+`infra/lib/fixture-backend-stack.ts`, `domain/types.ts`, and every file under `services/`
+confirms this project has never configured a `timeToLiveAttribute` on either DynamoDB table — this
+is a design fact, not an unexercised feature: record removal here is exclusively `completeDeletion()`,
+explicit every time, with no DynamoDB-TTL mechanism to observe at all.
+
+The S3 bucket, however, DOES have a real, deployed `noncurrentVersionExpiration: Duration.days(30)`
+rule (confirmed live via `aws s3api get-bucket-lifecycle-configuration`), which every deletion drill
+so far has never actually exercised — `completeDeletion()`'s own purge step always explicitly
+removes noncurrent versions before the 30-day clock would matter. `realS3ExpiryObservationSeed.ts`
+seeds a dedicated, isolated key (`fixtures/ttl-s3-expiry-observation/noncurrent-version-watch.txt`,
+touched by nothing else) with two versions, so the first becomes noncurrent immediately:
+
+```
+v1 (now noncurrent) versionId: eyOuILjjsdb2_znMFWBxv2eDn1p_POqr
+v2 (current) versionId: ueud8o0WEOEtZTkp07OqZkKeUMsB7APb
+Noncurrent since (UTC): 2026-10-04T22:44:18.761Z
+Expected to have expired by (UTC): 2026-11-03T22:44:18.761Z
+```
+
+**This is genuinely PENDING until 2026-11-03T22:44:18.761Z.** Re-run the same script with `--check`
+on or after that date to see the real result — checking earlier is harmless and reports "too early"
+rather than fabricating a pass. Per this project's standing rule, a time-dependent result is never
+recorded here until it is actually observed.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
 | --- | --- |
-| Cost reconciliation against actual billing | AWS Cost Explorer / Billing console, compared against `docs/backend/decision-and-cost.md`'s estimate, after the billing alarm's SNS email subscription is confirmed — now with real Lambda/API Gateway/S3 invocations to reconcile too, not just DynamoDB. |
-| A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or an export racing a withdrawal) | Not yet scripted — each real-AWS case so far has been checked in isolation; `realFullFixtureChecks.ts` or `realS3MediaAcceptanceDrill.ts` are the places to extend. (The one specific combinatorial case a reviewer named — a correction racing a redaction on the same field — is now closed; see the seventh-review-round note and "Real correction/redaction drill" above.) |
-| Script the staff API smoke test into a reusable drill | Currently manual (AWS CLI + PowerShell, not committed as a script) — write a `realStaffApiSmokeTest.ts` mirroring the other drill scripts' structure if this needs to be re-run repeatably rather than by hand. |
-| A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. Run `staff-ui/README.md`'s setup (create a user, `npx serve -l 4300 staff-ui`, open `http://localhost:4300/` in a real browser, sign in) by hand — everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
-| Migrating already-live legacy (`versionId: null`) media references | None exist yet from THIS milestone (every reference `bindSeedMedia` touches is bound for real) — but every `MediaRef` seeded in earlier sessions, before version binding existed, is legacy-shaped. They correctly fail closed (409) rather than guess a version; nothing re-uploads/rebinds them automatically. Not attempted — would need a one-off migration script, intentionally not written speculatively. |
+| A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. `docs/backend/browser-acceptance-checklist.md` (16 steps) and `backend/src/scripts/realSeedBrowserAcceptanceFixtures.ts` (prints the record ids it needs) are now PREPARED, ready for a human to run against `staff-ui/README.md`'s setup — but genuinely not yet executed by a human; everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
+| The billing alarm's SNS email subscription | Confirmed `PendingConfirmation` via `aws sns list-subscriptions-by-topic` (2026-10-04) — the alarm and topic are deployed correctly, but no one actually gets paged yet because the confirmation email link has not been clicked. Human action required: check the inbox for `TIRO_BILLING_ALARM_EMAIL` and confirm the subscription. |
+| S3 noncurrent-version expiry, actually observed firing | Seeded 2026-10-04T22:44:18.761Z (`realS3ExpiryObservationSeed.ts`); genuinely PENDING until 2026-11-03T22:44:18.761Z — see "S3 noncurrent-version expiration observation" below. Not something that can be observed early without fabricating a result. |
 | Forcing the export response budget's real whole-record TEXT exclusion live (as opposed to proving the field exists) | Needs reading several real MB back out of this table's deliberately tiny, always-free-tier provisioned RCU (5/s) inside one Lambda invocation. Every attempt tried observably throttled — see "Real correction/redaction drill"'s seventh-round note for the measured CloudWatch/Lambda-log evidence — but that is an observed result, not proof a single large read is categorically impossible at this provisioning (AWS's documented burst capacity means a different attempt or timing could succeed). Keep the shared table's capacity unchanged per explicit instruction; if this needs closing for real anyway, the move is a TEMPORARY `UpdateTable` capacity bump (e.g. to 50+ RCU) for the duration of one drill run, reverted immediately after — a real infra/cost decision, so get sign-off first. |
 
-~~Inventory S3 object versions after delete~~, ~~real `completeDeletion` resumability/stale-precondition confirmation~~ — **closed, see "Real S3 media acceptance drill" below.**
+~~Inventory S3 object versions after delete~~, ~~real `completeDeletion` resumability/stale-precondition confirmation~~,
+~~cost reconciliation against actual billing~~, ~~a combinatorial real-AWS case~~,
+~~script the staff API smoke test into a reusable drill~~, ~~migrating already-live legacy media
+references~~ — **all closed, see "Real S3 media acceptance drill", "Combinatorial cases added
+2026-10-04", "Real staff API smoke test", and "Legacy media migration" above/below.**
 
 ## Explicitly not built in this pass
 
@@ -983,12 +1114,13 @@ seeded was left in place, same precedent as every other real-AWS check in this p
 - Actual image/audio/video content processing (blur/bleep/crop) — this backend's redaction masks
   TEXT and denies MEDIA ACCESS, never alters media bytes; real content redaction needs
   media-processing infrastructure this project doesn't have.
-- Migrating the already-live legacy (`versionId: null`) media references seeded before version
-  binding existed — they correctly fail closed, but nothing re-uploads/rebinds them automatically.
-- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or a media purge
-  racing an export) — every real-AWS case so far has been checked in isolation. (A correction racing
-  a redaction on the same field — previously listed here — is now closed, local and live; see the
-  seventh-review-round note above.)
+- Automatic migration of EVERY legacy (`versionId: null`) media reference — only references whose
+  content matches a known, exact, reconstructable placeholder signature are eligible for rebinding
+  at all (see "Legacy media migration" below); anything without a trustworthy known origin stays
+  unavailable rather than being guessed at.
+- A named operator and adopted (not merely proposed) consent/retention procedures — explicitly
+  organizational, not engineering; see `docs/backend/decision-and-cost.md` §"real collection" and
+  `docs/ethos.txt` §6.1. No name or procedure document has been provided to put here.
 
 Real S3 media/version handling, authenticated retrieval, byte-level checksums, media-aware
 deletion, media-carrying export/restore, versioned correction, and text/media redaction — all

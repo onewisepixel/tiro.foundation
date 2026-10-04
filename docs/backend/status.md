@@ -439,15 +439,25 @@ and documented rather than chased further; revisit when either upstream ships a 
   Hosted UI domain + OAuth app-client config, and `AdminInitiateAuth` enabled on that client
   (IAM-gated, used for scripted sign-in/smoke-testing without implementing SRP by hand). Deployed
   and smoke-tested against the real stack — see the evidence matrix.
+- 2026-10-04, operational readiness: the staff API smoke test is now a reusable script
+  (`realStaffApiSmokeTest.ts`, 8/8), `realFullFixtureChecks.ts` grew four combinatorial-case checks
+  (revocation racing restriction, export racing withdrawal/deletion — 13/13 total, each case's
+  expected outcome defined for either ordering), a legacy-media inventory/dry-run migration script
+  was written and run against the live register, a 16-step browser-acceptance checklist plus its
+  seeding script are prepared for human execution, real AWS cost/billing were reconciled, and an
+  S3 noncurrent-version expiry observation was seeded (pending check on/after 2026-11-03). DynamoDB
+  capacity was deliberately left unchanged throughout. See the evidence matrix for full results.
 
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-Migrating the many already-live legacy (`versionId: null`) media references seeded in earlier
-sessions — they correctly fail closed today, but nothing re-uploads/rebinds them automatically. A
-combinatorial real-AWS case or two (e.g. a revocation racing a concurrent restriction, or a media
-purge racing an export — a correction racing a redaction on the same field, previously listed here,
-is now closed, local and live). Actual image/audio/video redaction (blur/bleep/crop) — this
+Actually applying the legacy-media migration (`realLegacyMediaMigration.ts --apply`) for any
+references its dry run classified as rebindable against a known, exact placeholder signature —
+the dry run itself is done; applying it to live data is a judgment call left to the user, not
+exercised automatically. A literal human browser click-through of the now-prepared
+`docs/backend/browser-acceptance-checklist.md`. Confirming the billing alarm's SNS email
+subscription (stuck `PendingConfirmation` — needs someone to click the email link). Actual
+image/audio/video redaction (blur/bleep/crop) — this
 backend's redaction is text-masking and a hard media-access override only, honestly short of real
 media-content processing, which needs infrastructure this project doesn't have. Forcing the export
 response budget's real whole-record TEXT exclusion live, as opposed to proving the field merely

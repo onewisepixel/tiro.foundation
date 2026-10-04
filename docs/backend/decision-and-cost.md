@@ -82,6 +82,22 @@ drill run doesn't explicitly purge itself expires automatically within 30 days r
 
 Billing alerts will be configured (CloudWatch billing alarm at a low threshold, e.g. $5 and $20) as a notification tripwire. Per the brief: this is a notification, not an enforced spending cap — nothing in this architecture auto-shuts-down on alarm.
 
+### Update, 2026-10-04: real cost reconciled against actual AWS billing data
+
+Queried AWS Cost Explorer directly (itemized by service, daily granularity) rather than relying on
+estimates: real total cost across 2026-09-30 through 2026-10-05 (this stack's full lifetime under
+this round's drills) was **$0.0021379822** — S3 $0.0018588114, API Gateway $0.00023, CloudWatch
+$0.00002, Secrets Manager $0.000015, DynamoDB $0.0000141708, everything else $0. This confirms the
+**$0-2/month** estimate above with real data; actual spend is several orders of magnitude under
+even the low end.
+
+The billing alarm (`tiro-fixture-backend-billing-drill-20261002`, threshold $5.00) is deployed and
+`OK`, correctly far from triggering. One real gap found, not a code defect: its SNS email
+subscription is still `PendingConfirmation` for `onewisepixel@gmail.com` — AWS sends a one-time
+confirmation link at creation, and nothing in this codebase can click it; a human needs to check
+that inbox. See `docs/backend/evidence-matrix.md`'s "Real cost and billing-alert reconciliation"
+for the full detail.
+
 ## 4. What's still unverified
 
 - Exact on-demand HTTP API Gateway pricing/free-tier status for this specific account.

@@ -186,6 +186,35 @@ these two fixes make the deployed API do LESS work on bad input, so confirming t
 capacity change and consumed essentially no RCU. See the evidence matrix's ninth-review-round note
 for the full detail.
 
+**Update, operational readiness (2026-10-04) — making the already-reviewed lifecycle features
+dependable to operate, not adding new ones:** (1) `realStaffApiSmokeTest.ts` scripts the prior
+manual smoke test into a reusable drill (8/8); in doing so it caught that one of its own assertions
+was stale — a disputed-authority fixture used to assert a full detail bundle, which was correct
+only BEFORE Finding 1's permission-enforcement fix; fixed by seeding a real `active` fixture for
+the allowed case and keeping a corrected, separate denial check for the disputed one. (2)
+`realFullFixtureChecks.ts` grew four combinatorial-case checks with the expected outcome defined
+for EITHER ordering: revocation racing restriction (a genuine two-writer race — symmetric
+first-wins, and the loser's retry converges to both changes present) and export racing
+withdrawal/deletion (a writer-vs-reader case — `evaluatePermission` reads the register once per
+call, so a record is either excluded or included with a fully self-consistent snapshot, never
+torn). 13/13. (3) `realLegacyMediaMigration.ts` inventories every live `versionId: null` media
+reference and dry-run-reports which match a known, exact, reconstructable placeholder signature
+(rebindable) versus which have no trustworthy known origin (stay unavailable) — narrow exact
+matching only, never fuzzy, because a near-miss is exactly where guessing would be most tempting
+and most wrong; `--apply` is gated behind an explicit flag and not run against live data without
+separate sign-off. (4) A 16-step browser-acceptance checklist and its fixture-seeding script are
+now prepared for a human to run end-to-end (correction → dispute → text/media redaction → export →
+deletion, including denied access and audit attribution) — genuinely not yet executed, since no
+browser-automation tool exists in this environment. (5) Real AWS Cost Explorer and billing-alarm
+state were reconciled against `decision-and-cost.md`'s estimate (actual cost confirms the estimate;
+one real, human-actionable gap found: the billing alarm's SNS email subscription is stuck
+`PendingConfirmation`). (6) Confirmed DynamoDB TTL — distinct from S3's lifecycle rule — is not
+configured on any table in this system; deletion is exclusively explicit. Seeded a dedicated,
+isolated S3 noncurrent-version observation of the bucket's real 30-day expiration rule; genuinely
+PENDING until 2026-11-03 (never fabricated early). DynamoDB capacity was left unchanged throughout,
+per explicit instruction. See the evidence matrix's "Combinatorial cases," "Real staff API smoke
+test," "Legacy media migration," and "S3 noncurrent-version expiration observation" notes.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
