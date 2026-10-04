@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InMemoryFixtureStore, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
-import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "../store/store";
 import type {
   AuditReceipt,
   AuthorityClaim,
@@ -16,7 +16,14 @@ import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
 import { InMemoryMediaStore } from "../store/mediaStore";
-import { withdraw, restrict, retainForPreservationOnly, startDeletion, completeDeletion } from "./lifecycle";
+import {
+  withdraw,
+  restrict,
+  retainForPreservationOnly,
+  startDeletion,
+  completeDeletion,
+  MediaPurgeInProgressError,
+} from "./lifecycle";
 import { evaluatePermission } from "./permissions";
 
 async function setupActive() {
@@ -668,3 +675,157 @@ test(
     assert.equal(current?.currentCustodyStatus, "preserved", "custody must remain preserved, not flip toward deletion");
   },
 );
+
+// Wraps a REAL RestrictionRegisterStore and, on its first getCurrent()
+// call, runs an "interleave" callback to real completion BEFORE returning
+// the (now stale) snapshot — simulating a retention action landing in the
+// EXACT gap between completeDeletion's read and its own write, which is
+// the reviewer's precise reproduction of the first fix's remaining race.
+// Works against either the in-memory fake or the real DynamoDB adapter,
+// since it only depends on the RestrictionRegisterStore interface.
+class InterleavingRegisterStore implements RestrictionRegisterStore {
+  private triggered = false;
+  constructor(
+    private readonly inner: RestrictionRegisterStore,
+    private readonly interleave: () => Promise<void>,
+  ) {}
+  async getCurrent(recordId: string) {
+    const snapshot = await this.inner.getCurrent(recordId);
+    if (!this.triggered) {
+      this.triggered = true;
+      await this.interleave();
+    }
+    return snapshot;
+  }
+  setCurrent(entry: RestrictionRegisterEntry, expectedVersion: number | undefined) {
+    return this.inner.setCurrent(entry, expectedVersion);
+  }
+  listAll() {
+    return this.inner.listAll();
+  }
+}
+
+test(
+  "a retention action that races into the EXACT gap between completeDeletion's custody read and its claim write is still caught — media is never purged (reviewer's second-round finding)",
+  async () => {
+    const fixtureStore = new InMemoryFixtureStore();
+    const realRegisterStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const [active] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, active);
+    await seedStore(fixtureStore, realRegisterStore, [active]);
+    const recordId = active.record.recordId;
+    const binaryMedia = active.record.mediaRefs[1];
+    const versionsBefore = await mediaStore.listObjectVersions(binaryMedia.objectKey);
+    assert.equal(versionsBefore.length, 2, "sanity check: real versions exist to destroy");
+
+    const startResult = await startDeletion(fixtureStore, realRegisterStore, {
+      requestId: "req-interleave-start",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    // The interleaving store makes completeDeletion's claim-step READ a
+    // snapshot from BEFORE retention ran, but retention's OWN write lands
+    // in the real store in between — exactly the reported race, reproduced
+    // deterministically rather than hoped-for via real concurrency.
+    const interleavingStore = new InterleavingRegisterStore(realRegisterStore, async () => {
+      await retainForPreservationOnly(fixtureStore, realRegisterStore, {
+        requestId: "req-interleave-retain",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] races into the exact gap",
+      });
+    });
+
+    await assert.rejects(
+      () =>
+        completeDeletion(
+          fixtureStore,
+          interleavingStore,
+          {
+            requestId: "req-interleave-complete",
+            recordId,
+            requesterCapacity: "[SYNTHETIC] steward",
+            reason: "[SYNTHETIC] test",
+            deletionRequestId: startResult.requestId,
+          },
+          mediaStore,
+        ),
+      (error: unknown) => error instanceof VersionConflictError,
+      "completeDeletion's claim write must lose to retention's already-landed write, not silently proceed",
+    );
+
+    const current = await realRegisterStore.getCurrent(recordId);
+    assert.equal(current?.currentCustodyStatus, "preserved", "retention must have actually won the race");
+    const versionsAfter = await mediaStore.listObjectVersions(binaryMedia.objectKey);
+    assert.deepEqual(
+      versionsAfter.map((v) => v.versionId).sort(),
+      versionsBefore.map((v) => v.versionId).sort(),
+      "media must be COMPLETELY untouched — the exact reviewer repro this test closes",
+    );
+  },
+);
+
+test(
+  "retainForPreservationOnly refuses while a media purge claim is active, instead of silently overwriting custody mid-purge",
+  async () => {
+    const { fixtureStore, registerStore, recordId } = await setupActiveWithMedia();
+    const currentEntry = await registerStore.getCurrent(recordId);
+    // Simulate an in-flight purge by setting the claim directly, the same
+    // shape completeDeletion's own claim-write would produce.
+    await registerStore.setCurrent(
+      {
+        ...currentEntry!,
+        mediaPurgeClaim: { requestId: "some-other-completion", claimedAt: new Date().toISOString() },
+        controlVersion: currentEntry!.controlVersion + 1,
+      },
+      currentEntry!.controlVersion,
+    );
+
+    await assert.rejects(
+      () =>
+        retainForPreservationOnly(fixtureStore, registerStore, {
+          requestId: "req-retain-blocked",
+          recordId,
+          requesterCapacity: "[SYNTHETIC] steward",
+          reason: "[SYNTHETIC] test",
+        }),
+      (error: unknown) => error instanceof MediaPurgeInProgressError,
+    );
+
+    // currentCustodyStatus is already "preserved" at seed time for this
+    // fixture family, so it can't discriminate "did retention actually
+    // run" — restrictedPurposes (empty at seed, retention's specific long
+    // list once applied) and the request's own status both can.
+    const after = await registerStore.getCurrent(recordId);
+    assert.deepEqual(after?.restrictedPurposes, [], "retention's restrictedPurposes write must never have landed while the claim was active");
+    const blockedRequest = await fixtureStore.getLifecycleRequest("req-retain-blocked");
+    assert.equal(blockedRequest?.status, "in-progress", "a refused attempt must stay retryable, not silently marked completed");
+  },
+);
+
+test("completeDeletion releases its media purge claim after finishing, so retention isn't left permanently blocked", async () => {
+  const { fixtureStore, registerStore, mediaStore, recordId } = await setupActiveWithMedia();
+  const startResult = await startDeletion(fixtureStore, registerStore, {
+    requestId: "req-claim-release-start",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] steward",
+    reason: "[SYNTHETIC] test",
+  });
+  await completeDeletion(
+    fixtureStore,
+    registerStore,
+    {
+      requestId: "req-claim-release-complete",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+      deletionRequestId: startResult.requestId,
+    },
+    mediaStore,
+  );
+  const current = await registerStore.getCurrent(recordId);
+  assert.equal(current?.mediaPurgeClaim ?? null, null, "the claim must be released once the purge attempt concludes, not left stuck");
+});

@@ -23,6 +23,7 @@ import {
   startDeletion,
   completeDeletion,
   revokeConsentGrant,
+  MediaPurgeInProgressError,
 } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
 import { exportFixtureSet } from "../services/export";
@@ -72,7 +73,11 @@ async function withConflictHandling(work: () => Promise<ApiResponse>): Promise<A
   try {
     return await work();
   } catch (error) {
-    if (error instanceof VersionConflictError || error instanceof IdempotencyKeyConflictError) {
+    if (
+      error instanceof VersionConflictError ||
+      error instanceof IdempotencyKeyConflictError ||
+      error instanceof MediaPurgeInProgressError
+    ) {
       return { statusCode: 409, body: { error: error.message } };
     }
     throw error;

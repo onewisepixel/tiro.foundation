@@ -194,5 +194,16 @@ export type RestrictionRegisterEntry = {
   // can never resurrect a revoked grant's access — the register is always
   // consulted in addition to, never instead of, the grant's own revokedAt.
   revokedConsentIds: string[];
+  // Set, via a conditional write, for the exact duration completeDeletion
+  // is actively purging this record's S3 media — real mutual exclusion,
+  // not just a read-then-act check. retainForPreservationOnly (the one
+  // other action that writes currentCustodyStatus) refuses to proceed
+  // while this is set, so a retention action can never "win" a check but
+  // still have its media destroyed afterward: either it wins BEFORE the
+  // claim exists (completeDeletion's own claim-write then fails the
+  // version check and denies, untouched), or it's refused WHILE the claim
+  // is held. Optional/nullable so existing callers that never construct
+  // this field directly keep compiling unchanged. See services/lifecycle.ts.
+  mediaPurgeClaim?: { requestId: string; claimedAt: string } | null;
   updatedAt: string;
 };

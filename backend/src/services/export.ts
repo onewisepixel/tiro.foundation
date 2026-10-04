@@ -22,15 +22,35 @@ import { MAX_MEDIA_BYTES } from "./media";
 
 export type ExportScope = "complete-preservation" | "public-redacted";
 
-// Total media bytes a single exportFixtureSet call will ever include,
-// across every record it's asked for — a reviewer reproduced a 7MB export
-// from one legitimate-looking call by repeating one record id 20 times
-// (closed below by deduping recordIds too); this is the second,
-// independent backstop for a call that legitimately names many distinct
-// records with real media. Once exceeded, further objects are recorded in
-// mediaObjectsSkipped (not silently dropped) rather than growing the
-// response further.
-export const MAX_EXPORT_AGGREGATE_MEDIA_BYTES = 5 * 1024 * 1024;
+// Budgets the ACTUAL SERIALIZED contribution of included media to this
+// export's response — not raw object bytes. AWS Lambda's synchronous
+// invocation response has a hard 6 MB payload limit; a reviewer reproduced
+// a 7MB+ serialized response from 20 DISTINCT, individually-authorized,
+// individually-under-cap (256 KiB raw) records, because a raw-byte budget
+// (the first version of this fix) never accounted for base64 inflating
+// each object by ~4/3, or the JSON structure wrapping each one. This
+// budget is measured in the same units as what actually lands in the
+// response body — base64-encoded length plus a conservative per-object
+// structural estimate — with real headroom below the 6 MB hard limit for
+// the manifest, per-record metadata, and the rest of the envelope. Once
+// exceeded, further objects are recorded in mediaObjectsSkipped (not
+// silently dropped) rather than growing the response further.
+export const MAX_EXPORT_RESPONSE_BYTES = 5 * 1024 * 1024;
+
+// Conservative fixed estimate of the JSON structure wrapping ONE media
+// object — {"mediaId":"<uuidv7>","base64":"..."} — field names, quotes,
+// commas, and the id itself (~36 chars). Deliberately generous (real
+// overhead is usually smaller) so the budget stays a genuine upper bound,
+// not an optimistic one.
+const PER_MEDIA_OBJECT_JSON_OVERHEAD_BYTES = 120;
+
+// Exact base64 output length for N raw bytes (3 bytes -> 4 chars, padded
+// up to the next multiple of 4) — computable from a HEAD-only size, before
+// ever fetching or encoding anything, so the budget can be enforced
+// without buffering a single byte of a rejected object.
+function base64Length(rawBytes: number): number {
+  return Math.ceil(rawBytes / 3) * 4;
+}
 
 // base64 bytes of exactly the version each MediaRef is pinned to — present
 // only for complete-preservation exports (media is content, so public
@@ -107,8 +127,9 @@ export async function exportFixtureSet(
   // reproduced a multi-megabyte export this way from a single real record.
   const uniqueRecordIds = [...new Set(recordIds)];
   // Shared across every record in this call, not reset per record — the
-  // aggregate budget below.
-  let aggregateMediaBytes = 0;
+  // aggregate budget below. Measured in SERIALIZED bytes (post-base64,
+  // plus JSON overhead), not raw object bytes.
+  let aggregateSerializedMediaBytes = 0;
 
   for (const recordId of uniqueRecordIds) {
     const record = await fixtureStore.getRecord(recordId);
@@ -162,10 +183,15 @@ export async function exportFixtureSet(
             });
             continue;
           }
-          if (aggregateMediaBytes + actualSize > MAX_EXPORT_AGGREGATE_MEDIA_BYTES) {
+          // Estimated from the HEAD-only size, before fetching anything —
+          // computable exactly (base64Length is deterministic from byte
+          // count), so an over-budget object is skipped without ever
+          // calling getObject for it.
+          const estimatedSerializedBytes = base64Length(actualSize) + PER_MEDIA_OBJECT_JSON_OVERHEAD_BYTES;
+          if (aggregateSerializedMediaBytes + estimatedSerializedBytes > MAX_EXPORT_RESPONSE_BYTES) {
             mediaObjectsSkipped.push({
               mediaId: media.mediaId,
-              reason: `Skipped: including it would exceed this export's ${MAX_EXPORT_AGGREGATE_MEDIA_BYTES}-byte aggregate media budget.`,
+              reason: `Skipped: including it would exceed this export's ${MAX_EXPORT_RESPONSE_BYTES}-byte serialized-response budget (base64 + JSON overhead, not raw bytes).`,
             });
             continue;
           }
@@ -174,8 +200,12 @@ export async function exportFixtureSet(
             mediaObjectsSkipped.push({ mediaId: media.mediaId, reason: "Bound version no longer exists in storage." });
             continue;
           }
-          aggregateMediaBytes += object.bytes;
-          fetched.push({ mediaId: media.mediaId, base64: object.body.toString("base64") });
+          const base64 = object.body.toString("base64");
+          // Track the REAL measured base64 length for the running total
+          // (should match the estimate almost always; using the real
+          // value keeps the budget accurate even if it doesn't).
+          aggregateSerializedMediaBytes += base64.length + PER_MEDIA_OBJECT_JSON_OVERHEAD_BYTES;
+          fetched.push({ mediaId: media.mediaId, base64 });
         }
         mediaObjects = fetched;
       }

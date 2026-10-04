@@ -158,7 +158,11 @@ async function denyRequest(
 type ControlPatch = Partial<
   Pick<
     RestrictionRegisterEntry,
-    "currentPublicationStatus" | "currentCustodyStatus" | "restrictedPurposes" | "revokedConsentIds"
+    | "currentPublicationStatus"
+    | "currentCustodyStatus"
+    | "restrictedPurposes"
+    | "revokedConsentIds"
+    | "mediaPurgeClaim"
   >
 >;
 
@@ -185,11 +189,27 @@ async function transitionControl(
     currentCustodyStatus: patch.currentCustodyStatus ?? current?.currentCustodyStatus ?? "quarantined",
     restrictedPurposes: patch.restrictedPurposes ?? current?.restrictedPurposes ?? [],
     revokedConsentIds: patch.revokedConsentIds ?? current?.revokedConsentIds ?? [],
+    // Explicit undefined-check, not `??`: a patch that wants to CLEAR the
+    // claim passes null, and `null ?? current?.mediaPurgeClaim` would
+    // wrongly fall through to whatever was already there. Omitting the key
+    // entirely (the common case — most patches don't touch this field) is
+    // the only thing that should preserve the current value.
+    mediaPurgeClaim: patch.mediaPurgeClaim !== undefined ? patch.mediaPurgeClaim : current?.mediaPurgeClaim ?? null,
     updatedAt: new Date().toISOString(),
   };
   await registerStore.setCurrent(next, current?.controlVersion);
   return next;
 }
+
+// Thrown when a lifecycle action that writes currentCustodyStatus
+// (currently only retainForPreservationOnly) finds an active
+// mediaPurgeClaim — a completeDeletion-driven S3 purge is in flight for
+// this exact record right now. This is deliberately NOT treated as a
+// silent no-op or an automatic wait/retry: the caller gets a clear,
+// distinguishable, retryable error (mapped to 409 at the API layer,
+// same family as VersionConflictError) rather than either blocking or
+// having its request silently dropped.
+export class MediaPurgeInProgressError extends Error {}
 
 async function runGuarded(
   fixtureStore: FixtureStore,
@@ -203,7 +223,10 @@ async function runGuarded(
     const safeNote = await work();
     return await completeRequest(fixtureStore, request, safeNote);
   } catch (error) {
-    const message = error instanceof VersionConflictError ? error.message : "Unexpected error applying lifecycle action.";
+    const message =
+      error instanceof VersionConflictError || error instanceof MediaPurgeInProgressError
+        ? error.message
+        : "Unexpected error applying lifecycle action.";
     await recordFailure(fixtureStore, request, message);
     throw error;
   }
@@ -248,11 +271,32 @@ export async function retainForPreservationOnly(
 ): Promise<LifecycleRequest> {
   const request = await getOrCreateRequest(fixtureStore, "retain", input);
   return runGuarded(fixtureStore, request, async () => {
-    await transitionControl(registerStore, input.recordId, () => ({
-      currentPublicationStatus: "restricted",
-      currentCustodyStatus: "preserved",
-      restrictedPurposes: ["publication", "research", "derivatives", "model-training", "synthetic-reproduction", "commercial-use"],
-    }));
+    // Reviewer-caught finding: completeDeletion used to validate custody
+    // via a bare READ before purging media, which a concurrent retention
+    // could race past undetected (retention wins the register, but the
+    // purge — already past its one-time check — destroys the media
+    // anyway). The real fix is HERE too, not just on the deletion side:
+    // this computePatch runs against a FRESH read every time, so if a
+    // media purge currently holds the register's mediaPurgeClaim,
+    // retention refuses outright rather than silently writing underneath
+    // it. Combined with completeDeletion's own claim being a CONDITIONAL
+    // write (not a bare read), the two sides can never both believe they
+    // safely "won" — whichever write actually lands first in the
+    // database is authoritative, and DynamoDB's single-item conditional
+    // write guarantees only one of two racing writes to the same item
+    // can ever succeed.
+    await transitionControl(registerStore, input.recordId, (current) => {
+      if (current?.mediaPurgeClaim) {
+        throw new MediaPurgeInProgressError(
+          `A media purge is currently in progress for this record (requestId ${current.mediaPurgeClaim.requestId}); retention cannot be applied until it finishes. This is not an error to work around — retry shortly.`,
+        );
+      }
+      return {
+        currentPublicationStatus: "restricted",
+        currentCustodyStatus: "preserved",
+        restrictedPurposes: ["publication", "research", "derivatives", "model-training", "synthetic-reproduction", "commercial-use"],
+      };
+    });
     return "Retained for preservation only; all non-preservation purposes restricted.";
   });
 }
@@ -422,32 +466,59 @@ export async function completeDeletion(
     );
   }
 
-  // Reviewer-caught bug: purgeMediaCustody used to run unconditionally here,
-  // with custody status validated only inside the FINAL write's computePatch
-  // — many steps later. A real retention action (startDeletion ->
-  // retainForPreservationOnly -> completeDeletion) left custody "preserved"
-  // long before this point, so completeDeletion still destroyed every S3
-  // version before ever reaching the check that would deny it: the request
-  // correctly ended up "denied", but the media was already gone — exactly
-  // backwards for an action that's supposed to be retained. Media deletion
-  // is irreversible and must never run on a stale/invalid precondition, so
-  // it gets its OWN fresh guard, checked BEFORE anything is purged — not
-  // deferred to the final register write the way the (reversible,
-  // version-guarded) register/record write safely can be. This narrows but
-  // does not fully close the race: a retention action landing in the exact
-  // gap between this read and the purge starting could still interleave —
-  // a documented combinatorial case, not silently ignored (see
-  // docs/backend/evidence-matrix.md's "AWS checks still not run").
+  // Reviewer-caught bug, round two: a bare READ-then-act guard here (this
+  // function's previous fix) still left a real gap — a retention action
+  // landing in the window between the read and purgeMediaCustody starting
+  // could win the register but still have its media destroyed, because
+  // the read never CLAIMED anything. Checked custody must become COMMITTED
+  // custody before anything irreversible runs. Fixed by claiming the purge
+  // via a CONDITIONAL WRITE (transitionControl), not a bare read:
+  // retainForPreservationOnly's own computePatch (above) now also checks
+  // for an active claim and refuses while one is held. Whichever of the
+  // two writes — this claim, or a racing retention — actually lands first
+  // in the register wins; the loser either denies (sees stale/wrong
+  // custody, or a version conflict meaning someone else just wrote) or is
+  // refused (sees an active claim), and in neither case does any S3 call
+  // happen. The claim is released in a `finally` so a purge failure never
+  // leaves retention permanently blocked.
   if (mediaStore) {
-    const custodyBeforePurge = await registerStore.getCurrent(input.recordId);
-    if (!isDeletionEligibleCustody(custodyBeforePurge?.currentCustodyStatus)) {
-      return denyRequest(
-        fixtureStore,
-        request,
-        `Custody status is "${custodyBeforePurge?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — refusing to purge media or complete deletion. If a retention action ran after startDeletion(), this is correct: retained media must not be destroyed.`,
-      );
+    try {
+      await transitionControl(registerStore, input.recordId, (current) => {
+        if (!isDeletionEligibleCustody(current?.currentCustodyStatus)) {
+          throw new StaleCustodyStatusError(
+            `Custody status is "${current?.currentCustodyStatus ?? "unknown"}", not "deletion-pending" — refusing to purge media or complete deletion. If a retention action ran after startDeletion(), this is correct: retained media must not be destroyed.`,
+          );
+        }
+        if (current?.mediaPurgeClaim) {
+          throw new StaleCustodyStatusError(
+            `A media purge is already in progress for this record (requestId ${current.mediaPurgeClaim.requestId}); refusing to start a concurrent one.`,
+          );
+        }
+        return { mediaPurgeClaim: { requestId: input.requestId, claimedAt: new Date().toISOString() } };
+      });
+    } catch (error) {
+      if (error instanceof StaleCustodyStatusError) {
+        return denyRequest(fixtureStore, request, error.message);
+      }
+      // A VersionConflictError here means a racing write (most plausibly
+      // retention) landed first — retryable, not a terminal denial; the
+      // next attempt sees the fresh (now possibly ineligible) state.
+      const message = error instanceof VersionConflictError ? error.message : "Unexpected error claiming the media purge.";
+      await recordFailure(fixtureStore, request, message);
+      throw error;
     }
-    await purgeMediaCustody(fixtureStore, mediaStore, input.recordId);
+
+    try {
+      await purgeMediaCustody(fixtureStore, mediaStore, input.recordId);
+    } finally {
+      await transitionControl(registerStore, input.recordId, () => ({ mediaPurgeClaim: null })).catch(() => {
+        // Best-effort release. If even this fails (a genuine, separate
+        // outage), the claim stays set and retention stays blocked until a
+        // later completeDeletion retry naturally claims+releases it again
+        // — never silently ignored, but also never allowed to crash or
+        // mask the purge's own outcome.
+      });
+    }
   }
 
   const copies = await fixtureStore.listCustodyCopies(input.recordId);
