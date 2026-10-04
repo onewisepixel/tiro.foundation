@@ -32,7 +32,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
-import { startDeletion, restrict, revokeConsentGrant } from "../services/lifecycle";
+import { startDeletion, restrict, revokeConsentGrant, withdraw } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
 import { exportFixtureSet } from "../services/export";
 import { VersionConflictError } from "../store/store";
@@ -259,6 +259,194 @@ async function main() {
       startDeletion: liveDelete.status === "rejected" ? String(liveDelete.reason) : "fulfilled",
       restrict: liveRestrict.status === "rejected" ? String(liveRestrict.reason) : "fulfilled",
       finalRegisterState: liveFinalState,
+    },
+  );
+
+  // --------------------------- Combinatorial case: revocation racing restriction ----
+  // Reviewer-requested combinatorial case, against REAL DynamoDB.
+  // revokeConsentGrant() only ever touches revokedConsentIds;
+  // restrict() only ever touches restrictedPurposes/
+  // currentPublicationStatus — the two are not in SEMANTIC conflict, but
+  // both go through transitionControl's single-item optimistic-
+  // concurrency write on the SAME register entry, so a genuine race
+  // between them can still make one lose to a version conflict.
+  //
+  // Expected outcome, defined for EITHER ordering: whichever write lands
+  // first in DynamoDB wins outright, unconditionally; the OTHER's
+  // LifecycleRequest is rejected with a real VersionConflictError and
+  // stays "in-progress" — retryable, never silently lost and never
+  // silently merged into a corrupted hybrid state. Retrying the loser
+  // against the now-current register state must then land its own
+  // change on top of the winner's, so BOTH changes are present after
+  // that one retry — a race costs a retry here, never a lost update,
+  // because the two actions don't actually conflict in substance.
+  const [raceFixture] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [raceFixture]);
+  const raceRecordId = raceFixture.record.recordId;
+  const raceConsentId = raceFixture.consentGrants[0].consentId;
+
+  const [raceRevoke, raceRestrict] = await Promise.allSettled([
+    revokeConsentGrant(fixtureStore, registerStore, {
+      requestId: `real-full-fixture-combo-revoke-${Date.now()}`,
+      recordId: raceRecordId,
+      requesterCapacity: "[SYNTHETIC] source authority",
+      reason: "[SYNTHETIC] combinatorial case: revocation racing restriction",
+      consentId: raceConsentId,
+    }),
+    restrict(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `real-full-fixture-combo-restrict-${Date.now()}`,
+        recordId: raceRecordId,
+        requesterCapacity: "[SYNTHETIC] staff",
+        reason: "[SYNTHETIC] combinatorial case: revocation racing restriction",
+      },
+      ["research"],
+    ),
+  ]);
+  check(
+    "Combinatorial case: revocation racing restriction against REAL DynamoDB — exactly one wins the register write, the other is rejected, never silently merged or lost",
+    [raceRevoke.status, raceRestrict.status].includes("fulfilled") && [raceRevoke.status, raceRestrict.status].includes("rejected"),
+    {
+      revoke: raceRevoke.status === "rejected" ? String(raceRevoke.reason) : "fulfilled",
+      restrict: raceRestrict.status === "rejected" ? String(raceRestrict.reason) : "fulfilled",
+    },
+  );
+
+  // Retry the loser — whichever one it actually was this run — against
+  // the now-current register state.
+  if (raceRevoke.status === "rejected") {
+    await revokeConsentGrant(fixtureStore, registerStore, {
+      requestId: `real-full-fixture-combo-revoke-retry-${Date.now()}`,
+      recordId: raceRecordId,
+      requesterCapacity: "[SYNTHETIC] source authority",
+      reason: "[SYNTHETIC] combinatorial case: retry after losing the race",
+      consentId: raceConsentId,
+    });
+  } else if (raceRestrict.status === "rejected") {
+    await restrict(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `real-full-fixture-combo-restrict-retry-${Date.now()}`,
+        recordId: raceRecordId,
+        requesterCapacity: "[SYNTHETIC] staff",
+        reason: "[SYNTHETIC] combinatorial case: retry after losing the race",
+      },
+      ["research"],
+    );
+  }
+  const raceFinalRegister = await registerStore.getCurrent(raceRecordId);
+  check(
+    "Combinatorial case: retrying the race's loser converges against REAL DynamoDB — BOTH the revocation and the restriction are present afterward, neither permanently lost",
+    (raceFinalRegister?.revokedConsentIds.includes(raceConsentId) ?? false) &&
+      (raceFinalRegister?.restrictedPurposes.includes("research") ?? false),
+    raceFinalRegister,
+  );
+
+  // --------------------------------- Combinatorial case: export racing withdrawal ----
+  // exportFixtureSet NEVER writes to the register — it only reads it, once
+  // per record, via evaluatePermission's own single register read
+  // (captured once at the top of that call and reused throughout it) — so
+  // there is no writer-writer conflict here, only a reader racing a
+  // writer. withdraw() is the only writer, so it always succeeds
+  // regardless of timing; the only question is what export sees.
+  //
+  // Expected outcome, defined for EITHER ordering: if withdraw()'s
+  // register write lands BEFORE evaluatePermission's read for this
+  // record, the record is EXCLUDED from the export (absent, correctly
+  // denied — never included-but-flagged). If it lands AFTER, the record
+  // IS included, carrying the consistent PRE-withdrawal snapshot in BOTH
+  // its own `record.publicationStatus` and its `controlStateAtExport` —
+  // export.ts's own documented contract ("AS OF EXPORT TIME, not a live
+  // link... an old export is expected to contain old, possibly
+  // since-revoked, state"). Either outcome is correct; what must NEVER
+  // happen is a torn result — e.g. included but marked withdrawn, or an
+  // unhandled rejection.
+  const [withdrawRaceFixture] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [withdrawRaceFixture]);
+  const withdrawRaceRecordId = withdrawRaceFixture.record.recordId;
+
+  const [withdrawRaceWithdraw, withdrawRaceExport] = await Promise.allSettled([
+    withdraw(fixtureStore, registerStore, {
+      requestId: `real-full-fixture-combo-withdraw-${Date.now()}`,
+      recordId: withdrawRaceRecordId,
+      requesterCapacity: "[SYNTHETIC] source authority",
+      reason: "[SYNTHETIC] combinatorial case: export racing withdrawal",
+    }),
+    exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [withdrawRaceRecordId],
+      "public-redacted",
+      `real-full-fixture-combo-export-withdraw-${Date.now()}`,
+      "public",
+    ),
+  ]);
+  const exportResultDuringWithdraw = withdrawRaceExport.status === "fulfilled" ? withdrawRaceExport.value : null;
+  check(
+    "Combinatorial case: export racing withdrawal against REAL DynamoDB — withdraw() always lands (sole writer) and export's result is self-consistent for whichever snapshot it captured",
+    withdrawRaceWithdraw.status === "fulfilled" &&
+      exportResultDuringWithdraw !== null &&
+      (exportResultDuringWithdraw.records.length === 0 ||
+        (exportResultDuringWithdraw.records.length === 1 &&
+          exportResultDuringWithdraw.records[0].record.publicationStatus === "published" &&
+          exportResultDuringWithdraw.records[0].controlStateAtExport?.publicationStatus === "published")),
+    {
+      withdrawOutcome: withdrawRaceWithdraw.status === "rejected" ? String(withdrawRaceWithdraw.reason) : "fulfilled",
+      exportRecordCount: exportResultDuringWithdraw?.records.length,
+      exportedPublicationStatus: exportResultDuringWithdraw?.records[0]?.record.publicationStatus,
+      controlStateAtExport: exportResultDuringWithdraw?.records[0]?.controlStateAtExport,
+    },
+  );
+
+  // ---------------------------------- Combinatorial case: export racing deletion ----
+  // Same reasoning as the withdrawal case above, for startDeletion()
+  // instead — it only flips currentCustodyStatus to "deletion-pending"
+  // (completeDeletion() is the separate, later step that actually removes
+  // the record), so export's OTHER reads still succeed either way; only
+  // evaluatePermission's custody-status check (which denies EVERY
+  // purpose/audience once custody is "deletion-pending", not just
+  // publication) can exclude the record depending on timing.
+  //
+  // Expected outcome, defined for EITHER ordering: if startDeletion()
+  // lands before evaluatePermission's read, the record is EXCLUDED
+  // (custody denies every purpose); if after, it's included with
+  // controlStateAtExport.custodyStatus still "preserved" — the consistent
+  // pre-deletion snapshot. Never a torn result.
+  const [deletionRaceFixture] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [deletionRaceFixture]);
+  const deletionRaceRecordId = deletionRaceFixture.record.recordId;
+
+  const [deletionRaceStart, deletionRaceExport] = await Promise.allSettled([
+    startDeletion(fixtureStore, registerStore, {
+      requestId: `real-full-fixture-combo-delete-${Date.now()}`,
+      recordId: deletionRaceRecordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] combinatorial case: export racing deletion",
+    }),
+    exportFixtureSet(
+      fixtureStore,
+      registerStore,
+      [deletionRaceRecordId],
+      "complete-preservation",
+      `real-full-fixture-combo-export-delete-${Date.now()}`,
+      "public",
+    ),
+  ]);
+  const exportResultDuringDeletion = deletionRaceExport.status === "fulfilled" ? deletionRaceExport.value : null;
+  check(
+    "Combinatorial case: export racing deletion against REAL DynamoDB — startDeletion() always lands (sole writer) and export's result is self-consistent for whichever snapshot it captured",
+    deletionRaceStart.status === "fulfilled" &&
+      exportResultDuringDeletion !== null &&
+      (exportResultDuringDeletion.records.length === 0 ||
+        (exportResultDuringDeletion.records.length === 1 &&
+          exportResultDuringDeletion.records[0].controlStateAtExport?.custodyStatus === "preserved")),
+    {
+      startDeletionOutcome: deletionRaceStart.status === "rejected" ? String(deletionRaceStart.reason) : "fulfilled",
+      exportRecordCount: exportResultDuringDeletion?.records.length,
+      controlStateAtExport: exportResultDuringDeletion?.records[0]?.controlStateAtExport,
     },
   );
 
