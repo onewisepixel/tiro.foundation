@@ -245,18 +245,20 @@ served through `GET /records/:id`, and that export/restore carry (preservation s
 a replayed `correct` requestId never corrupts history; restoring a pre-redaction backup directly
 into the real primary table doesn't revive the served text, checked against the real, unchanged
 register; the real `/export` response carries the new `recordsSkippedForResponseBudget` field; a
-concurrent correction's stale version is rejected by a real DynamoDB `ConditionExpression`; and a
+concurrent correction's stale version is rejected by a real DynamoDB `ConditionExpression`; a
 retry reusing an already-committed correction id is rejected by a real `TransactWriteItems`
-conditional check on the history row, never corrupting it. Creates its own disposable Cognito test
-user (deleted at the end); the fixtures it seeds are left in place. Exits non-zero if any of its
-38 checks fail. Note: this drill deliberately does NOT attempt to force the export response
-budget's actual whole-record TEXT exclusion live — that needs reading several real MB out of this
-stack's deliberately tiny, always-free-tier DynamoDB provisioning inside one Lambda invocation.
-Every attempt tried observably throttled, but that's an observed result from those specific
-attempts, not proof it's categorically impossible at this provisioning (AWS documents burst
-capacity beyond the nominal provisioned rate) — and per explicit instruction this shared table's
-capacity stays unchanged for now (see the evidence matrix's seventh-review-round note); that exact
-scale stays proven by `export.test.ts` locally instead.
+conditional check on the history row, never corrupting it; and the real deployed API rejects both
+an oversized `fixtureSetId` and an oversized export batch with a real 400, before any record is
+even looked at. Creates its own disposable Cognito test user (deleted at the end); the fixtures it
+seeds are left in place. Exits non-zero if any of its 40 checks fail. Note: this drill deliberately
+does NOT attempt to force the export response budget's actual whole-record TEXT exclusion live —
+that needs reading several real MB out of this stack's deliberately tiny, always-free-tier
+DynamoDB provisioning inside one Lambda invocation. Every attempt tried observably throttled, but
+that's an observed result from those specific attempts, not proof it's categorically impossible at
+this provisioning (AWS documents burst capacity beyond the nominal provisioned rate) — and per
+explicit instruction this shared table's capacity stays unchanged for now (see the evidence
+matrix's seventh-review-round note); that exact scale stays proven by `export.test.ts` locally
+instead.
 
 ## Seeding real, version-bound media into a fixture
 

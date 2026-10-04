@@ -328,6 +328,30 @@ per explicit instruction, this shared table's capacity stays unchanged, and the 
 observed-throttling (not categorical-impossibility) caveat applies. See the evidence matrix's
 eighth-review-round note.
 
+**2026-10-04, ninth review round — one residual export-budget gap with two reproducible paths,
+neither about any one record's content, both fixed, regression-tested, and re-verified against
+real DynamoDB/Lambda:**
+
+1. **The manifest still got a fixed, optimistic allowance.** `fixtureSetId` has no length limit
+   and the manifest embeds it verbatim — 20 ordinary records plus a 2 MiB `fixtureSetId` produced a
+   real 7,026,838-byte response. Fixed with a `MAX_FIXTURE_SET_ID_LENGTH` cap (enforced at the API
+   boundary and defensively inside `exportFixtureSet`) and by seeding the running budget total from
+   the manifest's REAL encoded size, not a fixed guess.
+2. **Skipped-record entries were counted but appended unconditionally.** 8,000 requested records
+   (903 included, 7,097 skipped) produced a real 7,291,455-byte response, because the skip report
+   itself could grow without bound. Fixed with a `MAX_EXPORT_RECORD_IDS` batch-size cap AND a loop
+   that stops — reporting a new `recordsNotProcessed` field honestly — the moment even one more
+   skip entry would itself exceed budget.
+3. **A final, outermost guard.** `router.ts`'s `/export` route now computes the real wrapped
+   response size and answers a `413` if it would still exceed Lambda's hard limit despite
+   everything above.
+
+168 tests pass (up from 164). `realCorrectionRedactionDrill.ts` was extended and re-run: the real
+deployed API rejects both an oversized `fixtureSetId` and an oversized batch with a real 400,
+before any record is even looked at — **40/40**. Unlike the prior round's residual gap, these two
+fixes make the deployed API do LESS work on bad input, so confirming them live needed no capacity
+change and consumed essentially no RCU. See the evidence matrix's ninth-review-round note.
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a

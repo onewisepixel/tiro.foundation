@@ -67,6 +67,14 @@
 //       conditional check on the history row itself, confirmed by the
 //       real adapter's CancellationReasons-based error distinguishing.
 //
+// A third review round (same day) reproduced two further ways to blow the
+// export response budget, neither about any one record's content — a
+// caller-supplied fixtureSetId with no length limit, and a batch so large
+// that the skip-for-budget REPORT itself became a second, unbounded
+// source of the same overage. Both are now rejected outright at the real
+// deployed API's input boundary (check 8), cheap and instant to confirm
+// live since a correctly-rejected request never reaches DynamoDB at all.
+//
 // Cleanup: only this drill's own disposable Cognito test user is deleted.
 // Every fixture it seeds is left in place, same precedent as every other
 // real-AWS check in this project.
@@ -658,6 +666,51 @@ async function main() {
       "The real deployed /export response carries the new recordsSkippedForResponseBudget field, confirming the deployed shape matches what export.ts now returns",
       budgetShapeResponse.status === 200 && Array.isArray(budgetShapeBody?.recordsSkippedForResponseBudget),
       `status=${budgetShapeResponse.status} field=${JSON.stringify(budgetShapeBody?.recordsSkippedForResponseBudget)}`,
+    );
+
+    // ----- check 8: the real deployed API bounds fixtureSetId length and --
+    // ----- export batch size at the input boundary -----------------------
+    // A later review round reproduced two further ways to blow the
+    // response budget that aren't about any one record's content: a
+    // caller-supplied fixtureSetId with no length limit (20 ordinary
+    // records plus a 2 MiB fixtureSetId produced a 7,026,838-byte real
+    // response), and an oversized batch where almost all records are
+    // individually skipped-for-budget, making the skip REPORT itself a
+    // second, unbounded source of the same overage (8,000 requested
+    // records, 7,097 skipped, produced 7,291,455 bytes). Both inputs are
+    // now rejected outright at the API boundary — cheap, instant checks
+    // against the real deployed stack, since a correctly-rejected request
+    // never reaches DynamoDB at all.
+    const oversizedFixtureSetIdResponse = await fetch(`${API_URL}/export`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        recordIds: [sameFieldRecordId],
+        scope: "public-redacted",
+        fixtureSetId: "x".repeat(2 * 1024 * 1024),
+        destinationAudience: "public",
+      }),
+    });
+    record(
+      "The real deployed API rejects a 2 MiB fixtureSetId outright (400), before any record is even looked at — the exact reviewer reproduction",
+      oversizedFixtureSetIdResponse.status === 400,
+      `status=${oversizedFixtureSetIdResponse.status}`,
+    );
+
+    const oversizedBatchResponse = await fetch(`${API_URL}/export`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        recordIds: Array.from({ length: 2001 }, (_, i) => `does-not-exist-${i}`),
+        scope: "public-redacted",
+        fixtureSetId: `${drillTag}-oversized-batch`,
+        destinationAudience: "public",
+      }),
+    });
+    record(
+      "The real deployed API rejects a batch over the export record-id limit outright (400), before any record is even looked at",
+      oversizedBatchResponse.status === 400,
+      `status=${oversizedBatchResponse.status}`,
     );
   } finally {
     log("CLEANUP", "Deleting the disposable drill Cognito test user (nothing else)", { email: testEmail });

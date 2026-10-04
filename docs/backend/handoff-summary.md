@@ -167,6 +167,25 @@ explicit instruction, this shared table's capacity stays unchanged, and the obse
 (not categorical-impossibility) caveat still applies. See the evidence matrix's eighth-review-round
 note for the full detail.
 
+**Update, a ninth review round (2026-10-04) — one residual export-budget gap with two reproducible
+paths, neither about any one record's content, both genuinely fixed:** (1) `fixtureSetId` has no
+length limit and the manifest embeds it verbatim — 20 ordinary records plus a 2 MiB `fixtureSetId`
+produced a real 7,026,838-byte response — fixed with a length cap (API boundary + defensively
+inside `exportFixtureSet`) and by budgeting the manifest's REAL encoded size instead of a fixed
+guess; (2) skipped-record entries were counted but appended unconditionally — 8,000 requested
+records (903 included, 7,097 skipped) produced a real 7,291,455-byte response because the skip
+report itself could grow without bound — fixed with a batch-size cap AND a loop that stops,
+reporting a new `recordsNotProcessed` field honestly, the moment even one more skip entry would
+itself exceed budget; a final, outermost guard in `router.ts` now also answers a real `413` if the
+complete wrapped response would still exceed Lambda's hard limit despite all of the above.
+
+168 tests pass (up from 164). `realCorrectionRedactionDrill.ts` was extended and re-run: the real
+deployed API rejects both an oversized `fixtureSetId` and an oversized batch with a real 400,
+before any record is even looked at — now passes **40/40**. Unlike the prior round's residual gap,
+these two fixes make the deployed API do LESS work on bad input, so confirming them live needed no
+capacity change and consumed essentially no RCU. See the evidence matrix's ninth-review-round note
+for the full detail.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
