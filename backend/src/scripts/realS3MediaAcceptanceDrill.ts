@@ -36,7 +36,12 @@
 //      round's reviewer-caught finding) proves the media-purge claim is
 //      resumed — never refused as foreign — by the SAME requestId that
 //      already owns it, while a genuinely DIFFERENT requestId is still
-//      refused, against the real register.
+//      refused, against the real register. A fifth sub-check (7e, a
+//      SECOND review round's reviewer-caught finding) proves retention
+//      immediately after a real, completed deletion is denied by the real
+//      register — never flipping an already-"deleted" tombstone back to
+//      "preserved" — with the real purged S3 media confirmed to stay
+//      purged, not resurrected by the denial.
 //
 // Cleanup: only this drill's own disposable Cognito test user is deleted.
 // Every seeded fixture, the live primary/register tables, and the staff
@@ -745,6 +750,71 @@ async function main() {
       "The claim's OWN requestId resumes and completes against real DynamoDB — never refused as a foreign conflict just because a claim already exists",
       claimResumed.status === "completed" && claimRecordGone === null,
       `status=${claimResumed.status}`,
+    );
+
+    // ------------- check 7e: retention vs. an already-deleted tombstone, --
+    // ------------- against real DynamoDB and real S3 ----------------------
+    // A second review round's reviewer-caught finding, reproduced as a
+    // deterministic LOCAL repro and closed, now confirmed here too:
+    // "Retention can overwrite a deleted tombstone. I inserted retention
+    // immediately after deletion's final register write cleared the purge
+    // claim. Both actions reported completion; the register ended at
+    // 'preserved' while the record and media were gone." No hook needed —
+    // just the real deletion workflow run to completion, then a real
+    // retainForPreservationOnly() call immediately after.
+    const [tombstoneFixture] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, tombstoneFixture);
+    await seedStore(fixtureStore, registerStore, [tombstoneFixture]);
+    const tombstoneBinaryMedia = tombstoneFixture.record.mediaRefs[1];
+    const tombstoneStart = await startDeletion(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-tombstone-start`,
+      recordId: tombstoneFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — tombstone-overwrite",
+    });
+    const tombstoneComplete = await completeDeletion(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: `req-${drillTag}-tombstone-complete`,
+        recordId: tombstoneFixture.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] S3 media acceptance drill — tombstone-overwrite",
+        deletionRequestId: tombstoneStart.requestId,
+      },
+      mediaStore,
+    );
+    record(
+      "Real completeDeletion() finishes, media purged, claim cleared as part of that same final write",
+      tombstoneComplete.status === "completed",
+      `status=${tombstoneComplete.status}`,
+    );
+    const tombstoneVersionsAfterDeletion = await mediaStore.listObjectVersions(tombstoneBinaryMedia.objectKey);
+
+    // Immediately after — exactly the reviewer's repro.
+    const tombstoneRetain = await retainForPreservationOnly(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-tombstone-retain`,
+      recordId: tombstoneFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — tombstone-overwrite",
+    });
+    record(
+      "Retention against an already-deleted record is denied by the real register, not silently applied",
+      tombstoneRetain.status === "denied",
+      `status=${tombstoneRetain.status}`,
+    );
+    const tombstoneRegisterAfterRetain = await registerStore.getCurrent(tombstoneFixture.record.recordId);
+    record(
+      "The real register's tombstone still reads \"deleted\" — never flipped back to \"preserved\"",
+      tombstoneRegisterAfterRetain?.currentCustodyStatus === "deleted",
+      `custody=${tombstoneRegisterAfterRetain?.currentCustodyStatus}`,
+    );
+    record("The real record is still gone, confirmed by a fresh getRecord()", await fixtureStore.getRecord(tombstoneFixture.record.recordId) === null);
+    const tombstoneVersionsAfterRetain = await mediaStore.listObjectVersions(tombstoneBinaryMedia.objectKey);
+    record(
+      "The real media stays purged — retention's denial doesn't (and can't) resurrect what completeDeletion already destroyed",
+      tombstoneVersionsAfterRetain.length === 0 && tombstoneVersionsAfterDeletion.length === 0,
+      `afterDeletion=${tombstoneVersionsAfterDeletion.length} afterRetain=${tombstoneVersionsAfterRetain.length}`,
     );
 
     // ------- check 8: export response size budget, real Lambda, real API --

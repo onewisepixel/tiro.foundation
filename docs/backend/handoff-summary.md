@@ -133,11 +133,39 @@ the whole record, never trimming, when it would cross the limit.
 158 tests pass (up from 150). `realS3MediaAcceptanceDrill.ts` (Finding 4) now passes **36/36**;
 `realCorrectionRedactionDrill.ts` (Findings 1-3, plus Finding 5's API-shape half) now passes
 **32/32**. One limitation is named rather than hidden: Finding 5's actual whole-response TEXT
-exclusion couldn't be forced live — confirmed directly against CloudWatch metrics and Lambda logs
-that this fixture stack's deliberately tiny, always-free-tier DynamoDB provisioning throttles even
-a single ~395 KB strongly-consistent read — so that exact scale (the reviewer's 9,032,712-byte,
-20-record reproduction) stays proven byte-for-byte by the deterministic local test instead. See the
-evidence matrix's seventh-review-round note for the full detail.
+exclusion couldn't be forced live — every attempt against this fixture stack's deliberately tiny,
+always-free-tier DynamoDB provisioning observably throttled (confirmed directly against CloudWatch
+metrics and Lambda logs), but that's an observed result from these specific attempts, not proof
+it's categorically impossible at 5 RCU/s (AWS documents burst capacity beyond the nominal
+provisioned rate) — so that exact scale (the reviewer's 9,032,712-byte, 20-record reproduction)
+stays proven byte-for-byte by the deterministic local test instead. See the evidence matrix's
+seventh-review-round note for the full detail.
+
+**Update, an eighth review round (2026-10-04) — four more gaps reported as deterministic LOCAL
+reproductions, all genuinely fixed:** (1) `FixtureRecord.version` never actually advanced — every
+caller spread a freshly-read copy without incrementing it, so two concurrent corrections both
+reading the same version could both "succeed," the second silently clobbering the first — fixed by
+making the STORE itself (not the caller) own the persisted version, closing the bug structurally
+for every current and future caller; (2) a retry's "already applied" guard used a query that, on
+the real adapter, is eventually consistent and could miss a just-committed write, letting a retry
+corrupt history with an already-changed value as a fake "previous" one — fixed with a strongly
+consistent by-id lookup AND a conditional history write that rejects a duplicate id outright, the
+real unconditional guard even if the pre-check is wrong; (3) retention checked only the media-purge
+claim, never custody status, so retention immediately after a completed deletion could flip an
+already-`"deleted"` tombstone back to `"preserved"` — fixed by rejecting `"deleted"` custody
+outright, including during deletion recovery; (4) the export budget still measured only this
+object's own single encoding, not the Lambda handler's actual doubly-escaped response — content
+rich in quotes/backslashes could measure safely under budget yet nearly double once really
+wrapped — fixed by measuring that real re-escaped cost directly.
+
+164 tests pass (up from 158). Both live drills were extended and re-run:
+`realCorrectionRedactionDrill.ts` (Findings 1 and 2, against real DynamoDB's own
+`ConditionExpression`/`TransactWriteItems`) now passes **38/38**; `realS3MediaAcceptanceDrill.ts`
+(Finding 3, a real deletion run to completion then retention immediately after) now passes
+**41/41**. Finding 4 wasn't re-attempted live beyond the prior round's API-shape check — per
+explicit instruction, this shared table's capacity stays unchanged, and the observed-throttling
+(not categorical-impossibility) caveat still applies. See the evidence matrix's eighth-review-round
+note for the full detail.
 
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
@@ -290,9 +318,12 @@ cap) is live, subscribed to `onewisepixel@gmail.com`.
   racing an export) — each real-AWS correctness case so far has been checked in isolation.
 - Forcing the export response budget's real whole-record TEXT exclusion live (as opposed to proving
   the field exists) — needs reading several real MB out of this stack's deliberately tiny,
-  always-free-tier DynamoDB provisioning inside one Lambda invocation; confirmed infeasible without
-  a real, billed capacity bump this round deliberately didn't make unilaterally. See the evidence
-  matrix's seventh-review-round note.
+  always-free-tier DynamoDB provisioning inside one Lambda invocation; every attempt tried
+  observably throttled, but that's an observed result from those specific attempts, not proof it's
+  categorically impossible at this provisioning (AWS documents burst capacity beyond the nominal
+  provisioned rate) — and a real, billed capacity bump wasn't made unilaterally, per explicit
+  instruction to leave this shared table's capacity unchanged. See the evidence matrix's
+  seventh-review-round note.
 - **Done as of the S3 media milestone, previously listed here:** authorized-media S3 routes
   (presigned URLs deliberately NOT used — see `services/media.ts`'s "no reusable download
   capability" design), real S3 version/delete-marker handling, byte-level checksums, and real S3

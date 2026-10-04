@@ -42,13 +42,30 @@
 //   9. The real deployed /export response carries the new
 //      recordsSkippedForResponseBudget field at all. Forcing an ACTUAL
 //      whole-response exclusion live (the reviewer's full 20-record, 9 MB+
-//      reproduction) was attempted and abandoned — this table's
-//      deliberately tiny, always-free-tier provisioned RCU throttles even
-//      a single ~395 KB strongly-consistent read, confirmed directly
-//      against real CloudWatch/Lambda logs, not guessed. That exact scale
-//      is proven byte-for-byte by the deterministic local test instead
-//      (export.test.ts); see check 7's own comment and evidence-matrix.md
-//      for the full, named limitation.
+//      reproduction) was attempted and abandoned — every attempt tried
+//      against this table's deliberately tiny, always-free-tier
+//      provisioned RCU observably throttled, confirmed directly against
+//      real CloudWatch/Lambda logs, though that is an observed result
+//      from these specific attempts, not proof it's categorically
+//      impossible at this provisioning (AWS documents burst capacity
+//      beyond the nominal rate). That exact scale is proven byte-for-byte
+//      by the deterministic local test instead (export.test.ts); see
+//      check 7's own comment and evidence-matrix.md for the full detail.
+//
+// A second review round (same day) reproduced four more gaps as
+// deterministic LOCAL repros, all closed, all re-verified here against the
+// real deployed stack too:
+//   10. Concurrent corrections against real DynamoDB: the store (not the
+//       caller) now owns the persisted version, incrementing it on every
+//       successful write — a second write presenting a now-stale version
+//       is rejected by a real ConditionExpression failure, never silently
+//       accepted (the reviewer's exact "both reads version 0" repro).
+//   11. A retry whose "already applied" pre-check is stale (or simply
+//       skipped, as this check does directly) cannot corrupt history
+//       against real DynamoDB either: reusing an already-committed
+//       correction id is rejected by a real TransactWriteItems
+//       conditional check on the history row itself, confirmed by the
+//       real adapter's CancellationReasons-based error distinguishing.
 //
 // Cleanup: only this drill's own disposable Cognito test user is deleted.
 // Every fixture it seeds is left in place, same precedent as every other
@@ -72,11 +89,13 @@ import { randomUUID } from "node:crypto";
 import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { S3MediaStore } from "../store/s3MediaStore";
 import { InMemoryFixtureStore } from "../store/memoryStore";
+import { AlreadyAppliedError, VersionConflictError } from "../store/store";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
 import { exportFixtureSet } from "../services/export";
 import { importExport } from "../services/restore";
+import { correctRecord } from "../services/lifecycle";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
@@ -311,6 +330,123 @@ async function main() {
       retryCorrections[0]?.previousValue,
     );
 
+    // ----- check 3d: concurrent corrections against real DynamoDB -------
+    // Reviewer's exact repro: "Two corrections read version 0, both
+    // complete successfully, and the second write overwrites the first."
+    // Exercises the REAL fix directly against the real table: the store
+    // (not the caller) owns the persisted version, incrementing it on
+    // every successful write, so a SECOND write presenting a now-stale
+    // expectedVersion must be rejected by DynamoDB's own
+    // ConditionExpression — not silently accepted.
+    const [raceFixture] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [raceFixture]);
+    const raceRecordId = raceFixture.record.recordId;
+    const raceSnapshot = await fixtureStore.getRecord(raceRecordId);
+    if (!raceSnapshot) throw new Error("drill invariant violated: just-seeded record must exist");
+
+    // Writer B: a real correctRecord() call, reading fresh and advancing
+    // the real stored version.
+    const writerB = await correctRecord(fixtureStore, {
+      requestId: `req-${drillTag}-race-b`,
+      recordId: raceRecordId,
+      requesterCapacity: "[SYNTHETIC] curator B",
+      reason: "[SYNTHETIC] concurrent-correction drill",
+      field: "title",
+      correctedValue: "[SYNTHETIC] B's title",
+    });
+    record("Writer B's real correctRecord() call completes normally against real DynamoDB", writerB.status === "completed", `status=${writerB.status}`);
+
+    // Writer A: simulates having read the SAME pre-race snapshot as B (the
+    // exact reviewer scenario — both read version 0) by writing directly
+    // at the STORE level with that now-stale version, bypassing
+    // correctRecord()'s own fresh-read (which would correctly avoid this
+    // on its own) to exercise the store's conditional write in isolation.
+    const writerAOutcome = await fixtureStore
+      .putRecordWithCorrection(
+        { ...raceSnapshot, title: "[SYNTHETIC] A's title (must never land)" },
+        raceSnapshot.version,
+        {
+          recordId: raceRecordId,
+          correctionId: `req-${drillTag}-race-a`,
+          field: "title",
+          previousValue: raceSnapshot.title,
+          correctedValue: "[SYNTHETIC] A's title (must never land)",
+          attribution: "[SYNTHETIC] curator A",
+          reason: "[SYNTHETIC] concurrent-correction drill",
+          status: "accepted",
+          disputeReason: null,
+          createdAt: new Date().toISOString(),
+        },
+      )
+      .catch((error: unknown) => error);
+    record(
+      "Writer A's stale-version write is rejected by a real DynamoDB ConditionExpression failure, not silently accepted",
+      writerAOutcome instanceof VersionConflictError,
+      String(writerAOutcome),
+    );
+    const afterRace = await fixtureStore.getRecord(raceRecordId);
+    record(
+      "B's change survives and A's rejected change never landed, confirmed by a real GetItem",
+      afterRace?.title === "[SYNTHETIC] B's title",
+      afterRace?.title,
+    );
+
+    // ----- check 3e: stale "already applied" pre-check vs the real -----
+    // ----- conditional history write, against real DynamoDB ------------
+    // Reviewer's exact repro: "After the transaction succeeds but request
+    // completion fails, a stale history query can miss the existing
+    // correction. Retrying then overwrites that same history ID with the
+    // already-corrected text as its 'previous' value." This exercises the
+    // REAL guard directly: even calling putRecordWithCorrection AGAIN with
+    // an id that already exists (exactly what a fooled retry would do)
+    // must be rejected by the real TransactWriteItems' conditional check
+    // on the history row — never silently overwrite it.
+    const [staleFixture] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [staleFixture]);
+    const staleRecordId = staleFixture.record.recordId;
+    const staleCorrectionId = `req-${drillTag}-stale-precheck`;
+    const firstAttempt = await correctRecord(fixtureStore, {
+      requestId: staleCorrectionId,
+      recordId: staleRecordId,
+      requesterCapacity: "[SYNTHETIC] curator",
+      reason: "[SYNTHETIC] stale-precheck drill",
+      field: "summary",
+      correctedValue: "[SYNTHETIC] corrected summary",
+    });
+    record("The first real correctRecord() call completes normally", firstAttempt.status === "completed", `status=${firstAttempt.status}`);
+
+    const postFirstRecord = await fixtureStore.getRecord(staleRecordId);
+    if (!postFirstRecord) throw new Error("drill invariant violated: record must still exist");
+    const retryWriteOutcome = await fixtureStore
+      .putRecordWithCorrection(
+        { ...postFirstRecord, summary: "[SYNTHETIC] corrupted re-capture (must never land)" },
+        postFirstRecord.version,
+        {
+          recordId: staleRecordId,
+          correctionId: staleCorrectionId,
+          field: "summary",
+          previousValue: postFirstRecord.summary, // the ALREADY-corrected value — exactly what a fooled retry would wrongly capture
+          correctedValue: "[SYNTHETIC] corrupted re-capture (must never land)",
+          attribution: "[SYNTHETIC] curator",
+          reason: "[SYNTHETIC] stale-precheck drill",
+          status: "accepted",
+          disputeReason: null,
+          createdAt: new Date().toISOString(),
+        },
+      )
+      .catch((error: unknown) => error);
+    record(
+      "A second write reusing the SAME correction id is rejected by a real TransactWriteItems conditional check, not silently accepted",
+      retryWriteOutcome instanceof AlreadyAppliedError,
+      String(retryWriteOutcome),
+    );
+    const staleRecordCorrections = await fixtureStore.listCorrections(staleRecordId);
+    record(
+      "The TRUE original survives in real DynamoDB — still exactly one correction, never overwritten with the corrupted re-capture",
+      staleRecordCorrections.length === 1 && staleRecordCorrections[0].previousValue === staleFixture.record.summary,
+      JSON.stringify(staleRecordCorrections),
+    );
+
     // ------------------------------------------ check 4: redact media --
     const mediaPath = (mediaId: string) => `/records/${recordId}/media/${mediaId}?purpose=publication&audience=public`;
     const beforeRedactMedia = await fetch(`${API_URL}${mediaPath(textMedia.mediaId)}`, { headers: { authorization: `Bearer ${idToken}` } });
@@ -484,20 +620,24 @@ async function main() {
     // plainly. Confirmed directly against real CloudWatch metrics and
     // Lambda logs: this table's deliberately tiny, always-free-tier
     // provisioning (5 RCU/s — see fixture-backend-stack.ts's PrimaryTable)
-    // throttled even a SINGLE strongly-consistent read of one ~395 KB
-    // record (`DynamoFixtureStore.getRecord` uses `ConsistentRead: true`
+    // observably throttled every attempt tried, including a SINGLE
+    // strongly-consistent read of one ~395 KB record
+    // (`DynamoFixtureStore.getRecord` uses `ConsistentRead: true`
     // throughout, correctly, for lifecycle-correctness reasons unrelated to
-    // this drill) with a genuine `ProvisionedThroughputExceededException`,
-    // regardless of how long a prior cooldown waited. Unlike the media
-    // budget's live check in realS3MediaAcceptanceDrill.ts, where the bulk
-    // bytes live in S3 (no comparable provisioned-RCU ceiling to pass
-    // through), proving the TEXT-driven threshold live would require
-    // reading several megabytes of DynamoDB-stored content back out inside
-    // one Lambda invocation — genuinely infeasible against this fixture
-    // stack's capacity without either forcing a real, billed capacity
-    // increase on a SHARED table (not this script's call to make
-    // unilaterally) or waiting far longer than is reasonable for a
-    // drill. Named here rather than hidden; see evidence-matrix.md.
+    // this drill) with a genuine `ProvisionedThroughputExceededException`.
+    // That is an OBSERVED result from these specific attempts, not proof a
+    // single large read is categorically impossible at this provisioning:
+    // AWS documents that provisioned-capacity tables can draw on burst
+    // capacity beyond the nominal rate, so a different attempt, timing, or
+    // idle warm-up this drill didn't control for could plausibly succeed.
+    // Unlike the media budget's live check in realS3MediaAcceptanceDrill.ts,
+    // where the bulk bytes live in S3 (no comparable provisioned-RCU
+    // ceiling to pass through), proving the TEXT-driven threshold live
+    // reliably would most likely need either a real, billed capacity
+    // increase on this SHARED table (not this script's call to make
+    // unilaterally — explicitly left unchanged per instruction) or a
+    // controlled idle period this drill made no attempt to construct.
+    // Named here rather than hidden; see evidence-matrix.md.
     //
     // What IS proven live, honestly: the real deployed API's /export
     // response actually carries the new field at all, using ordinary,

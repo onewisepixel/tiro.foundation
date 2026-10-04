@@ -285,10 +285,48 @@ DynamoDB/S3/Lambda:**
 158 tests pass (up from 150). Both live drills were extended and re-run: `realS3MediaAcceptanceDrill.ts`
 (Finding 4) — **36/36**; `realCorrectionRedactionDrill.ts` (Findings 1-3 and the API-shape half of
 Finding 5) — **32/32**. One honestly-named limitation: Finding 5's actual whole-response TEXT
-exclusion couldn't be forced live — this fixture stack's deliberately tiny, always-free-tier
-DynamoDB provisioning throttles even a single ~395 KB strongly-consistent read, confirmed directly
-against CloudWatch/Lambda logs — so that exact scale stays proven byte-for-byte by the
-deterministic local test instead. See the evidence matrix's seventh-review-round note.
+exclusion couldn't be forced live — every attempt against this fixture stack's deliberately tiny,
+always-free-tier DynamoDB provisioning observably throttled (confirmed directly against
+CloudWatch/Lambda logs), but that's an observed result from these specific attempts, not proof
+it's categorically impossible at 5 RCU/s (AWS documents burst capacity beyond the nominal rate) —
+so that exact scale stays proven byte-for-byte by the deterministic local test instead. See the
+evidence matrix's seventh-review-round note.
+
+**2026-10-04, eighth review round — four more gaps reproduced as deterministic LOCAL
+reproductions, all fixed, regression-tested, and re-verified against real DynamoDB/S3:**
+
+1. **Concurrent corrections silently lost an edit.** `FixtureRecord.version` never actually
+   advanced — every caller spread a freshly-read copy without incrementing it, so two concurrent
+   corrections both reading version 0 would both pass the conditional-write check and the second
+   would silently clobber the first. Fixed by making the STORE itself (not the caller) own the
+   persisted version, incrementing it on every successful write — closes the bug for every current
+   and future caller structurally, not just the ones this round caught.
+2. **A retry could still destroy the original history value.** The "already applied" guard used a
+   query-style lookup that, on the real adapter, is eventually consistent and can miss a
+   just-committed write — a retry landing in that window could re-capture the already-corrected
+   value as a fake "previous" one. Fixed two ways: a strongly consistent by-id lookup
+   (`getCorrection`/`getRedaction`) for the common case, AND a conditional write on the history row
+   itself (rejecting a duplicate id outright) as the real, unconditional guard even if the pre-check
+   is somehow still wrong.
+3. **Retention could overwrite a deleted tombstone.** `retainForPreservationOnly()` checked only
+   the media-purge claim, never custody status — retention immediately after a completed deletion
+   could flip an already-`"deleted"` tombstone back to `"preserved"`. Fixed by rejecting
+   `"deleted"` custody outright, covering both a fully completed deletion and the narrower
+   mid-recovery window.
+4. **The export budget still missed Lambda's real response encoding.** The budget measured this
+   export object's own single encoding, not what the Lambda handler actually returns — the body
+   gets embedded as a STRING inside the response wrapper and re-escaped, so quote/backslash-heavy
+   content could measure safely under budget yet nearly double once really wrapped. Fixed by
+   measuring that real re-escaped cost directly.
+
+164 tests pass (up from 158). Both live drills were extended and re-run:
+`realCorrectionRedactionDrill.ts` (Findings 1 and 2, against real DynamoDB's own
+`ConditionExpression`/`TransactWriteItems`) — **38/38**; `realS3MediaAcceptanceDrill.ts`
+(Finding 3, a real deletion run to completion then retention immediately after) — **41/41**.
+Finding 4 wasn't re-attempted live beyond the API-shape check the seventh round already did —
+per explicit instruction, this shared table's capacity stays unchanged, and the same
+observed-throttling (not categorical-impossibility) caveat applies. See the evidence matrix's
+eighth-review-round note.
 
 ## CI: self-hosted fonts and the dependency audit
 
@@ -390,9 +428,11 @@ backend's redaction is text-masking and a hard media-access override only, hones
 media-content processing, which needs infrastructure this project doesn't have. Forcing the export
 response budget's real whole-record TEXT exclusion live, as opposed to proving the field merely
 exists — needs reading several real MB out of this stack's deliberately tiny, always-free-tier
-DynamoDB provisioning inside one Lambda invocation, confirmed infeasible without a real, billed
-capacity bump this round deliberately didn't make unilaterally; see the evidence matrix's
-seventh-review-round note. Versioned correction and redaction, authorized-media S3 routes, real S3
+DynamoDB provisioning inside one Lambda invocation; every attempt tried observably throttled, but
+that's an observed result from those specific attempts, not proof it's categorically impossible at
+this provisioning (AWS's documented burst capacity means a different attempt could succeed) — and
+a real, billed capacity bump wasn't made unilaterally, per explicit instruction to leave this
+shared table's capacity unchanged; see the evidence matrix's seventh-review-round note. Versioned correction and redaction, authorized-media S3 routes, real S3
 object-version inventory/removal, and byte-level checksums are now DONE — see the S3 media and
 correction/redaction milestone entries above and the evidence matrix's "Real S3 media acceptance
 drill" / "Real correction/redaction drill."
