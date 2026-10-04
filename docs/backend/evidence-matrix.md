@@ -237,12 +237,38 @@ directly, confirming the real response (4,946,321 bytes) stays under Lambda's 6 
 from the 7,035,395 bytes the unfixed budget produced. **34/34 checks passed.** See "Real S3 media
 acceptance drill" below.
 
+**2026-10-04, versioned correction and redaction milestone — §12's "Correct" action and §3.5's
+redaction tooling, scoped to what this backend can actually do:**
+
+- **Versioned correction.** New `Correction` entity + `correctRecord()`/`disputeCorrection()`
+  (`services/lifecycle.ts`). Replaces the live `title`/`summary`/`provenanceRef` field immediately
+  while PRESERVING the previous value permanently in history — never erased. A later dispute marks
+  the correction `"disputed"` WITHOUT reverting it.
+- **Redaction.** New `Redaction` entity (`scope: "text" | "media"`) + `redactText()`/
+  `redactMedia()`. Text redaction masks the field with `"[REDACTED]"` while preserving the original
+  only in history, never served through `GET /records/:recordId`, even to a fully authorized
+  caller. Media redaction adds the mediaId to a new `redactedMediaIds` register field, checked by
+  `evaluatePermission` (now takes an optional `mediaId`) as a HARD override independent of purpose/
+  audience. Underlying S3 bytes are never touched — redaction is not deletion.
+- **Export/restore.** `complete-preservation` exports carry the real pre-redaction text and full
+  correction history (custody there is authorized to hold the complete archival record);
+  `public-redacted` exports omit it, reusing the identical `"redacted-for-public-export"` sentinel
+  already used for consent evidence and media.
+- **API.** Four new routes (`correct`, `dispute-correction`, `redact-text`, `redact-media`) — the
+  existing `/records/{recordId}/{action}` wildcard route already covered them, so only a Lambda
+  code redeploy was needed, no infra change. `GET /records/:id` now includes full `corrections`
+  and metadata-only `redactions` (never the original) in both view branches.
+
+150 tests pass (up from 131). See "Real correction/redaction drill" below for the live-AWS
+result — **19/19 checks passed on the first real run.**
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
 | Scoped permission checks | `permissions.test.ts`: 10 cases — wrong purpose, wrong audience, expired, disputed, unverified capacity, missing control state, staff-role-is-not-a-grant | **Demonstrated (local)** | None at logic level. |
 | Restricted records absent from public pages, search, API, and media | `export.ts`'s `public-redacted` scope omits non-published records entirely (not redacted — absent); `services/media.ts`'s `GET /records/:id/media/:mediaId` runs the same `evaluatePermission` gate as every other route, local AND real-AWS (see "Real S3 media acceptance drill") | **Demonstrated (local, and real AWS for the media route)** | No actual public page/search surface exists yet — only the export-filtering and the authenticated-staff media-route logic are proven. |
-| Sensitivity review and redaction | `FixtureRecord.redactionApplied` field exists | **Not demonstrated** | No redaction workflow or UI built. |
+| Sensitivity review and redaction | `redactText()`/`redactMedia()` (`services/lifecycle.ts`), local (`lifecycle.test.ts`, `router.test.ts`) and real AWS (`realCorrectionRedactionDrill.ts`) | **Demonstrated, local and real AWS, for text masking and a hard media-access override.** Text redaction masks the field and preserves the original only in history, never served through `GET /records/:id`, confirmed against the real deployed API. Media redaction denies the exact mediaId through `evaluatePermission`'s hard override, confirmed against the real media route, while a different object on the same record stays fetchable and the redacted object's real S3 bytes stay untouched. | No actual image/audio/video content processing (blur/bleep/crop) — this backend masks TEXT and denies MEDIA ACCESS, never alters media bytes, honestly short of real redaction tooling that needs media-processing infrastructure this project doesn't have. |
+| Versioned correction with preserved history | `correctRecord()`/`disputeCorrection()` (`services/lifecycle.ts`), local and real AWS (`realCorrectionRedactionDrill.ts`) | **Demonstrated, local and real AWS.** A correction replaces the live field immediately while preserving the previous value permanently in `Correction` history, confirmed against the real deployed API; a later dispute marks the correction `"disputed"` without reverting it, confirmed live. | A combinatorial case (e.g. a correction racing a redaction on the same field) hasn't been exercised. |
 | Withdrawal across dependent views/copies | `lifecycle.ts withdraw()` + `CustodyCopy.reconciledAt` tracking; `lifecycle.test.ts`; `staff-ui/` now reads this data live via the API | **Demonstrated (local); the staff UI reads post-withdrawal state correctly, smoke-tested against real AWS** | No PUBLIC-facing surface reads this data yet (only the staff UI does) — only the state transition, copy-tracking, and staff-facing read path are proven. |
 | **Authenticated staff API, Cognito-gated, scoped reads** | `backend/src/api/router.test.ts` (26 cases, local); `backend/src/api/handler.test.ts` (7 cases, request-parsing only, local); real checks against the deployed stack (below and "Real S3 media acceptance drill") | **Demonstrated, local and real AWS, including the three Finding 1-3 fixes and the authenticated media route.** An unauthenticated call returns 401 (confirmed again for the media route specifically, real AWS); a real Cognito-issued ID token succeeds (via `AdminInitiateAuth`, the actual browser OAuth/PKCE flow, and this drill's own scripted auth); a lifecycle action's `requesterCapacity` is correctly attributed to the authenticated caller even when the request body attempts to spoof a different one; record AND media reads are scoped by `evaluatePermission` (full content/bytes only when allowed, a limited metadata view or a denial otherwise); a `requestId` reused across different records/payloads conflicts (409); `completeDeletion` refuses a record with no valid linked, completed deletion request. | Every route was exercised individually, not as a sustained multi-user session. Rate limiting and token refresh/expiry handling are unexercised. The browser-flow verification covers the real OAuth/PKCE mechanics and the actual `auth.js` file's logic executed in a real JS engine, but not literal rendering in an actual browser window (no browser-automation tool is available in this environment) — see the stated residual gap in "Browser-flow verification". |
 | Deletion and backup expiry | `lifecycle.test.ts`: deletion stays `deletion-pending` until all custody copies reconciled; `completeDeletion` requires a linked, completed deletion request (Finding 3); resumes correctly after a partial failure instead of being permanently denied; refuses when custody changes away from `deletion-pending` before the final write instead of deleting anyway; purges every S3 version AND delete marker for media-tracked copies before reconciling them | **Demonstrated, local and real AWS.** Both the partial-failure-recovery and stale-precondition fixes — previously proven locally only — are now confirmed against real DynamoDB (one via a clearly-labeled, deterministic drill-only hook simulating the exact partial-failure state; the other via the real operations in the real order, no hook needed). Media-aware purging is confirmed against real S3, including a delete marker created outside this system's own path. See "Real S3 media acceptance drill". | Real backup-EXPIRY timing specifically (actual DynamoDB PITR lifecycle, actual S3 noncurrent-version 30-day expiration elapsing on its own schedule) is still not exercised — every deletion in every drill so far has been explicit, not timing-based. |
@@ -575,6 +601,41 @@ Cleanup: only the drill's own disposable Cognito test user was deleted. Every fi
 the live primary/register tables, and the staff user from the browser-setup task were all left in
 place, per this project's standing precedent.
 
+## Real correction/redaction drill — what actually happened
+
+Dated 2026-10-04. `backend/src/scripts/realCorrectionRedactionDrill.ts`, a new drill run against
+the redeployed live stack. **19/19 checks passed on the first real run.** What it actually did:
+
+1. Created its own disposable Cognito test user, deleted at the end. Seeded one fresh fixture with
+   real bound S3 media.
+2. **Correction, through the real API:** `POST /records/:id/correct` on `summary` returned 200; the
+   live field changed immediately, confirmed via a real `GET /records/:id` call; the correction
+   history returned by that same real call contained the ORIGINAL (pre-correction) value, not just
+   the new one.
+3. **Dispute, through the real API:** `POST /records/:id/dispute-correction` returned 200; a
+   follow-up real `GET` confirmed the correction's `status` was `"disputed"` while the live field
+   STILL reflected the correction — not reverted.
+4. **Text redaction, through the real API:** `POST /records/:id/redact-text` on `title` returned
+   200; the live field became `"[REDACTED]"`; the real `GET /records/:id` response's `redactions`
+   array carried only safe metadata (scope/field/reason/timestamp) — no `previousValue` key at
+   all, confirmed by direct inspection of the real response, even though this caller was fully
+   authorized for the record otherwise.
+5. **Media redaction, through the real API:** the target media was confirmed fetchable (200)
+   before redaction. `POST /records/:id/redact-media` returned 200. Afterward, the EXACT SAME
+   media route for that mediaId returned real **403**, while the SAME call for a DIFFERENT,
+   non-redacted media object on the SAME record still returned 200 — redaction is scoped to the
+   exact object, not the whole record. A real `listObjectVersions` call confirmed the redacted
+   object's S3 version was completely untouched before and after.
+6. **Export/restore:** a real `complete-preservation` export carried the correction history with
+   the real original value AND the real pre-redaction title text (custody there is authorized to
+   hold the complete archival record). A real `public-redacted` export of the same record came back
+   with `redactions: "redacted-for-public-export"` — the original never included. Restoring the
+   complete-preservation export into an isolated in-process target (real S3-backed media store,
+   separately prefixed) reproduced both the correction history and the real pre-redaction text.
+
+Cleanup: only the drill's own disposable Cognito test user was deleted. The one fixture it seeded
+was left in place, same precedent as every other real-AWS check in this project.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
@@ -591,15 +652,19 @@ place, per this project's standing precedent.
 
 - The minimal staging-only staff UI's styling/polish beyond "usable" — it is genuinely minimal by
   design (see `staff-ui/README.md`), not a production admin console.
-- Versioned correction and redaction (§3.5/§12's "Correct" action) — no implementation yet.
+- Actual image/audio/video content processing (blur/bleep/crop) — this backend's redaction masks
+  TEXT and denies MEDIA ACCESS, never alters media bytes; real content redaction needs
+  media-processing infrastructure this project doesn't have.
 - Migrating the already-live legacy (`versionId: null`) media references seeded before version
   binding existed — they correctly fail closed, but nothing re-uploads/rebinds them automatically.
-- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, or a media purge
-  racing an export) — every real-AWS case so far, media included, has been checked in isolation.
+- A combinatorial real-AWS case (e.g. a revocation racing a concurrent restriction, a media purge
+  racing an export, or a correction racing a redaction on the same field) — every real-AWS case so
+  far has been checked in isolation.
 
 Real S3 media/version handling, authenticated retrieval, byte-level checksums, media-aware
-deletion, and media-carrying export/restore — all previously listed here as the next slice — are
-now DONE; see the S3 media milestone note above and "Real S3 media acceptance drill".
+deletion, media-carrying export/restore, versioned correction, and text/media redaction — all
+previously listed here as the next slice — are now DONE; see the S3 media and correction/redaction
+milestone notes above and "Real S3 media acceptance drill" / "Real correction/redaction drill".
 
 These are the next concrete slice of work, not a vague "more to do" — each is independently scoped
 and none of them block what's already demonstrated above.

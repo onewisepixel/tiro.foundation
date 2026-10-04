@@ -102,6 +102,18 @@ check (closing Finding 1 with a genuine `VersionConflictError`, not a local appr
 real 20-object `/export` call through the live Lambda confirming a 4,946,321-byte response, down
 from 7,035,395 — **34/34**. See the evidence matrix's sixth-review-round note.
 
+**Update, the versioned correction and redaction milestone (2026-10-04):** implements §12's
+"Correct" action (`correctRecord()`/`disputeCorrection()` — replaces the live field immediately,
+preserves the previous value permanently, and a later dispute marks it `"disputed"` without
+reverting it) and §3.5's redaction tooling, scoped honestly to text masking and a hard media-access
+override (`redactText()`/`redactMedia()`) — never actual image/audio/video content processing, which
+needs infrastructure this project doesn't have. The pre-redaction original is never served through
+the normal record-read path; `complete-preservation` exports carry it (custody there is authorized
+to hold the full archival record), `public-redacted` exports omit it, reusing the existing
+redacted-for-public-export pattern. Four new API routes, no infra change needed. 150 tests pass (up
+from 131); a new live drill, `realCorrectionRedactionDrill.ts`, passed **19/19 on its first real
+run** against the deployed stack.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

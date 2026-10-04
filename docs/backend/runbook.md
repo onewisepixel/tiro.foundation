@@ -221,6 +221,27 @@ Creates its own disposable Cognito test user (deleted at the end) and seeds seve
 with real, version-bound S3 media — all left in place afterward, same precedent as every other
 real-AWS check. Exits non-zero if any of its 25 checks fail.
 
+## Correction/redaction acceptance drill against real AWS
+
+Same env vars as the S3 media drill above:
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=tiro-fixture-primary-drill-20261002 \
+  TIRO_REGISTER_TABLE=tiro-restriction-register-drill-20261002 \
+  TIRO_MEDIA_BUCKET=<MediaBucketName output from cdk deploy> \
+  TIRO_STAFF_API_URL=<StaffApiUrl output> \
+  TIRO_STAFF_USER_POOL_ID=<StaffUserPoolId output> \
+  TIRO_STAFF_USER_POOL_CLIENT_ID=<StaffUserPoolClientId output> \
+  npx tsx backend/src/scripts/realCorrectionRedactionDrill.ts
+```
+
+Exercises `correctRecord`/`disputeCorrection`/`redactText`/`redactMedia` through the real deployed
+API, confirming the pre-correction/pre-redaction originals are preserved in history but never
+served through `GET /records/:id`, and that export/restore carry (preservation scope) or omit
+(public scope) them correctly. Creates its own disposable Cognito test user (deleted at the end);
+the one fixture it seeds is left in place. Exits non-zero if any of its 19 checks fail.
+
 ## Seeding real, version-bound media into a fixture
 
 `backend/src/fixtures/media.ts`'s `bindSeedMedia(mediaStore, fixture)` uploads real tiny text/binary

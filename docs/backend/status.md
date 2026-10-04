@@ -215,6 +215,45 @@ objects and calls the real deployed `/export` route directly — confirming the 
 (4,946,321 bytes on the run that closed this) stays safely under Lambda's 6 MB limit, down from the
 7,035,395 bytes the unfixed budget produced. **34/34 checks passed.**
 
+**2026-10-04, versioned correction and redaction milestone:** implements §12's "Correct" action and
+§3.5's redaction tooling, scoped to what this backend can actually do (text masking and a hard
+media-access override — never image/audio/video processing, which needs infrastructure this
+project doesn't have).
+
+- **Versioned correction.** New `Correction` entity + `correctRecord()`/`disputeCorrection()`
+  (`services/lifecycle.ts`). A correction replaces the live `title`/`summary`/`provenanceRef` field
+  immediately (so readers see the fix) but PRESERVES the previous value permanently — never erased.
+  A later disagreement about the correction itself (`disputeCorrection`) marks it `"disputed"`
+  WITHOUT reverting it — "disagreements remain attributed," per §3.5, applied to the correction
+  record itself.
+- **Redaction.** New `Redaction` entity (discriminated by `scope: "text" | "media"`) +
+  `redactText()`/`redactMedia()`. Text redaction masks the field with `"[REDACTED]"` in the live
+  record while preserving the original ONLY in redaction history — `GET /records/:recordId` never
+  serves it, even to a fully authorized caller. Media redaction adds the mediaId to a new
+  `redactedMediaIds` register field, checked by `evaluatePermission` (now takes an optional
+  `mediaId`) as a HARD override independent of purpose/audience — denies every fetch regardless of
+  how permissive the record's own consent is. Underlying S3 bytes are never touched; redaction is
+  not deletion.
+- **Export/restore.** `complete-preservation` exports carry full correction history and the REAL
+  pre-redaction text (custody there is authorized to hold the complete archival record);
+  `public-redacted` exports omit the original redacted text the same way they already redact
+  consent evidence and media — reusing the identical `"redacted-for-public-export"` sentinel
+  pattern.
+- **API.** Four new routes: `POST /records/:id/correct`, `.../dispute-correction`,
+  `.../redact-text`, `.../redact-media` — the existing `/records/{recordId}/{action}` wildcard
+  route already covers them, so no infra change was needed beyond redeploying the Lambda. `GET
+  /records/:id` now includes full `corrections` (safe — same sensitivity as the record's own
+  title/summary) and metadata-only `redactions` (scope/field/reason/timestamp, never the original)
+  in both the allowed and limited-view branches. Minimal staff-UI forms added.
+
+150 tests pass (up from 131). **`realCorrectionRedactionDrill.ts`** — a new live-AWS drill — passed
+**19/19 on its first real run**: real correction + dispute through the live API with the original
+value confirmed preserved; real text redaction confirmed never exposed through the live `GET
+/records/:id`, even to this fully-authorized caller; real media redaction confirmed denied through
+the live media route while a DIFFERENT object on the same record stayed fetchable and the redacted
+object's S3 bytes stayed completely intact; and real export/restore confirmed carrying
+(preservation scope) or omitting (public scope) the real pre-redaction text.
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a
@@ -306,13 +345,16 @@ and documented rather than chased further; revisit when either upstream ships a 
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-Versioned correction and redaction (§3.5/§12's "Correct" action has no implementation yet).
 Migrating the many already-live legacy (`versionId: null`) media references seeded in earlier
 sessions — they correctly fail closed today, but nothing re-uploads/rebinds them automatically. A
 combinatorial real-AWS case or two (e.g. a revocation racing a concurrent restriction, or a media
-purge racing an export). Authorized-media S3 routes, real S3 object-version inventory/removal, and
-byte-level checksums are now DONE — see the S3 media milestone entry above and the evidence matrix's
-"Real S3 media acceptance drill."
+purge racing an export, or a correction racing a redaction on the same field). Actual
+image/audio/video redaction (blur/bleep/crop) — this backend's redaction is text-masking and a
+hard media-access override only, honestly short of real media-content processing, which needs
+infrastructure this project doesn't have. Versioned correction and redaction, authorized-media S3
+routes, real S3 object-version inventory/removal, and byte-level checksums are now DONE — see the
+S3 media and correction/redaction milestone entries above and the evidence matrix's "Real S3 media
+acceptance drill" / "Real correction/redaction drill."
 
 **Organizational, not engineering — this document cannot close these:**
 A named operator. Adopted (not proposed) consent/retention response-window numbers. Both are
