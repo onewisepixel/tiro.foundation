@@ -69,6 +69,8 @@ import {
 } from "../services/lifecycle";
 import { exportFixtureSet } from "../services/export";
 import { importExport, reconcileRestoredRecords, validateExport } from "../services/restore";
+import { VersionConflictError, type RestrictionRegisterStore } from "../store/store";
+import type { RestrictionRegisterEntry } from "../domain/types";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
@@ -579,6 +581,156 @@ async function main() {
       new GetItemCommand({ TableName: PRIMARY_TABLE, Key: { PK: { S: `ENTITY#${staleFixture.record.recordId}` }, SK: { S: "RECORD" } } }),
     );
     record("Direct DynamoDB GetItem confirms the stale-precondition record is still present", rawItem.Item !== undefined);
+
+    // ------------------- check 7c: exact-gap interleaving, real DynamoDB --
+    // The check above (7b) proved denial when retention ran BEFORE
+    // completeDeletion started at all. This proves the narrower, second-
+    // round finding: a DETERMINISTIC DRILL-ONLY HOOK makes retention land
+    // in the EXACT gap between completeDeletion's custody read and its own
+    // claim write, against the REAL DynamoDB conditional-write mechanics
+    // (not the in-memory fake's approximation of them) — the same
+    // InterleavingRegisterStore pattern as lifecycle.test.ts, wrapping the
+    // real DynamoRestrictionRegisterStore.
+    class InterleavingRegisterStore implements RestrictionRegisterStore {
+      private triggered = false;
+      constructor(
+        private readonly inner: RestrictionRegisterStore,
+        private readonly interleave: () => Promise<void>,
+      ) {}
+      async getCurrent(recordId: string) {
+        const snapshot = await this.inner.getCurrent(recordId);
+        if (!this.triggered) {
+          this.triggered = true;
+          await this.interleave();
+        }
+        return snapshot;
+      }
+      setCurrent(entry: RestrictionRegisterEntry, expectedVersion: number | undefined) {
+        return this.inner.setCurrent(entry, expectedVersion);
+      }
+      listAll() {
+        return this.inner.listAll();
+      }
+    }
+
+    const [interleaveFixture] = buildSeedFixtures();
+    await bindSeedMedia(mediaStore, interleaveFixture);
+    await seedStore(fixtureStore, registerStore, [interleaveFixture]);
+    const interleaveBinaryMedia = interleaveFixture.record.mediaRefs[1];
+    const interleaveVersionsBefore = await mediaStore.listObjectVersions(interleaveBinaryMedia.objectKey);
+    const interleaveStart = await startDeletion(fixtureStore, registerStore, {
+      requestId: `req-${drillTag}-interleave-start`,
+      recordId: interleaveFixture.record.recordId,
+      requesterCapacity: "[SYNTHETIC] drill steward",
+      reason: "[SYNTHETIC] S3 media acceptance drill — exact-gap interleaving",
+    });
+    log(
+      "DRILL HOOK (labeled)",
+      "Wrapping the REAL DynamoRestrictionRegisterStore so retainForPreservationOnly runs for real, against real DynamoDB, in the exact gap between completeDeletion's custody read and its own claim write — this is a deterministic forcing function for an otherwise-timing-dependent race, not a naturally occurring interleaving.",
+    );
+    const interleavingStore = new InterleavingRegisterStore(registerStore, async () => {
+      await retainForPreservationOnly(fixtureStore, registerStore, {
+        requestId: `req-${drillTag}-interleave-retain`,
+        recordId: interleaveFixture.record.recordId,
+        requesterCapacity: "[SYNTHETIC] drill steward",
+        reason: "[SYNTHETIC] races into the exact gap, against real DynamoDB",
+      });
+    });
+    let interleaveRejected: unknown = null;
+    try {
+      await completeDeletion(
+        fixtureStore,
+        interleavingStore,
+        {
+          requestId: `req-${drillTag}-interleave-complete`,
+          recordId: interleaveFixture.record.recordId,
+          requesterCapacity: "[SYNTHETIC] drill steward",
+          reason: "[SYNTHETIC] S3 media acceptance drill — exact-gap interleaving",
+          deletionRequestId: interleaveStart.requestId,
+        },
+        mediaStore,
+      );
+    } catch (error) {
+      interleaveRejected = error;
+    }
+    const interleaveRegister = await registerStore.getCurrent(interleaveFixture.record.recordId);
+    const interleaveVersionsAfter = await mediaStore.listObjectVersions(interleaveBinaryMedia.objectKey);
+    record(
+      "completeDeletion's claim write loses to retention's already-landed write, against REAL DynamoDB — confirmed by a real ConditionalCheckFailedException-backed VersionConflictError",
+      interleaveRejected instanceof VersionConflictError,
+      String(interleaveRejected),
+    );
+    record(
+      "Retention actually won the real register, and the media is COMPLETELY untouched in real S3 — the exact second-round reviewer repro, closed",
+      interleaveRegister?.currentCustodyStatus === "preserved" &&
+        interleaveVersionsAfter.length === interleaveVersionsBefore.length &&
+        interleaveVersionsBefore.every((v) => interleaveVersionsAfter.some((a) => a.versionId === v.versionId)),
+      `custody=${interleaveRegister?.currentCustodyStatus} before=${interleaveVersionsBefore.length} after=${interleaveVersionsAfter.length}`,
+    );
+
+    // ------- check 8: export response size budget, real Lambda, real API --
+    // Reviewer reproduced 7,035,395 serialized bytes from 20 distinct,
+    // individually-authorized, individually-under-cap (256 KiB) records —
+    // comfortably over Lambda's real 6 MB synchronous response limit. This
+    // seeds 20 real fixtures with real 256 KiB S3 objects each and calls
+    // the REAL deployed API's /export route — proving the fix holds
+    // against the actual AWS-imposed limit, not just a local estimate of it.
+    const exportBudgetRecordIds: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const [fixture] = buildSeedFixtures();
+      fixture.record.mediaRefs = [];
+      const uploaded = await mediaStore.putObject(
+        `fixtures/${drillTag}-lambda-limit/${i}.bin`,
+        Buffer.alloc(256 * 1024, i % 256),
+        "application/octet-stream",
+      );
+      fixture.record.mediaRefs.push({
+        mediaId: `media-${drillTag}-${i}`,
+        objectKey: `fixtures/${drillTag}-lambda-limit/${i}.bin`,
+        bytes: uploaded.bytes,
+        checksumSha256: uploaded.sha256,
+        contentType: "application/octet-stream",
+        versionId: uploaded.versionId,
+      });
+      await seedStore(fixtureStore, registerStore, [fixture]);
+      exportBudgetRecordIds.push(fixture.record.recordId);
+    }
+    const exportBudgetResponse = await fetch(`${API_URL}/export`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        recordIds: exportBudgetRecordIds,
+        scope: "complete-preservation",
+        fixtureSetId: `${drillTag}-lambda-limit`,
+        destinationAudience: "public",
+      }),
+    });
+    const exportBudgetBodyText = await exportBudgetResponse.text();
+    record(
+      "The real Lambda/API actually returns 200 for 20 distinct 256 KiB records, not a Lambda/API-Gateway payload-limit failure",
+      exportBudgetResponse.status === 200,
+      `status=${exportBudgetResponse.status}`,
+    );
+    const LAMBDA_SYNC_RESPONSE_LIMIT_BYTES = 6 * 1024 * 1024;
+    const realResponseBytes = Buffer.byteLength(exportBudgetBodyText, "utf8");
+    record(
+      "The real HTTP response body stays safely under Lambda's 6 MB synchronous limit",
+      realResponseBytes < LAMBDA_SYNC_RESPONSE_LIMIT_BYTES,
+      `bytes=${realResponseBytes}`,
+    );
+    let exportBudgetParsed: { records?: { mediaObjectsSkipped?: { reason: string }[] }[] } = {};
+    try {
+      exportBudgetParsed = JSON.parse(exportBudgetBodyText);
+    } catch {
+      // leave empty; the check below will correctly fail if parsing was needed
+    }
+    const anyRealSkipForBudget = (exportBudgetParsed.records ?? []).some((envelope) =>
+      (envelope.mediaObjectsSkipped ?? []).some((s) => /budget/i.test(s.reason)),
+    );
+    record(
+      "At least one of the 20 real records' media was actually skipped for the budget, confirmed from the real response body",
+      anyRealSkipForBudget,
+    );
   } finally {
     // ------------------------------------------------------------ cleanup --
     log("CLEANUP", "Deleting the disposable drill Cognito test user (nothing else)", { email: testEmail });

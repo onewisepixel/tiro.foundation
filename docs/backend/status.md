@@ -177,6 +177,44 @@ media and directly confirms every version survives a denial, and its restore che
 restored audit receipt and restored media bytes are both actually present, not just that
 reconciliation denies. **29/29 checks passed.**
 
+**2026-10-04, sixth review round — two residual gaps in the fifth round's fixes, reproduced against
+the real service code, both now closed with genuine fixes (not narrowed-but-documented residuals),
+regression-tested, and re-verified against real DynamoDB/S3/Lambda:**
+
+1. **Retention could still succeed immediately before media destruction.** The fifth round's guard
+   read custody via a bare `getCurrent()` before purging — a real fix compared to no check at all,
+   but a reviewer deterministically proved the read never actually CLAIMED anything: inserting
+   retention right after that read let retention win the register while the purge, having already
+   passed its one-time check, destroyed all three media versions anyway. The real fix is mutual
+   exclusion via the register's own conditional-write mechanism, not a tighter read-then-act window:
+   `completeDeletion` now CLAIMS the purge with a conditional write (a new `mediaPurgeClaim` field on
+   `RestrictionRegisterEntry`), and `retainForPreservationOnly` itself now refuses outright if that
+   claim is active. Whichever write actually lands first in DynamoDB wins — the loser either denies
+   (sees the claim, or finds custody no longer eligible) or is refused (sees an active claim) —
+   never both "believing" they safely proceeded. The claim is released in a `finally` so a purge
+   failure never leaves retention stuck. A new `MediaPurgeInProgressError` surfaces as 409, same
+   family as a version conflict. Regression test uses a real interleaving wrapper around the
+   register store to force retention into the EXACT gap between the read and the write,
+   deterministically, rather than hoping for real concurrency to reproduce it.
+2. **The export budget measured raw bytes; Lambda's real limit is on the serialized response.**
+   20 distinct, individually-authorized, individually-under-cap (256 KiB raw) records fit the fifth
+   round's 5 MiB RAW aggregate budget but produced over 7 MB of serialized JSON — because base64
+   inflates raw bytes by ~4/3 and the budget never accounted for that inflation or the JSON
+   structure wrapping each object, and Lambda's synchronous invocation response has a real, hard
+   6 MB limit. Fixed: the budget (`MAX_EXPORT_RESPONSE_BYTES`) is now measured in the ACTUAL
+   serialized contribution — computed from a HEAD-only size via the exact base64-length formula
+   before ever fetching anything, confirmed against the real measured base64 string length once
+   fetched — plus a conservative per-object JSON-overhead estimate. Still bounded-read: an
+   over-budget object is skipped before any `GetObject` call, not after buffering it.
+
+131 tests pass (up from 127). The live drill now includes a real-DynamoDB interleaving check
+(using the exact same deterministic-hook pattern as the regression test, wrapping the real
+`DynamoRestrictionRegisterStore`) that reproduces the claimed-write-vs-retention race for real and
+confirms it's caught by a genuine `VersionConflictError`, plus a check that seeds 20 real 256 KiB S3
+objects and calls the real deployed `/export` route directly — confirming the real HTTP response
+(4,946,321 bytes on the run that closed this) stays safely under Lambda's 6 MB limit, down from the
+7,035,395 bytes the unfixed budget produced. **34/34 checks passed.**
+
 ## CI: self-hosted fonts and the dependency audit
 
 `next/font/google`'s Turbopack resolution fetches font files from Google at build time — a

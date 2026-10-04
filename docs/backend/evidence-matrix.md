@@ -210,6 +210,33 @@ in-memory stores (not AWS), all fixed, regression-tested, and re-verified live:*
 acceptance drill" below for the full, updated **29/29** result, including direct confirmation that
 retained media survives a denial and that restored audit receipts/media bytes actually persist.
 
+**2026-10-04, sixth review round — two residual gaps in the fifth round's fixes, both CLOSED (not
+narrowed-and-documented), regression-tested, and re-verified against real DynamoDB/S3/Lambda:**
+
+1. **Retention could still succeed immediately before media destruction.** A reviewer
+   deterministically proved the fifth round's bare-read guard never actually claimed anything:
+   inserting retention right after the read let retention win the register while the purge —
+   already past its one-time check — destroyed the media anyway. Fixed with genuine mutual
+   exclusion: `completeDeletion` claims the purge via a CONDITIONAL WRITE (a new `mediaPurgeClaim`
+   field on `RestrictionRegisterEntry`), and `retainForPreservationOnly` itself now refuses while
+   that claim is active. Whichever write lands first in DynamoDB wins; the loser denies or is
+   refused — never both proceeding. A new `MediaPurgeInProgressError` maps to 409.
+2. **The export budget measured raw bytes; Lambda's real limit is on the serialized response.**
+   20 distinct, individually-authorized, individually-under-cap records fit the raw-byte budget but
+   produced 7MB+ of serialized JSON (base64 inflates by ~4/3; the old budget never accounted for
+   that or for JSON structural overhead) — over Lambda's real, hard 6 MB synchronous response
+   limit. Fixed: `MAX_EXPORT_RESPONSE_BYTES` now budgets the ACTUAL serialized contribution
+   (base64 length, computed from a HEAD-only size before fetching, plus a conservative per-object
+   JSON-overhead estimate), still bounded-read throughout.
+
+131 tests pass (up from 127). The live drill now includes a real-DynamoDB interleaving check (the
+same deterministic-hook pattern as the regression test, wrapping the real
+`DynamoRestrictionRegisterStore`) confirming the race is caught by a genuine `VersionConflictError`,
+and a check that seeds 20 real 256 KiB S3 objects and calls the real deployed `/export` route
+directly, confirming the real response (4,946,321 bytes) stays under Lambda's 6 MB limit — down
+from the 7,035,395 bytes the unfixed budget produced. **34/34 checks passed.** See "Real S3 media
+acceptance drill" below.
+
 | §6.1 requirement | Test / artifact | Result | Gap |
 | --- | --- | --- | --- |
 | Applicable authority/capacity evidence | `permissions.test.ts`: disputed authority denies; unverified signer capacity denies | **Demonstrated (local)** | None at logic level. Real evidence capture (actual review workflow) not built. |
@@ -427,11 +454,12 @@ mutations already described.
 
 ## Real S3 media acceptance drill — what actually happened
 
-Dated 2026-10-03, updated the same day after the fifth review round. `backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run against the redeployed
-live stack (`TiroFixtureBackend-drill-20261002`, now with the S3 media IAM/env var changes and the
-new `GET /records/:recordId/media/:mediaId` route). **25/25 checks passed** on the corrected run
-(see the bug below); **29/29** after the fifth-round extensions described further down. What it
-actually did, in order:
+Dated 2026-10-03, updated after the fifth review round and again after the sixth (2026-10-04).
+`backend/src/scripts/realS3MediaAcceptanceDrill.ts`, run against the redeployed live stack
+(`TiroFixtureBackend-drill-20261002`, now with the S3 media IAM/env var changes and the new
+`GET /records/:recordId/media/:mediaId` route). **25/25 checks passed** on the corrected run (see
+the bug below); **29/29** after the fifth-round extensions; **34/34** after the sixth-round
+extensions described further down. What it actually did, in order:
 
 1. Created its own disposable Cognito test user (`AdminCreateUser`/`AdminInitiateAuth`), deleted at
    the end — the staff user and every seeded fixture were left in place, same precedent as every
@@ -517,6 +545,30 @@ All four of the fifth round's fixes (media-purge ordering, export/retrieval size
 restored audit history, package-completeness validation) are proven at the logic level by their own
 regression tests (127 tests, up from 119); the retention-before-completion and restore-survival
 halves specifically are ALSO now confirmed live, against the real redeployed stack.
+
+**Extended again the next day (2026-10-04) for the sixth review round's two residual gaps
+(redeployed, re-run, 34/34):**
+
+- **Real-DynamoDB interleaving check (Finding 1).** A new `InterleavingRegisterStore` wraps the
+  REAL `DynamoRestrictionRegisterStore` so that `retainForPreservationOnly()` runs for real, against
+  real DynamoDB, in the EXACT gap between `completeDeletion`'s custody read and its own claim
+  write — a deterministic forcing function for an otherwise-timing-dependent race, labeled as such
+  in the drill's own log output, not presented as naturally occurring. `completeDeletion`'s claim
+  write lost the race with a real `ConditionalCheckFailedException`-backed `VersionConflictError`;
+  the record's register showed `currentCustodyStatus: "preserved"` (retention actually won), and a
+  fresh `listObjectVersions` call confirmed BOTH media versions were completely untouched — the
+  exact second-round reviewer reproduction, closed for real.
+- **Real Lambda/API export-budget check (Finding 2).** Seeded 20 real, distinct fixtures, each with
+  a real 256 KiB object uploaded to the live bucket, and called the REAL deployed `/export` route
+  over HTTP (not a local estimate) with all 20 record ids. Real result: **200**, a real HTTP
+  response body of **4,946,321 bytes** — safely under Lambda's real 6 MB synchronous-response limit
+  and a direct, large improvement on the 7,035,395 bytes the unfixed budget produced from the same
+  shape of request — with at least one of the 20 records' media confirmed actually skipped (named
+  in the real response body's own `mediaObjectsSkipped`), not just happening to fit.
+
+Both of the sixth round's fixes are proven at the logic level by their own regression tests (131
+tests, up from 127) AND now confirmed against the real deployed stack, closing the gap between
+"documented residual" and "actually closed" the reviewer asked for.
 
 Cleanup: only the drill's own disposable Cognito test user was deleted. Every fixture it seeded
 (several more active/expired/disputed/positive-control/partial-failure/stale-precondition records),

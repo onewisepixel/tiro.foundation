@@ -88,6 +88,20 @@ either the included objects or an honest skip record, rejecting the rest as inco
 127 tests pass (up from 119); the live drill was redeployed, extended to use real bound media for
 the retention check, and re-run — **29/29**. See the evidence matrix's fifth-review-round note.
 
+**Update, a sixth review round (2026-10-04) — two residual gaps in the fifth round's fixes, both
+genuinely CLOSED this time, not narrowed-and-documented:** (1) the fifth round's retention guard
+was a bare read, not a claim — a reviewer deterministically proved retention could still win the
+register while an already-in-flight purge destroyed the media anyway; fixed with real mutual
+exclusion (a conditional-write `mediaPurgeClaim` that `retainForPreservationOnly` itself now
+checks and refuses to override, not just a tighter window on the deletion side); (2) the export
+budget measured raw bytes while Lambda's real limit is on the serialized (base64 + JSON) response —
+20 distinct, individually-authorized, under-cap records still produced 7MB+ serialized; fixed by
+budgeting the actual serialized contribution, computed from a HEAD-only size before fetching
+anything. 131 tests pass (up from 127); the live drill now includes a real-DynamoDB interleaving
+check (closing Finding 1 with a genuine `VersionConflictError`, not a local approximation) and a
+real 20-object `/export` call through the live Lambda confirming a 4,946,321-byte response, down
+from 7,035,395 — **34/34**. See the evidence matrix's sixth-review-round note.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
