@@ -42,11 +42,25 @@ export type DynamoStoreConfig = {
   statusIndexName: string;
 };
 
+// Reviewer-caught finding (surfaced by a NEW deterministic forced-conflict
+// drill check that hits the exact same item from two TransactWriteItems
+// calls at the exact same instant — see realFullFixtureChecks.ts's
+// "revocation racing restriction" combinatorial case): DynamoDB can cancel
+// a TransactWriteItems call with cancellation reason "TransactionConflict"
+// — raised when another transaction is concurrently touching one of the
+// same items — WITHOUT ever evaluating the ConditionExpression at all.
+// This is functionally the same situation as a condition mismatch (someone
+// else's concurrent write intervened; the caller should retry) but was
+// previously left unmapped, propagating as a raw, uncaught
+// TransactionCanceledException instead of the VersionConflictError every
+// caller in services/lifecycle.ts actually checks for — so a genuine race
+// loss could be misreported as "Unexpected error applying lifecycle
+// action" instead of the correct, retryable version-conflict framing.
 function isConditionalFailure(error: unknown): boolean {
   return (
     error instanceof ConditionalCheckFailedException ||
     (error instanceof TransactionCanceledException &&
-      (error.CancellationReasons ?? []).some((r) => r.Code === "ConditionalCheckFailed"))
+      (error.CancellationReasons ?? []).some((r) => r.Code === "ConditionalCheckFailed" || r.Code === "TransactionConflict"))
   );
 }
 
@@ -440,6 +454,47 @@ export class DynamoFixtureStore implements FixtureStore {
           throw new VersionConflictError("FixtureRecord", record.recordId);
         }
       }
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("FixtureRecord", record.recordId);
+      }
+      throw error;
+    }
+  }
+
+  // Real DynamoDB TransactWriteItems: the record and its new custody copy
+  // are DIFFERENT items (different SK) under the same PK, written in ONE
+  // all-or-nothing transaction. See store.ts's interface comment for why
+  // this needs to be atomic (completeDeletion's purge can only ever learn
+  // about media it has a CustodyCopy for).
+  async putRecordWithCustodyCopy(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    copy: CustodyCopy,
+  ): Promise<void> {
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
+                ConditionExpression:
+                  expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
+                ExpressionAttributeValues:
+                  expectedVersion === undefined ? undefined : { ":expectedVersion": expectedVersion },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(copy.recordId), SK: copySk(copy.copyId), ...copy },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
       if (isConditionalFailure(error)) {
         throw new VersionConflictError("FixtureRecord", record.recordId);
       }

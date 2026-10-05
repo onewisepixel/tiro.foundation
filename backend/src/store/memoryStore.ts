@@ -233,6 +233,25 @@ export class InMemoryFixtureStore implements FixtureStore {
     this.redactions.set(redaction.recordId, list);
   }
 
+  // Same no-`await`-in-between discipline as putRecordWithCorrection/
+  // putRecordWithRedaction above — see store.ts's interface comment for
+  // why this pair needs to be atomic.
+  async putRecordWithCustodyCopy(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    copy: CustodyCopy,
+  ): Promise<void> {
+    const existing = this.records.get(record.recordId);
+    if (existing?.version !== expectedVersion) {
+      throw new VersionConflictError("FixtureRecord", record.recordId);
+    }
+    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
+    const list = this.custodyCopies.get(copy.recordId) ?? [];
+    const next = list.filter((c) => c.copyId !== copy.copyId);
+    next.push({ ...copy });
+    this.custodyCopies.set(copy.recordId, next);
+  }
+
   // Test/backup-simulation helper only — not part of the FixtureStore
   // interface. Produces a deep snapshot usable to simulate "restore an old
   // backup" in tests, without touching the restriction register.

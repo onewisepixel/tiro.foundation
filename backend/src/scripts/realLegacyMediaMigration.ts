@@ -2,47 +2,68 @@
 // docs/backend/evidence-matrix.md's "AWS checks still not run" item:
 // "Migrating already-live legacy (versionId: null) media references."
 //
-// What "legacy" means here: every MediaRef buildSeedFixtures() (fixtures/
-// seed.ts) produces directly — WITHOUT ever calling fixtures/media.ts's
-// bindSeedMedia — is placeholder-shaped: versionId: null, a fixed
-// checksumSha256 of "0".repeat(64) (never a real hash of anything), and a
-// fixed objectKey ("fixtures/active-authorized/dummy.txt") that nothing has
-// actually uploaded to. services/media.ts already fails these closed (409)
-// rather than guess a version — this script does not change that; it only
-// REPORTS on them and, in --apply mode, rebinds the ones it can trust.
+// The actual classification/apply logic lives in
+// backend/src/services/legacyMediaMigration.ts, where it is unit-tested
+// against the in-memory fakes — this file is a thin CLI wrapper that wires
+// up real AWS clients, paces every DynamoDB call against this stack's
+// deliberately tiny, throttled table, and prints the report.
+//
+// A reviewer running that service module's logic against local fakes
+// reproduced two real bugs in an earlier version of this script that lived
+// entirely inline here: (1) it would rebind media for a record already in
+// the deletion workflow just because the media happened to match the known
+// placeholder signature — fixed by checking custody eligibility, freshly,
+// BEFORE any upload, separately from the signature match; (2) a failed
+// custody-copy write could leave a record's MediaRef already pointing at a
+// newly uploaded S3 object with no CustodyCopy tracking it, so a LATER
+// deletion could report success while that object survived, untracked,
+// forever — fixed by writing the MediaRef rewrite and its CustodyCopy
+// atomically (FixtureStore.putRecordWithCustodyCopy, one DynamoDB
+// transaction) and, if that transaction still fails after the upload
+// already happened, cleaning the orphaned upload up best-effort. See
+// legacyMediaMigration.ts's header comment and its test file for the full
+// detail and the regression tests proving both are closed.
 //
 // "Known source bytes" is a narrow, exact claim, not a loose heuristic: a
 // MediaRef is treated as rebindable ONLY if it matches this project's OWN
-// recognized placeholder signature byte-for-byte (objectKey, checksum,
-// contentType, versionId:null — KNOWN_PLACEHOLDER_SIGNATURE below). For
-// those, and ONLY those, the exact deterministic text bindSeedMedia WOULD
-// have uploaded for that record is reconstructable from the record's own
-// id (same template as fixtures/media.ts). This is NOT "recovering lost
-// original bytes" — the placeholder was never backed by anything real in
-// the first place — it is giving a known, synthetic, reconstructable
-// placeholder its real analog. A MediaRef that does NOT match the exact
+// recognized placeholder signature byte-for-byte AND the record is not in
+// the deletion workflow. A MediaRef that does NOT match the exact
 // signature has no trustworthy known origin and is reported as such,
-// explicitly left unavailable — never guessed, never rebound.
+// explicitly left unavailable — never guessed, never rebound. Recognizing
+// a placeholder is necessary but not sufficient for eligibility.
 //
 // Default mode is DRY RUN: inventories every legacy reference across every
 // record the register knows about and prints a classification report, with
 // NO writes to DynamoDB or S3. Pass --apply to actually upload the
-// reconstructed bytes and rebind ONLY the entries classified REBINDABLE;
-// everything else is left exactly as it was, every time.
+// reconstructed bytes and rebind ONLY the entries still eligible at apply
+// time; everything else is left exactly as it was, every time.
 //
 // Run with (dry run, the default):
 // AWS_PROFILE=tiro-fixture-deploy AWS_REGION=us-east-1 \
 //   TIRO_PRIMARY_TABLE=... TIRO_REGISTER_TABLE=... TIRO_MEDIA_BUCKET=... \
 //   npx tsx backend/src/scripts/realLegacyMediaMigration.ts
 //
-// Add --apply to actually rebind the REBINDABLE entries:
+// Add --apply to actually rebind entries still eligible at apply time:
 //   npx tsx backend/src/scripts/realLegacyMediaMigration.ts --apply
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { S3MediaStore } from "../store/s3MediaStore";
-import { uuidv7 } from "../domain/id";
-import type { MediaRef } from "../domain/types";
+import { applyLegacyMediaRebind, inventoryLegacyMedia, type LegacyMediaInventoryEntry } from "../services/legacyMediaMigration";
+import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import type {
+  AuditReceipt,
+  AuthorityClaim,
+  ConsentGrant,
+  Correction,
+  CustodyCopy,
+  FixtureRecord,
+  LegalRight,
+  LifecycleRequest,
+  LifecycleRequestStatus,
+  Redaction,
+  RestrictionRegisterEntry,
+} from "../domain/types";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
@@ -61,45 +82,13 @@ function log(step: string, message: string, data?: unknown): void {
   console.log(`\n[${step}] ${message}`, data !== undefined ? JSON.stringify(data, null, 2) : "");
 }
 
-// The EXACT shape every known-placeholder legacy reference from this
-// project's own fixture generator has — see fixtures/seed.ts's
-// activeAuthorizedFixture(). Matched field-for-field, not fuzzy: anything
-// that differs in even one field (a different objectKey a real upload
-// might have used, a real-looking checksum, a different declared size) is
-// NOT recognized, on purpose — a near-miss is exactly the case where
-// guessing would be most tempting and most wrong.
-const KNOWN_PLACEHOLDER_SIGNATURE = {
-  objectKey: "fixtures/active-authorized/dummy.txt",
-  checksumSha256: "0".repeat(64),
-  contentType: "text/plain",
-  bytes: 128,
-} as const;
-
-// The exact deterministic content fixtures/media.ts's bindSeedMedia would
-// have uploaded for this record's text MediaRef, had it been called
-// instead of skipped. Reconstructed, not recovered — the placeholder was
-// never backed by real bytes to begin with.
-function reconstructedPlaceholderContent(recordId: string): Buffer {
-  return Buffer.from(`[SYNTHETIC] dummy text content for record ${recordId}.\n`);
-}
-
-function isKnownPlaceholder(media: MediaRef): boolean {
-  return (
-    media.versionId === null &&
-    media.objectKey === KNOWN_PLACEHOLDER_SIGNATURE.objectKey &&
-    media.checksumSha256 === KNOWN_PLACEHOLDER_SIGNATURE.checksumSha256 &&
-    media.contentType === KNOWN_PLACEHOLDER_SIGNATURE.contentType &&
-    media.bytes === KNOWN_PLACEHOLDER_SIGNATURE.bytes
-  );
-}
-
 // This stack's table is deliberately provisioned at the tiny, always-
 // free-tier capacity (5 RCU/s — see fixture-backend-stack.ts's
-// PrimaryTable). 215 records have accumulated in the live register
-// across this engagement's drill history — a plain loop of 215
-// sequential strongly-consistent getRecord() calls (DynamoFixtureStore
-// uses ConsistentRead: true throughout, correctly, for reasons unrelated
-// to this script) reliably throttles. Self-pacing to whatever the table
+// PrimaryTable). Hundreds of records have accumulated in the live register
+// across this engagement's drill history — a plain loop of sequential
+// strongly-consistent getRecord() calls (DynamoFixtureStore uses
+// ConsistentRead: true throughout, correctly, for reasons unrelated to
+// this script) reliably throttles. Self-pacing to whatever the table
 // actually grants, rather than guessing a fixed delay, keeps this correct
 // without needing to touch the table's deliberately small provisioning.
 async function withThrottleRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
@@ -116,16 +105,124 @@ async function withThrottleRetry<T>(fn: () => Promise<T>, label: string): Promis
   }
 }
 
-type InventoryEntry = {
-  recordId: string;
-  mediaId: string;
-  objectKey: string;
-  bytes: number;
-  checksumSha256: string;
-  contentType: string;
-  classification: "rebindable" | "no-trustworthy-origin";
-  reason: string;
-};
+// Delegates every FixtureStore method to the real adapter unchanged,
+// except getRecord and putRecordWithCustodyCopy — throttle-paced here so
+// the shared service module (services/legacyMediaMigration.ts) stays
+// AWS-pacing-agnostic and testable against instant in-memory fakes; only
+// this live-AWS wrapper needs to know about backoff at all. Same
+// delegate-wrapper shape as the failure-injection test doubles in
+// services/lifecycle.test.ts.
+//
+// Deliberately NOT done by wrapping the whole applyLegacyMediaRebind()
+// call in withThrottleRetry: a throttling error from the FINAL write (the
+// atomic record+copy transaction) happens AFTER the S3 upload already
+// created real bytes — retrying the whole function from scratch would
+// upload a SECOND object and orphan the first, reintroducing a milder
+// version of the exact untracked-media bug this round fixed. Retrying
+// only the specific DynamoDB call that throttled avoids that.
+class ThrottledFixtureStore implements FixtureStore {
+  private callIndex = 0;
+  constructor(private readonly inner: FixtureStore, private readonly totalExpected: number) {}
+  getRecord(recordId: string) {
+    this.callIndex += 1;
+    return withThrottleRetry(() => this.inner.getRecord(recordId), `getRecord ${this.callIndex}/${this.totalExpected}`);
+  }
+  putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
+    return withThrottleRetry(
+      () => this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy),
+      `putRecordWithCustodyCopy ${record.recordId}`,
+    );
+  }
+  putRecord(record: FixtureRecord, expectedVersion: number | undefined) {
+    return this.inner.putRecord(record, expectedVersion);
+  }
+  deleteRecord(recordId: string, expectedVersion: number) {
+    return this.inner.deleteRecord(recordId, expectedVersion);
+  }
+  listAuthorityClaims(recordId: string) {
+    return this.inner.listAuthorityClaims(recordId);
+  }
+  putAuthorityClaim(claim: AuthorityClaim) {
+    return this.inner.putAuthorityClaim(claim);
+  }
+  listLegalRights(recordId: string) {
+    return this.inner.listLegalRights(recordId);
+  }
+  putLegalRight(right: LegalRight) {
+    return this.inner.putLegalRight(right);
+  }
+  listConsentGrants(recordId: string) {
+    return this.inner.listConsentGrants(recordId);
+  }
+  putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
+    return this.inner.putConsentGrant(grant, expectedVersion);
+  }
+  listCustodyCopies(recordId: string) {
+    return this.inner.listCustodyCopies(recordId);
+  }
+  putCustodyCopy(copy: CustodyCopy) {
+    return this.inner.putCustodyCopy(copy);
+  }
+  createLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.createLifecycleRequest(request);
+  }
+  getLifecycleRequest(requestId: string) {
+    return this.inner.getLifecycleRequest(requestId);
+  }
+  updateLifecycleRequest(request: LifecycleRequest) {
+    return this.inner.updateLifecycleRequest(request);
+  }
+  listLifecycleRequestsByStatus(status: LifecycleRequestStatus) {
+    return this.inner.listLifecycleRequestsByStatus(status);
+  }
+  putAuditReceipt(receipt: AuditReceipt) {
+    return this.inner.putAuditReceipt(receipt);
+  }
+  listAuditReceipts(recordId: string) {
+    return this.inner.listAuditReceipts(recordId);
+  }
+  putCorrection(correction: Correction) {
+    return this.inner.putCorrection(correction);
+  }
+  listCorrections(recordId: string) {
+    return this.inner.listCorrections(recordId);
+  }
+  getCorrection(recordId: string, correctionId: string) {
+    return this.inner.getCorrection(recordId, correctionId);
+  }
+  putRedaction(redaction: Redaction) {
+    return this.inner.putRedaction(redaction);
+  }
+  listRedactions(recordId: string) {
+    return this.inner.listRedactions(recordId);
+  }
+  getRedaction(recordId: string, redactionId: string) {
+    return this.inner.getRedaction(recordId, redactionId);
+  }
+  putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction) {
+    return this.inner.putRecordWithCorrection(record, expectedVersion, correction);
+  }
+  putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
+    return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
+  }
+}
+
+// Same throttle-pacing rationale as ThrottledFixtureStore above, for the
+// one register call applyLegacyMediaRebind() makes per item (the fresh
+// eligibility re-check) — getCurrent is a strongly consistent GetItem and
+// can throttle exactly like every other read against this table.
+class ThrottledRegisterStore implements RestrictionRegisterStore {
+  constructor(private readonly inner: RestrictionRegisterStore) {}
+  getCurrent(recordId: string) {
+    return withThrottleRetry(() => this.inner.getCurrent(recordId), `registerStore.getCurrent ${recordId}`);
+  }
+  setCurrent(entry: RestrictionRegisterEntry, expectedVersion: number | undefined) {
+    return this.inner.setCurrent(entry, expectedVersion);
+  }
+  listAll() {
+    return this.inner.listAll();
+  }
+}
 
 async function main() {
   const dynamoClient = new DynamoDBClient({ region: REGION });
@@ -134,61 +231,30 @@ async function main() {
   const registerStore = new DynamoRestrictionRegisterStore({ client: dynamoClient, tableName: REGISTER_TABLE });
   const mediaStore = new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET });
 
-  log("MODE", APPLY ? "APPLY — rebindable entries WILL be uploaded and rewritten" : "DRY RUN — no writes to DynamoDB or S3 will be made (pass --apply to actually migrate)");
+  log("MODE", APPLY ? "APPLY — eligible entries WILL be uploaded and rewritten" : "DRY RUN — no writes to DynamoDB or S3 will be made (pass --apply to actually migrate)");
 
   // Enumerate every recordId the system knows about via the restriction
   // register's own listAll() — a full table scan, same "fixture-scale
   // only" precedent that method's own comment already documents. The
   // register has exactly one item per record (PK = recordId only), so
   // this is the cheapest complete inventory of every record id, without
-  // needing a NEW scan method on the much larger primary table.
+  // needing a NEW scan method on the much larger primary table. Each
+  // entry's own currentCustodyStatus is read right here, at no extra cost.
   const allEntries = await registerStore.listAll();
   log("INVENTORY", `Found ${allEntries.length} record(s) in the restriction register`);
 
-  const inventory: InventoryEntry[] = [];
-  for (let i = 0; i < allEntries.length; i++) {
-    const entry = allEntries[i];
-    const record = await withThrottleRetry(() => fixtureStore.getRecord(entry.recordId), `getRecord ${i + 1}/${allEntries.length}`);
-    if (!record) {
-      continue; // Register entry with no corresponding record — not this script's concern.
-    }
-    for (const media of record.mediaRefs) {
-      if (media.versionId !== null) {
-        continue; // Already bound to a real S3 version — not legacy.
-      }
-      if (isKnownPlaceholder(media)) {
-        inventory.push({
-          recordId: record.recordId,
-          mediaId: media.mediaId,
-          objectKey: media.objectKey,
-          bytes: media.bytes,
-          checksumSha256: media.checksumSha256,
-          contentType: media.contentType,
-          classification: "rebindable",
-          reason: "Matches this project's known placeholder signature exactly — the deterministic synthetic content bindSeedMedia would have uploaded is reconstructable from the record id.",
-        });
-      } else {
-        inventory.push({
-          recordId: record.recordId,
-          mediaId: media.mediaId,
-          objectKey: media.objectKey,
-          bytes: media.bytes,
-          checksumSha256: media.checksumSha256,
-          contentType: media.contentType,
-          classification: "no-trustworthy-origin",
-          reason: "versionId is null but the reference does not match the known placeholder signature — no trustworthy known origin for its bytes. Stays unavailable; never guessed.",
-        });
-      }
-    }
-  }
+  const throttledFixtureStore = new ThrottledFixtureStore(fixtureStore, allEntries.length);
+  const inventory = await inventoryLegacyMedia(throttledFixtureStore, allEntries);
 
   // ------------------------------------------------------- the report ----
   console.log("\n==================== LEGACY MEDIA INVENTORY ====================");
   console.log(`Total legacy (versionId: null) references found: ${inventory.length}`);
   const rebindable = inventory.filter((i) => i.classification === "rebindable");
+  const ineligible = inventory.filter((i) => i.classification === "ineligible-deletion-in-progress");
   const stuck = inventory.filter((i) => i.classification === "no-trustworthy-origin");
-  console.log(`  Rebindable (known placeholder signature):     ${rebindable.length}`);
-  console.log(`  No trustworthy origin (stays unavailable):    ${stuck.length}`);
+  console.log(`  Rebindable (known placeholder signature, not in the deletion workflow): ${rebindable.length}`);
+  console.log(`  Ineligible (deletion in progress or complete):                          ${ineligible.length}`);
+  console.log(`  No trustworthy origin (stays unavailable):                              ${stuck.length}`);
   for (const item of inventory) {
     console.log(
       `\n[${item.classification.toUpperCase()}] record=${item.recordId} mediaId=${item.mediaId}\n  objectKey=${item.objectKey} bytes=${item.bytes} contentType=${item.contentType}\n  checksumSha256=${item.checksumSha256}\n  ${item.reason}`,
@@ -196,7 +262,7 @@ async function main() {
   }
 
   if (!APPLY) {
-    console.log("\nDry run complete — no writes were made. Re-run with --apply to rebind the REBINDABLE entries listed above.");
+    console.log("\nDry run complete — no writes were made. Re-run with --apply to rebind entries still eligible at apply time.");
     return;
   }
 
@@ -206,50 +272,38 @@ async function main() {
   }
 
   // ------------------------------------------------------------ apply ----
-  console.log(`\n==================== APPLYING: ${rebindable.length} rebind(s) ====================`);
+  console.log(`\n==================== APPLYING: up to ${rebindable.length} rebind(s) ====================`);
+  const throttledRegisterStore = new ThrottledRegisterStore(registerStore);
+  const outcomes: Awaited<ReturnType<typeof applyLegacyMediaRebind>>[] = [];
   for (const item of rebindable) {
-    const body = reconstructedPlaceholderContent(item.recordId);
-    const key = `fixtures/legacy-migration/${item.recordId}/${item.mediaId}.txt`;
-    const uploaded = await mediaStore.putObject(key, body, "text/plain");
-    log("UPLOAD", `Uploaded reconstructed placeholder content for record ${item.recordId}`, {
-      key,
-      versionId: uploaded.versionId,
-      bytes: uploaded.bytes,
-      sha256: uploaded.sha256,
-    });
-
-    const fresh = await withThrottleRetry(() => fixtureStore.getRecord(item.recordId), `apply: re-read ${item.recordId}`);
-    if (!fresh) {
-      log("SKIP", `Record ${item.recordId} no longer exists — leaving the uploaded object in place, not rewriting anything.`);
-      continue;
+    // Throttle pacing happens INSIDE each individual DynamoDB call now
+    // (ThrottledFixtureStore/ThrottledRegisterStore above), not around
+    // this whole call — see those classes' comments for why wrapping the
+    // whole function here would be wrong once an upload has already
+    // happened.
+    const outcome = await applyLegacyMediaRebind(item, throttledFixtureStore, throttledRegisterStore, mediaStore);
+    outcomes.push(outcome);
+    if (outcome.outcome === "rebound") {
+      log("REBOUND", `Record ${outcome.recordId}'s media ${outcome.mediaId} is now bound to a real S3 version`, { objectKey: outcome.objectKey, versionId: outcome.versionId });
+    } else if (outcome.outcome === "skipped-ineligible") {
+      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied`, { reason: outcome.reason });
+    } else {
+      log("FAILED", `Record ${outcome.recordId}'s media ${outcome.mediaId} failed to rebind`, { reason: outcome.reason, cleanedUp: outcome.cleanedUp });
     }
-    const updatedMediaRefs = fresh.mediaRefs.map((m) =>
-      m.mediaId === item.mediaId
-        ? { ...m, objectKey: key, bytes: uploaded.bytes, checksumSha256: uploaded.sha256, versionId: uploaded.versionId }
-        : m,
-    );
-    await withThrottleRetry(
-      () => fixtureStore.putRecord({ ...fresh, mediaRefs: updatedMediaRefs, updatedAt: new Date().toISOString() }, fresh.version),
-      `apply: rewrite ${item.recordId}`,
-    );
-    // Mirrors bindSeedMedia's own side effect — without this, completeDeletion's
-    // media-aware purge would never learn this object needs tracking.
-    await fixtureStore.putCustodyCopy({
-      recordId: item.recordId,
-      copyId: uuidv7(),
-      location: "primary",
-      objectVersionId: uploaded.versionId,
-      mediaId: item.mediaId,
-      createdAt: new Date().toISOString(),
-      reconciledAt: null,
-    });
-    log("REBOUND", `Record ${item.recordId}'s media ${item.mediaId} is now bound to a real S3 version`, { versionId: uploaded.versionId });
   }
 
-  console.log(`\n${rebindable.length} reference(s) rebound. ${stuck.length} reference(s) left unavailable (no trustworthy origin).`);
+  const rebound = outcomes.filter((o) => o.outcome === "rebound").length;
+  const skipped = outcomes.filter((o) => o.outcome === "skipped-ineligible").length;
+  const failed = outcomes.filter((o) => o.outcome === "failed").length;
+  console.log(`\n${rebound} reference(s) rebound. ${skipped} skipped (became ineligible since the inventory snapshot). ${failed} failed. ${stuck.length} left unavailable (no trustworthy origin).`);
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {
   console.error("Legacy media migration script failed:", error);
   process.exitCode = 1;
 });
+
+export type { LegacyMediaInventoryEntry };

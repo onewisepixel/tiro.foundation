@@ -150,6 +150,21 @@ export interface FixtureStore {
   // overwrite an existing history row with a corrupted "previous" value.
   putRecordWithCorrection(record: FixtureRecord, expectedVersion: number | undefined, correction: Correction): Promise<void>;
   putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction): Promise<void>;
+
+  // ATOMIC: the record's media-reference rewrite and the new custody copy
+  // that tracks its real S3 version commit together, or neither does.
+  // Reviewer-caught finding: the legacy-media migration script used to
+  // issue these as two SEPARATE writes — if the custody-copy write failed
+  // after the record's MediaRef already pointed at the newly uploaded
+  // object, completeDeletion's media purge (which learns what to purge
+  // ONLY from CustodyCopy rows — see purgeMediaCustody in
+  // services/lifecycle.ts) would never find out that object exists, so a
+  // later deletion could report "completed" while that media survived,
+  // untracked, outside the deletion workflow entirely. expectedVersion
+  // guards the record exactly like putRecordWithCorrection/
+  // putRecordWithRedaction; throws VersionConflictError on mismatch, in
+  // which case NEITHER write lands.
+  putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy): Promise<void>;
 }
 
 // The durable control register. Deliberately a SEPARATE interface backed by

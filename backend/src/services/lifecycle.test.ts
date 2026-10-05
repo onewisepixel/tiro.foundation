@@ -143,6 +143,9 @@ class FailOnceOnDeleteFixtureStore implements FixtureStore {
   putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
     return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
   }
+  putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
+    return this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy);
+  }
 }
 
 // Delegates to a real FixtureStore for everything, except its atomic
@@ -239,6 +242,9 @@ class FailOnceOnHistoryWriteFixtureStore implements FixtureStore {
       throw new Error("simulated history-write failure");
     }
     return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
+  }
+  putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
+    return this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy);
   }
 }
 
@@ -1354,6 +1360,9 @@ class InterleavingFixtureStore implements FixtureStore {
   putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
     return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
   }
+  putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
+    return this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy);
+  }
 }
 
 test(
@@ -1519,6 +1528,9 @@ class LyingAboutExistingHistoryFixtureStore implements FixtureStore {
   }
   putRecordWithRedaction(record: FixtureRecord, expectedVersion: number | undefined, redaction: Redaction) {
     return this.inner.putRecordWithRedaction(record, expectedVersion, redaction);
+  }
+  putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
+    return this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy);
   }
 }
 

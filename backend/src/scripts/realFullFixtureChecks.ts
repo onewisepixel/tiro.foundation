@@ -268,26 +268,74 @@ async function main() {
   // restrict() only ever touches restrictedPurposes/
   // currentPublicationStatus — the two are not in SEMANTIC conflict, but
   // both go through transitionControl's single-item optimistic-
-  // concurrency write on the SAME register entry, so a genuine race
-  // between them can still make one lose to a version conflict.
-  //
-  // Expected outcome, defined for EITHER ordering: whichever write lands
-  // first in DynamoDB wins outright, unconditionally; the OTHER's
-  // LifecycleRequest is rejected with a real VersionConflictError and
-  // stays "in-progress" — retryable, never silently lost and never
-  // silently merged into a corrupted hybrid state. Retrying the loser
-  // against the now-current register state must then land its own
-  // change on top of the winner's, so BOTH changes are present after
-  // that one retry — a race costs a retry here, never a lost update,
-  // because the two actions don't actually conflict in substance.
+  // concurrency write on the SAME register entry.
   const [raceFixture] = buildSeedFixtures();
   await seedStore(fixtureStore, registerStore, [raceFixture]);
   const raceRecordId = raceFixture.record.recordId;
   const raceConsentId = raceFixture.consentGrants[0].consentId;
 
+  // (a) FORCED conflict, deterministic — same technique as Finding 2a
+  // above: both candidate writes are computed from the SAME captured
+  // expectedVersion, so one is GUARANTEED to lose to a real DynamoDB
+  // ConditionExpression regardless of any timing. This is what actually
+  // proves the CAS mechanism rejects a stale write for THIS pair of
+  // fields; it does not depend on how two independent service calls
+  // happen to interleave.
+  const beforeForcedRace = await registerStore.getCurrent(raceRecordId);
+  if (!beforeForcedRace) {
+    throw new Error("Sanity check failed: raceFixture must have a register entry after seeding.");
+  }
+  const forcedExpectedVersion = beforeForcedRace.controlVersion;
+  const forcedRevokeCandidate = {
+    ...beforeForcedRace,
+    controlVersion: forcedExpectedVersion + 1,
+    revokedConsentIds: [...new Set([...beforeForcedRace.revokedConsentIds, raceConsentId])],
+    updatedAt: new Date().toISOString(),
+  };
+  const forcedRestrictCandidate = {
+    ...beforeForcedRace,
+    controlVersion: forcedExpectedVersion + 1,
+    restrictedPurposes: [...new Set([...beforeForcedRace.restrictedPurposes, "research" as const])],
+    updatedAt: new Date().toISOString(),
+  };
+  const [forcedRevoke, forcedRestrict] = await Promise.allSettled([
+    registerStore.setCurrent(forcedRevokeCandidate, forcedExpectedVersion),
+    registerStore.setCurrent(forcedRestrictCandidate, forcedExpectedVersion),
+  ]);
+  const forcedStatuses = [forcedRevoke.status, forcedRestrict.status];
+  const forcedOneWon =
+    forcedStatuses.includes("fulfilled") &&
+    forcedStatuses.includes("rejected") &&
+    (forcedRevoke.status === "fulfilled" || forcedRevoke.reason instanceof VersionConflictError) &&
+    (forcedRestrict.status === "fulfilled" || forcedRestrict.reason instanceof VersionConflictError);
+  check(
+    "Combinatorial case: revocation racing restriction — FORCED shared-version conflict against REAL DynamoDB correctly rejects the loser's compare-and-swap",
+    forcedOneWon,
+    {
+      forcedRevoke: forcedRevoke.status === "rejected" ? String(forcedRevoke.reason) : "fulfilled",
+      forcedRestrict: forcedRestrict.status === "rejected" ? String(forcedRestrict.reason) : "fulfilled",
+    },
+  );
+
+  // (b) Real service-level race, timing-dependent — reviewer-caught
+  // finding: the PREVIOUS version of this check REQUIRED exactly one of
+  // these two real calls to reject, which is not actually guaranteed.
+  // revokeConsentGrant() and restrict() each do their OWN
+  // transitionControl read-then-write round trip; if one call's full
+  // round trip completes before the other's read even happens, DynamoDB
+  // never sees two writes sharing a stale version at all — both calls
+  // genuinely succeed, serialized cleanly, with no conflict to retry.
+  // That is a VALID, safe outcome (proven deterministically possible by
+  // (a) above when a conflict IS forced) — not a bug, and the drill must
+  // not reject it. Expected outcome, defined for EITHER ordering: either
+  // a genuine conflict (one rejected, retryable) or both calls serialize
+  // cleanly (both fulfilled, no retry needed) — in EITHER case, both
+  // changes must be present in the register afterward, never lost.
+  const raceRevokeRequestId = `real-full-fixture-combo-revoke-${Date.now()}`;
+  const raceRestrictRequestId = `real-full-fixture-combo-restrict-${Date.now()}`;
   const [raceRevoke, raceRestrict] = await Promise.allSettled([
     revokeConsentGrant(fixtureStore, registerStore, {
-      requestId: `real-full-fixture-combo-revoke-${Date.now()}`,
+      requestId: raceRevokeRequestId,
       recordId: raceRecordId,
       requesterCapacity: "[SYNTHETIC] source authority",
       reason: "[SYNTHETIC] combinatorial case: revocation racing restriction",
@@ -297,7 +345,7 @@ async function main() {
       fixtureStore,
       registerStore,
       {
-        requestId: `real-full-fixture-combo-restrict-${Date.now()}`,
+        requestId: raceRestrictRequestId,
         recordId: raceRecordId,
         requesterCapacity: "[SYNTHETIC] staff",
         reason: "[SYNTHETIC] combinatorial case: revocation racing restriction",
@@ -305,45 +353,69 @@ async function main() {
       ["research"],
     ),
   ]);
+  const raceStatuses = [raceRevoke.status, raceRestrict.status];
+  const raceExactlyOneRejected = raceStatuses.includes("fulfilled") && raceStatuses.includes("rejected");
+  const raceBothFulfilled = raceRevoke.status === "fulfilled" && raceRestrict.status === "fulfilled";
   check(
-    "Combinatorial case: revocation racing restriction against REAL DynamoDB — exactly one wins the register write, the other is rejected, never silently merged or lost",
-    [raceRevoke.status, raceRestrict.status].includes("fulfilled") && [raceRevoke.status, raceRestrict.status].includes("rejected"),
+    "Combinatorial case: revocation racing restriction against REAL DynamoDB — EITHER a genuine CAS conflict (one rejected, retryable) OR both calls serialize cleanly and both succeed; both are valid, safe outcomes",
+    raceExactlyOneRejected || raceBothFulfilled,
     {
       revoke: raceRevoke.status === "rejected" ? String(raceRevoke.reason) : "fulfilled",
       restrict: raceRestrict.status === "rejected" ? String(raceRestrict.reason) : "fulfilled",
     },
   );
 
-  // Retry the loser — whichever one it actually was this run — against
-  // the now-current register state.
+  // If there WAS a genuine conflict, retry the loser using its ORIGINAL
+  // requestId — not a fresh one. This system's actual retry contract
+  // (services/lifecycle.ts's getOrCreateRequest) is resumption BY the
+  // same requestId: the existing "in-progress" LifecycleRequest is found,
+  // its fingerprint matches (same action/payload), and runGuarded
+  // re-attempts the same work against the now-current register state.
+  // Reviewer-caught finding: the PREVIOUS version of this check retried
+  // with a brand-new requestId, which abandons the original request
+  // permanently "in-progress" instead of ever completing it — exactly the
+  // "visibly pending, not silently lost" state becoming a silent leak
+  // instead, since nothing ever revisits that original id again.
+  let retriedRequestId: string | null = null;
   if (raceRevoke.status === "rejected") {
+    retriedRequestId = raceRevokeRequestId;
     await revokeConsentGrant(fixtureStore, registerStore, {
-      requestId: `real-full-fixture-combo-revoke-retry-${Date.now()}`,
+      requestId: raceRevokeRequestId,
       recordId: raceRecordId,
       requesterCapacity: "[SYNTHETIC] source authority",
-      reason: "[SYNTHETIC] combinatorial case: retry after losing the race",
+      reason: "[SYNTHETIC] combinatorial case: revocation racing restriction",
       consentId: raceConsentId,
     });
   } else if (raceRestrict.status === "rejected") {
+    retriedRequestId = raceRestrictRequestId;
     await restrict(
       fixtureStore,
       registerStore,
       {
-        requestId: `real-full-fixture-combo-restrict-retry-${Date.now()}`,
+        requestId: raceRestrictRequestId,
         recordId: raceRecordId,
         requesterCapacity: "[SYNTHETIC] staff",
-        reason: "[SYNTHETIC] combinatorial case: retry after losing the race",
+        reason: "[SYNTHETIC] combinatorial case: revocation racing restriction",
       },
       ["research"],
     );
   }
   const raceFinalRegister = await registerStore.getCurrent(raceRecordId);
   check(
-    "Combinatorial case: retrying the race's loser converges against REAL DynamoDB — BOTH the revocation and the restriction are present afterward, neither permanently lost",
+    "Combinatorial case: after resolving any conflict, BOTH the revocation and the restriction are present in the register — whether they serialized cleanly or one needed a retry, neither is ever permanently lost",
     (raceFinalRegister?.revokedConsentIds.includes(raceConsentId) ?? false) &&
       (raceFinalRegister?.restrictedPurposes.includes("research") ?? false),
     raceFinalRegister,
   );
+
+  if (retriedRequestId) {
+    const retriedRequestFinal = await fixtureStore.getLifecycleRequest(retriedRequestId);
+    check(
+      "Combinatorial case: retrying the SAME original requestId resumes and completes it against REAL DynamoDB — never left permanently stuck in-progress",
+      retriedRequestFinal?.status === "completed",
+      retriedRequestFinal,
+    );
+  }
 
   // --------------------------------- Combinatorial case: export racing withdrawal ----
   // exportFixtureSet NEVER writes to the register — it only reads it, once
