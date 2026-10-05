@@ -471,9 +471,8 @@ and documented rather than chased further; revisit when either upstream ships a 
 Actually applying the legacy-media migration (`realLegacyMediaMigration.ts --apply`) for any
 references its dry run classified as rebindable against a known, exact placeholder signature —
 the dry run itself is done; applying it to live data is a judgment call left to the user, not
-exercised automatically. A literal human browser click-through of the now-prepared
-`docs/backend/browser-acceptance-checklist.md`. Confirming the billing alarm's SNS email
-subscription (stuck `PendingConfirmation` — needs someone to click the email link). Actual
+exercised automatically. A literal human browser click-through of the now-prepared and
+now-fixture-seeded `docs/backend/browser-acceptance-checklist.md`. Actual
 image/audio/video redaction (blur/bleep/crop) — this
 backend's redaction is text-masking and a hard media-access override only, honestly short of real
 media-content processing, which needs infrastructure this project doesn't have. Forcing the export

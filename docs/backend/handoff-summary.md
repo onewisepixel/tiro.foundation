@@ -247,6 +247,13 @@ positive control before ever reporting an observed expiration. 174 tests pass (u
 the evidence matrix's "Combinatorial cases," "Legacy media migration," and "S3 noncurrent-version
 expiration observation" notes for the full detail.
 
+**Update, same day (2026-10-05):** the billing alarm's SNS email subscription — the one real,
+human-actionable gap the operational-readiness round found — is now confirmed. The user subscribed
+and confirmed a different, organizational address (`cero@tiro.foundation`) rather than the original
+`onewisepixel@gmail.com`; re-verified directly via `aws sns list-subscriptions-by-topic` (a real
+`SubscriptionArn`, not just the confirmation screen), not merely taken on the confirmation
+screenshot's word. The billing alarm now has a real, confirmed, actionable recipient.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
@@ -385,7 +392,7 @@ Estimated and, after one real month, should be confirmed near $0 — DynamoDB pr
 set well inside the always-free 25/25 allowance, and the fixture workload is tiny (four synthetic
 records seeded across all drill runs, no sustained traffic). Full estimate with cited AWS pricing in
 `docs/backend/decision-and-cost.md`. A CloudWatch billing alarm (notification only, not an enforced
-cap) is live, subscribed to `onewisepixel@gmail.com`.
+cap) is live, with a confirmed subscription at `cero@tiro.foundation` (confirmed 2026-10-05).
 
 ## Explicitly not done — not a vague "more to do" list
 

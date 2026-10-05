@@ -92,11 +92,12 @@ $0.00002, Secrets Manager $0.000015, DynamoDB $0.0000141708, everything else $0.
 even the low end.
 
 The billing alarm (`tiro-fixture-backend-billing-drill-20261002`, threshold $5.00) is deployed and
-`OK`, correctly far from triggering. One real gap found, not a code defect: its SNS email
-subscription is still `PendingConfirmation` for `onewisepixel@gmail.com` — AWS sends a one-time
-confirmation link at creation, and nothing in this codebase can click it; a human needs to check
-that inbox. See `docs/backend/evidence-matrix.md`'s "Real cost and billing-alert reconciliation"
-for the full detail.
+`OK`, correctly far from triggering. Its SNS email subscription — initially `PendingConfirmation`
+for `onewisepixel@gmail.com`, a gap no code change could close since AWS sends the confirmation
+link only inside the email itself — is now confirmed for `cero@tiro.foundation`
+(re-verified 2026-10-05 via `aws sns list-subscriptions-by-topic`, a real `SubscriptionArn`, not
+just the confirmation screen). See `docs/backend/evidence-matrix.md`'s "Real cost and
+billing-alert reconciliation" for the full detail.
 
 ## 4. What's still unverified
 
