@@ -574,20 +574,56 @@ temporary table + backup) — this script only writes a handful of small synthet
 already-deployed primary/register tables, left in place afterward as part of the real-AWS fixture
 baseline, same precedent as the restore drill's one surviving `active` record.
 
-### Combinatorial cases added 2026-10-04 — operational-readiness review
+### Combinatorial cases added 2026-10-04, corrected 2026-10-05 — operational-readiness review
 
 Two additional races, each defining the expected outcome for EITHER possible ordering (not just
-"a race exists"):
+"a race exists").
 
-- **Revocation racing restriction.** `revokeConsentGrant()` and `restrict()` fired concurrently
-  against the same fresh register item via `Promise.allSettled`. This is a genuine two-WRITER race
-  on one versioned item, so the outcome is symmetric: whichever lands first wins unconditionally
-  (observed live as a real `VersionConflictError`/`TransactionCanceledException` on the loser, both
-  orderings occur in practice depending on network timing) — and because the two changes are not
-  semantically conflicting, retrying the loser against a fresh read always converges to a register
-  state with BOTH changes present. Confirmed live: after retry, the register held both
-  `revokedConsentIds` containing the raced consent id AND `restrictedPurposes` containing
-  `"research"` together.
+**Reviewer-caught finding (2026-10-05): the original "revocation racing restriction" check
+REJECTED a valid outcome.** It required exactly one of the two real `revokeConsentGrant()`/
+`restrict()` calls to be rejected — but that is not actually guaranteed: each call does its OWN
+independent `transitionControl` read-then-write round trip, and if one call's full round trip
+completes before the other's read even happens, DynamoDB never sees two writes sharing a stale
+version at all — both calls genuinely succeed, serialized cleanly, with no conflict to retry. A
+reviewer forced that exact ordering and got both changes landing with nothing rejected, which the
+drill then wrongly reported as a failure. Separately, the retry step used a BRAND-NEW requestId for
+the loser instead of the original one — this system's actual retry contract
+(`services/lifecycle.ts`'s `getOrCreateRequest`) is resumption BY THE SAME requestId; a fresh id
+abandons the original `LifecycleRequest` permanently `"in-progress"` instead of ever completing it.
+
+Fixed with four checks instead of two:
+
+- **Forced shared-version conflict (NEW, deterministic).** Mirrors Finding 2a's technique exactly:
+  both candidate register writes are computed from the SAME captured `expectedVersion`, so one is
+  GUARANTEED to lose to a real DynamoDB `ConditionExpression` regardless of timing. This is what
+  actually proves the compare-and-swap rejects a stale write for this pair of fields — it doesn't
+  depend on how two independent service calls happen to interleave.
+- **Real service-level race, timing-dependent — EITHER outcome now accepted.** The two real calls
+  fire concurrently via `Promise.allSettled`; the check now passes on EITHER a genuine conflict (one
+  rejected, retryable) OR both calls serializing cleanly (both fulfilled, no retry needed) — both
+  are valid, safe outcomes, never conflated as a failure.
+- **Convergence after resolving any conflict.** Whichever outcome actually occurred, the register
+  must hold BOTH `revokedConsentIds` containing the raced consent id AND `restrictedPurposes`
+  containing `"research"` afterward — confirmed live.
+- **Retry resumption (NEW).** When there WAS a genuine conflict, retrying the loser with its
+  ORIGINAL requestId must resume and complete that same `LifecycleRequest` (`status: "completed"`),
+  never leave it stuck `"in-progress"` forever. Confirmed live.
+
+**A second, genuinely new production bug was caught by the forced-conflict check above, not by
+anything previously in this project:** DynamoDB's `TransactWriteItems` can cancel a transaction with
+cancellation reason `"TransactionConflict"` — raised when another transaction is simultaneously
+touching the same item — WITHOUT ever evaluating the `ConditionExpression` at all. This is the
+SAME situation as a condition mismatch (someone else's concurrent write intervened; retry), but
+`dynamoStore.ts`'s `isConditionalFailure` helper only recognized the `"ConditionalCheckFailed"`
+reason code, so a `TransactionConflict` cancellation propagated as a raw, unmapped
+`TransactionCanceledException` instead of the `VersionConflictError` every caller in
+`services/lifecycle.ts` actually checks for — misreporting a genuine, retryable race loss as
+"Unexpected error applying lifecycle action." Fixed by recognizing both cancellation reason codes
+as equivalent. The forced-conflict check above is exactly the kind of test that catches this —
+hitting the same item from two simultaneous `TransactWriteItems` calls is far more likely to
+surface `TransactionConflict` than the timing-dependent service-level race is, which is why this
+had never been observed before now.
+
 - **Export racing withdrawal, and export racing deletion.** `withdraw()`/`startDeletion()` raced
   against `exportFixtureSet()` on a fresh fixture. This is a WRITER-vs-READER case, not symmetric:
   the writer always fulfills (sole writer on that field), and the real invariant is
@@ -597,9 +633,9 @@ Two additional races, each defining the expected outcome for EITHER possible ord
   included with a FULLY self-consistent pre-race snapshot — never a torn mix of pre- and
   post-race state within one record. Confirmed live for both withdrawal and deletion variants.
 
-All four combinatorial checks passed, bringing the script's total to 13/13. See
-`docs/backend/runbook.md`'s "Full-fixture seed and correctness checks against real DynamoDB"
-section for the run command.
+All six combinatorial checks passed against real DynamoDB after both fixes, bringing the script's
+total to **15/15**. See `docs/backend/runbook.md`'s "Full-fixture seed and correctness checks
+against real DynamoDB" section for the run command.
 
 ## Real staff API smoke test — what actually happened
 
@@ -1000,34 +1036,52 @@ seeded was left in place, same precedent as every other real-AWS check in this p
 
 ## Legacy media migration — what actually happened
 
-Dated 2026-10-04. `backend/src/scripts/realLegacyMediaMigration.ts`, run in dry-run mode (the
-default; `--apply` requires an explicit flag and was NOT passed) against the same deployed stack.
-Enumerated all 215 records currently in the live restriction register (accumulated across this
-entire engagement's history, via `RestrictionRegisterStore.listAll()`'s full table scan, reused
-rather than adding a new primary-table scan method), read each one's `MediaRef`s, and classified
-every reference with `versionId: null` against a narrow, EXACT signature match — never fuzzy —
-against this project's one known placeholder (`objectKey: "fixtures/active-authorized/dummy.txt"`,
-`checksumSha256` all-zeros, `contentType: "text/plain"`, `bytes: 128`), the exact shape
-`buildSeedFixtures()` has always produced before `bindSeedMedia` binds it to real S3 bytes.
+Dated 2026-10-04, corrected 2026-10-05. `backend/src/scripts/realLegacyMediaMigration.ts`, run in
+dry-run mode (the default; `--apply` requires an explicit flag and was NOT passed) against the same
+deployed stack. Enumerates every record currently in the live restriction register (via
+`RestrictionRegisterStore.listAll()`'s full table scan, reused rather than adding a new
+primary-table scan method), reads each one's `MediaRef`s, and classifies every reference with
+`versionId: null` against a narrow, EXACT signature match — never fuzzy — against this project's
+one known placeholder (`objectKey: "fixtures/active-authorized/dummy.txt"`, `checksumSha256`
+all-zeros, `contentType: "text/plain"`, `bytes: 128`), the exact shape `buildSeedFixtures()` has
+always produced before `bindSeedMedia` binds it to real S3 bytes.
 
-**Result: 29 legacy (`versionId: null`) references found. All 29 matched the known placeholder
-signature exactly (rebindable). Zero had no trustworthy origin.** This is expected, not a sign the
-check is too permissive: every legacy reference across this project's history came from the same
-`buildSeedFixtures()` template, so there was never a case of an unrelated or ambiguous placeholder
-to reject — the zero-count for "no trustworthy origin" reflects this project's actual history, not
-an unexercised code path. (The classification logic itself, including the reject path, is real:
-any reference differing in even one field — object key, checksum, content type, or byte count —
-would NOT match and would be correctly left alone rather than guessed at.)
+**Reviewer-caught finding (2026-10-05): a recognizable placeholder signature alone does not
+establish migration eligibility.** Running this logic against the in-memory fakes reproduced two
+real failures in the original version of this script: (1) it would happily rebind media for a
+record ALREADY in the deletion workflow (custody `"deletion-pending"` or `"deleted"`) just because
+the media happened to match the known signature — creating media outside that workflow's tracking
+for a record that is being, or has been, deleted; (2) the `MediaRef` rewrite and its `CustodyCopy`
+were two SEPARATE writes — if the custody-copy write failed after the record already pointed at
+the newly uploaded object, `completeDeletion()`'s purge (which learns what to purge ONLY from
+`CustodyCopy` rows — see `purgeMediaCustody` in `services/lifecycle.ts`) would never learn that
+object exists, so a LATER deletion could report `"completed"` while that object survived,
+untracked, forever.
+
+Both are fixed by extracting the classification/apply logic into a new, unit-tested module,
+`backend/src/services/legacyMediaMigration.ts` (6 regression tests in `legacyMediaMigration.test.ts`
+reproduce both original failures against the in-memory fakes and prove them closed): eligibility is
+now checked FRESH, immediately before any S3 upload, against the record's live custody status —
+never trusted from the dry-run snapshot alone — and the `MediaRef` rewrite plus its new
+`CustodyCopy` are written in ONE atomic DynamoDB transaction
+(`FixtureStore.putRecordWithCustodyCopy`, mirroring `putRecordWithCorrection`/
+`putRecordWithRedaction`'s existing pattern). If that atomic write still fails after an upload
+already happened, the uploaded object is cleaned up best-effort rather than left orphaned.
+
+**Real result, re-run against the live stack with the fix (2026-10-05): 37 legacy
+(`versionId: null`) references found across every record in the register. 34 matched the known
+placeholder signature AND are not in the deletion workflow (rebindable). 3 matched the signature
+but ARE in the deletion workflow — correctly classified `ineligible-deletion-in-progress` instead
+of rebindable, exactly the case the reviewer's finding (1) named. 0 had no trustworthy origin.**
+The 3 ineligible entries are real, concrete proof the new gate is doing actual work, not a
+theoretical fix: under the ORIGINAL logic, all 37 would have been reported rebindable.
 
 Rebinding here means giving a known, synthetic, reconstructable placeholder its real analog — NOT
 "recovering lost original bytes," since the placeholder was never backed by anything real to begin
-with. `--apply` would upload a deterministic synthetic text file
-(`fixtures/legacy-migration/<recordId>/<mediaId>.txt`), rewrite the matching `MediaRef`
-(`objectKey`/`bytes`/`checksumSha256`/`versionId`) via a version-guarded `putRecord`, and add a
-matching `CustodyCopy`, mirroring `bindSeedMedia`'s own side effects exactly. **`--apply` was
-deliberately NOT run against this shared, live stack** — the request was for a dry-run report;
-actually mutating 29 real records' media is a separate decision left open for the user (see the
-end-of-round summary).
+with. **`--apply` was deliberately NOT run against this shared, live stack** — the request was for
+a dry-run report; actually mutating real records' media is a separate decision left open for the
+user (see the end-of-round summary), and the user has separately asked to keep migration in
+dry-run mode for now regardless.
 
 A first run without throttle-aware retry hit `ProvisionedThroughputExceededException` partway
 through (around record 16 of 215) — expected, given this deliberately tiny 5-RCU table and the
@@ -1082,15 +1136,39 @@ touched by nothing else) with two versions, so the first becomes noncurrent imme
 
 ```
 v1 (now noncurrent) versionId: eyOuILjjsdb2_znMFWBxv2eDn1p_POqr
-v2 (current) versionId: ueud8o0WEOEtZTkp07OqZkKeUMsB7APb
+v2 (current — positive control) versionId: ueud8o0WEOEtZTkp07OqZkKeUMsB7APb
 Noncurrent since (UTC): 2026-10-04T22:44:18.761Z
-Expected to have expired by (UTC): 2026-11-03T22:44:18.761Z
 ```
 
-**This is genuinely PENDING until 2026-11-03T22:44:18.761Z.** Re-run the same script with `--check`
-on or after that date to see the real result — checking earlier is harmless and reports "too early"
-rather than fabricating a pass. Per this project's standing rule, a time-dependent result is never
-recorded here until it is actually observed.
+**Reviewer-caught finding (2026-10-05), two parts, both fixed:**
+
+1. **The eligibility date was wrong.** The original printed date (`noncurrentSince + 30 days` =
+   2026-11-03T22:44:18.761Z) treated S3's lifecycle rule as if it fired at an exact instant. It
+   doesn't: S3's lifecycle engine evaluates whole elapsed calendar days and runs its sweep once
+   around UTC midnight, so the first sweep that can actually pick v1 up is the next UTC midnight
+   on/after that instant — **2026-11-04T00:00:00Z** (2026-11-03, 6pm Chicago time under CST).
+   Reaching that instant means v1 becomes ELIGIBLE for removal, not that AWS guarantees it's
+   physically gone yet — there is no further "deadline" after that, only "ineligible" versus
+   "eligible, not yet necessarily removed" versus "observed removed." `realS3ExpiryObservationSeed.ts`
+   now computes and prints this correctly, rounding up to the next UTC midnight.
+2. **`--check` could falsely pass.** The original logic treated ANY listing of 1-or-fewer real
+   versions as "expired" — including a totally EMPTY listing (proving nothing was ever seeded, or
+   the key/bucket is wrong, not that anything expired) and including the case where only the
+   ORIGINAL v1 remained and the CURRENT v2 had vanished (an inversion/anomaly, never a pass — the
+   current version must never be touched by a noncurrent-version rule). Fixed by persisting the
+   exact seeded v1/v2 version ids to a separate S3 object
+   (`fixtures/ttl-s3-expiry-observation/seed-record.json`) at seed time, and having `--check` read
+   that back as ground truth: it now requires v2 (the positive control) to be confirmed present
+   BEFORE treating v1's absence as a real, observed expiration; a missing seed record, a missing
+   positive control, and a genuine expiration are now three distinct, clearly labeled outcomes,
+   never conflated. The seed record for this existing observation (the version ids above) was
+   persisted retroactively on 2026-10-05 so `--check` has real ground truth to verify against.
+
+**This is genuinely PENDING until 2026-11-04T00:00:00Z.** Re-run the same script with `--check`
+on or after that date to see the real result — checking earlier is harmless and, confirmed live on
+2026-10-05, correctly reports "too early" (v1 and the v2 positive control both still present) rather
+than fabricating a pass. Per this project's standing rule, a time-dependent result is never recorded
+here until it is actually observed.
 
 ## AWS checks still not run, and the exact commands to finish them
 

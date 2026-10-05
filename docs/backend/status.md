@@ -440,13 +440,30 @@ and documented rather than chased further; revisit when either upstream ships a 
   (IAM-gated, used for scripted sign-in/smoke-testing without implementing SRP by hand). Deployed
   and smoke-tested against the real stack — see the evidence matrix.
 - 2026-10-04, operational readiness: the staff API smoke test is now a reusable script
-  (`realStaffApiSmokeTest.ts`, 8/8), `realFullFixtureChecks.ts` grew four combinatorial-case checks
-  (revocation racing restriction, export racing withdrawal/deletion — 13/13 total, each case's
-  expected outcome defined for either ordering), a legacy-media inventory/dry-run migration script
-  was written and run against the live register, a 16-step browser-acceptance checklist plus its
-  seeding script are prepared for human execution, real AWS cost/billing were reconciled, and an
-  S3 noncurrent-version expiry observation was seeded (pending check on/after 2026-11-03). DynamoDB
-  capacity was deliberately left unchanged throughout. See the evidence matrix for full results.
+  (`realStaffApiSmokeTest.ts`, 8/8), `realFullFixtureChecks.ts` grew combinatorial-case checks, a
+  legacy-media inventory/dry-run migration script was written and run against the live register, a
+  16-step browser-acceptance checklist plus its seeding script are prepared for human execution,
+  real AWS cost/billing were reconciled, and an S3 noncurrent-version expiry observation was
+  seeded. DynamoDB capacity was deliberately left unchanged throughout. See the evidence matrix for
+  full results.
+- 2026-10-05, review of the operational-readiness round above found three real gaps, all fixed: (1)
+  the legacy-media migration could rebind media for a record already in the deletion workflow, and
+  a failed custody-copy write could leave an uploaded S3 object untracked forever — fixed by
+  extracting the logic into `services/legacyMediaMigration.ts` (now unit-tested against the
+  in-memory fakes), checking custody eligibility FRESH before any upload, writing the record+copy
+  atomically (`FixtureStore.putRecordWithCustodyCopy`, a new transactional store method), and
+  cleaning up an orphaned upload if the atomic write still fails; (2) the new revocation-vs-
+  restriction race check rejected a VALID outcome (both calls serializing cleanly with nothing to
+  retry) and retried a conflict loser with a brand-new requestId instead of its original one — fixed
+  by accepting either valid outcome, adding a deterministic forced-conflict check, and retrying with
+  the original requestId (which also surfaced a genuine production bug: DynamoDB's
+  `TransactionConflict` cancellation reason wasn't mapped to `VersionConflictError` in
+  `dynamoStore.ts`, now fixed); (3) the S3 expiry checker's eligibility date was computed as a raw
+  `+30 days` instant instead of rounding up to S3's actual daily UTC-midnight sweep (corrected:
+  2026-11-04T00:00:00Z, not 2026-11-03T22:44), and `--check` could falsely report "expired" for an
+  empty listing or for the inverse case where the current version vanished — fixed by persisting
+  the exact seeded version ids as a positive control. `realFullFixtureChecks.ts` now passes 15/15
+  live. See the evidence matrix for the full detail.
 
 ## What remains open, by kind
 

@@ -135,15 +135,26 @@ checklist is the evidence, not just a rehearsal.
 
 ## F. Audit attribution
 
-16. **Every action above is attributed to YOU, not spoofable.** Reload the
-    `ALLOWED` record's audit receipts (or check them from any point before
-    step 15's deletion).
-    - [ ] Expect: every receipt's context and every correction's
-      `attribution` field reflects the Cognito identity you actually
-      signed in with in step 4 (`staff:<your-email>`) — never a generic
-      "staff" label, never anything you could have typed into a form
-      yourself. The UI never sends an identity in the request body at
-      all; the API reads it from your ID token.
+16. **Every action above is attributed to YOU, not spoofable.** Do this
+    from a point before step 15's deletion, since the record's own
+    history won't be reachable afterward.
+    - [ ] Expect: each action form (restrict, withdraw, retain,
+      start-deletion, complete-deletion) shows its raw JSON response
+      directly on the page right after you submit it — look at the
+      `requesterCapacity` field there; it must match the Cognito identity
+      you actually signed in with in step 4 (`staff:<your-email>`). No
+      network inspector needed; the UI prints the full response itself.
+    - [ ] Expect: the Corrections list entry from step 9's `correct`
+      action shows an `attribution` field with that SAME identity.
+    - [ ] **Do NOT expect this from audit receipts.** `AuditReceipt`
+      (`domain/types.ts`) has no actor field at all — only
+      `recordId`/`receiptId`/`action`/`outcome`/`safeNote`/`at`. If the
+      audit receipts list is the only place you checked, this step is
+      incomplete, not passed.
+    - [ ] Expect: in every case, the identity reflects what you actually
+      signed in with, never anything you could have typed into a form —
+      the UI never sends an identity in the request body at all; the API
+      reads it from your ID token (`handler.ts`'s `extractCallerIdentity`).
 
 ## Result
 

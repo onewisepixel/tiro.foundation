@@ -215,6 +215,38 @@ PENDING until 2026-11-03 (never fabricated early). DynamoDB capacity was left un
 per explicit instruction. See the evidence matrix's "Combinatorial cases," "Real staff API smoke
 test," "Legacy media migration," and "S3 noncurrent-version expiration observation" notes.
 
+**Update, review of the operational-readiness round (2026-10-05) — three real gaps found by
+actually executing the new scripts against local fakes and reasoning about the new drill's forced
+timing, all genuinely fixed:** (1) the legacy-media migration had no deletion-workflow eligibility
+check at all and wrote its record-rewrite and custody-copy as two separate calls — reproduced as
+two real failures (rebinding media for an already-deleted record; a failed custody-copy write
+leaving an uploaded object permanently untracked, so a later deletion could report success while it
+survived) — fixed by extracting the logic into a new, unit-tested module
+(`services/legacyMediaMigration.ts`), checking custody status FRESH immediately before any upload
+(never trusting the dry-run snapshot), and writing the record and its copy in one atomic DynamoDB
+transaction (`FixtureStore.putRecordWithCustodyCopy`) with best-effort cleanup of an orphaned
+upload if that transaction still fails; 6 new regression tests reproduce both original failures and
+prove them closed. (2) The prior round's new "revocation racing restriction" combinatorial check
+required a genuine CAS conflict that isn't actually guaranteed — two independent service calls can
+legitimately serialize cleanly with nothing to retry — and its retry step used a brand-new
+requestId instead of the original one, abandoning the loser's `LifecycleRequest` permanently
+"in-progress"; fixed by accepting either valid outcome, adding a NEW deterministic forced-conflict
+check (mirroring Finding 2a's technique), and retrying with the original requestId. That forced
+check immediately caught a THIRD, genuinely new production bug: DynamoDB's `TransactWriteItems`
+can cancel with reason `TransactionConflict` (simultaneous item contention) without ever evaluating
+the `ConditionExpression`, and `dynamoStore.ts`'s `isConditionalFailure` only recognized
+`ConditionalCheckFailed` — so a real race loss could propagate unmapped instead of becoming the
+`VersionConflictError` every caller expects; now fixed. `realFullFixtureChecks.ts` passes **15/15**
+against real DynamoDB after both fixes. (3) The S3 expiry observation's printed eligibility date
+was a raw `+30 days` instant; S3's lifecycle engine actually sweeps once daily around UTC midnight
+on whole elapsed days, so the real earliest eligibility is 2026-11-04T00:00:00Z, not
+2026-11-03T22:44 — and `--check` could falsely report "expired" for an empty listing or for the
+inverted case where the current version vanished instead of the noncurrent one; fixed by persisting
+the exact seeded version ids as ground truth and requiring the current version to survive as a
+positive control before ever reporting an observed expiration. 174 tests pass (up from 168). See
+the evidence matrix's "Combinatorial cases," "Legacy media migration," and "S3 noncurrent-version
+expiration observation" notes for the full detail.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

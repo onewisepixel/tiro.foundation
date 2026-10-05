@@ -169,16 +169,20 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
   npx tsx backend/src/scripts/realFullFixtureChecks.ts
 ```
 
-Runs 13 checks and exits non-zero if any fails: 4 permission-parity checks (one per fixture case),
+Runs 15 checks and exits non-zero if any fails: 4 permission-parity checks (one per fixture case),
 a grant-revocation check, two concurrency checks (a direct `RestrictionRegisterStore.setCurrent`
 compare-and-swap race, plus a full `startDeletion`/`restrict` integration race), two
 export-authorization checks (`public-redacted` and `complete-preservation` scopes both excluding
-the expired-consent and disputed-authority records), and four combinatorial-case checks added for
-operational-readiness review: revocation racing restriction (both an exactly-one-wins check and a
-retry-converges-both-changes check), and export racing withdrawal/deletion (one each) — see
-`docs/backend/evidence-matrix.md`'s "Combinatorial cases" note for the expected outcome this
-defines for each possible ordering. Last run 2026-10-04: all 13 passed on the first try — see
-`docs/backend/evidence-matrix.md` for the full results.
+the expired-consent and disputed-authority records), and six combinatorial-case checks added for
+operational-readiness review: revocation racing restriction (a FORCED deterministic
+shared-version-conflict check, a real timing-dependent race accepting EITHER a genuine conflict or
+both calls serializing cleanly, a convergence check, and a retry-resumes-the-original-requestId
+check), and export racing withdrawal/deletion (one each) — see `docs/backend/evidence-matrix.md`'s
+"Combinatorial cases" note for the expected outcome this defines for each possible ordering, and
+for the reviewer-caught finding (2026-10-05) that the original revocation/restriction check
+required a conflict that isn't actually guaranteed, plus the real `TransactionConflict` cancellation
+reason bug that fix uncovered in `dynamoStore.ts`'s `isConditionalFailure`. Last run 2026-10-05:
+all 15 passed — see `docs/backend/evidence-matrix.md` for the full results.
 
 ## Grant-level revocation restore drill against real DynamoDB
 
@@ -295,8 +299,14 @@ enforcing `evaluatePermission` on this route. Exits non-zero if any of its
 ## Legacy media migration against real AWS
 
 Inventories every live `MediaRef` with `versionId: null` (seeded before S3 version binding
-existed) and reports which match this project's one known, exact placeholder signature
-(rebindable) versus which don't (stay unavailable — never guessed at). Dry run by default:
+existed) and reports which match this project's one known, exact placeholder signature AND are not
+in the deletion workflow (rebindable) versus which don't match (no trustworthy origin — stay
+unavailable, never guessed at) versus which match but are ineligible because the record's custody
+status is `"deletion-pending"` or `"deleted"` (recognizing a placeholder does not by itself
+establish migration eligibility — a reviewer-caught finding, see
+`docs/backend/evidence-matrix.md`'s "Legacy media migration" entry). The classification/apply logic
+lives in `backend/src/services/legacyMediaMigration.ts`, unit-tested against the in-memory fakes
+(`legacyMediaMigration.test.ts`); this script is a thin CLI wrapper. Dry run by default:
 
 ```bash
 AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
@@ -306,15 +316,19 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
   npx tsx backend/src/scripts/realLegacyMediaMigration.ts
 ```
 
-Last run 2026-10-04 against the drill stack: 215 records scanned, 29 legacy references found, all
-29 rebindable, 0 with no trustworthy origin — see `docs/backend/evidence-matrix.md`'s "Legacy
-media migration" entry for the full result and why this needs real throttle-aware retry (the same
-215-record enumeration that throttles every full-register scan in this project). Pass `--apply` to
-actually rebind the rebindable entries — uploads a deterministic synthetic analog to a new
-`fixtures/legacy-migration/<recordId>/<mediaId>.txt` key and rewrites the matching `MediaRef` plus
-a `CustodyCopy`. `--apply` has NOT been run against the live drill stack; that is a separate,
-real-data-mutating decision left to whoever operates this stack, not something this script does
-on its own.
+Pass `--apply` to actually rebind entries still eligible at apply time — eligibility is re-checked
+FRESH immediately before any S3 upload (never trusting the dry-run snapshot), and the record's
+`MediaRef` rewrite plus its new `CustodyCopy` are written in ONE atomic DynamoDB transaction
+(`FixtureStore.putRecordWithCustodyCopy`) so a failed custody-copy write can never leave an
+uploaded object untracked outside the deletion workflow; if the atomic write still fails after an
+upload already happened, the script cleans that upload up best-effort rather than leaving an
+orphan.
+
+Last run (dry run) 2026-10-05 against the drill stack: 37 legacy references found, 34 rebindable, 3
+correctly classified ineligible because their record is in the deletion workflow (would have been
+misreported as rebindable under the pre-fix logic), 0 with no trustworthy origin. `--apply` has NOT
+been run against the live drill stack; that is a separate, real-data-mutating decision left to
+whoever operates this stack, not something this script does on its own.
 
 ## S3 noncurrent-version expiry observation
 
@@ -323,7 +337,9 @@ A two-step, DATED observation of the real, deployed
 actually firing — distinct from DynamoDB TTL, which this project has never
 configured on any table (no `timeToLiveAttribute` anywhere; deletion is
 always explicit via `completeDeletion`). Seed step (uploads two versions
-to one dedicated key so the first becomes noncurrent immediately):
+to one dedicated key so the first becomes noncurrent immediately, and
+persists the exact seeded version ids to a SEPARATE S3 object as ground
+truth for `--check` to verify against later — see below for why):
 
 ```bash
 AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
@@ -333,10 +349,24 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
 
 Seeded 2026-10-04T22:44:18.761Z against the drill stack's media bucket —
 see `docs/backend/evidence-matrix.md`'s "S3 noncurrent-version expiration
-observation" entry for the exact version ids. On or after
-2026-11-03T22:44:18.761Z, re-run with `--check` to see whether the
-noncurrent version has actually expired; running `--check` earlier is
-harmless and just reports "too early" rather than fabricating a result.
+observation" entry for the exact version ids. Reviewer-caught finding
+(2026-10-05): the ORIGINAL eligibility date printed here
+(2026-11-03T22:44:18.761Z, a raw `+30 days`) was wrong — S3's lifecycle
+engine evaluates whole elapsed calendar days and sweeps once around UTC
+midnight, so the first sweep that can actually pick this up is
+**2026-11-04T00:00:00Z** (2026-11-03, 6pm Chicago time), not the exact
+30-day instant; reaching it means v1 becomes ELIGIBLE, not that AWS
+guarantees it's removed immediately. The ORIGINAL `--check` logic was
+also fixed: it used to report "expired" for ANY listing of 1-or-fewer
+versions, including a totally empty one (proving nothing, not expiration)
+or one where only the ORIGINAL v1 remained and the current v2 had
+vanished (an inversion, not a pass). `--check` now reads the exact seeded
+version ids back from a persisted S3 object and requires v2 (a surviving
+positive control — the current version, which this rule must never
+touch) to be confirmed present before treating v1's absence as a real,
+observed expiration. On or after 2026-11-04T00:00:00Z, re-run with
+`--check`; running it earlier is harmless and just reports "too early"
+rather than fabricating a result.
 
 ## Browser acceptance checklist
 
