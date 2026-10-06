@@ -1228,6 +1228,39 @@ since nothing about the real `DeletionInProgressError`/`VersionConflictError` cl
 changed (that was already proven live in the second round); only the service-layer control flow
 around them did. `--apply` stays deliberately unrun against the live stack.
 
+### Fourth review round (2026-10-06): an ordinary write failure was still reported as a benign skip
+
+**Reviewer-caught finding: ordinary write failures became `"skipped-ineligible"` once cleanup
+succeeded.** The third round's fix correctly resolved uncertain commits and correctly flagged
+unresolved cleanup — but the "confirmed non-commit, cleanup succeeded" branch for UNCERTAIN errors
+(anything that isn't a DEFINITE `DeletionInProgressError`/`VersionConflictError` refusal) still
+returned `"skipped-ineligible"`. A reviewer injected a real `AccessDeniedException` directly into
+the CLI: the commit genuinely failed for an operational reason, the recheck correctly confirmed
+nothing had committed, cleanup correctly removed the orphaned upload — and the whole attempt was
+reported as `0 rebound · 1 skipped · 0 need reconciliation`, exit `0`. The record stayed
+un-migrated with nothing in the output distinguishing it from a record correctly excluded by
+design; a caller scanning for failures would see none.
+
+Fixed by splitting what used to be one outcome into two with a real semantic difference:
+`"skipped-ineligible"` is now reserved for refusals that are CORRECT BY DESIGN — the early
+pre-upload eligibility checks, plus the two DEFINITE commit refusals that mean "this item should not
+be migrated" (`DeletionInProgressError`) or "something else concurrently changed this exact record"
+(`VersionConflictError`, kept here per explicit instruction, since a fresh inventory run will simply
+re-evaluate it). Every OTHER commit failure — a genuine operational error, confirmed via recheck to
+have not committed, with cleanup succeeding — is now reported as `"failed"`: nothing is left behind
+in S3, but the record is still un-migrated and the attempt genuinely failed, so it is counted and
+reported as a failure, never folded into a label implying "nothing to see here."
+`realLegacyMediaMigration.ts` now counts `"failed"` alongside `"needs-reconciliation"` for the exit
+code, and prints failed items under their own "FAILED" banner, separate from "NEEDS
+RECONCILIATION."
+
+The existing regression test for this exact code path (`legacyMediaMigration.test.ts`, the
+"atomic write genuinely never committed" test) was corrected in place — it uses a generic,
+non-definite error (standing in for `AccessDeniedException` or any other operational failure) and
+now asserts `"failed"`, not `"skipped-ineligible"`, directly reproducing the reviewer's exact CLI
+finding at the service-layer level. 188 tests pass (unchanged — a test was corrected, not added).
+Local, fault-injection-proven; `--apply` stays deliberately unrun against the live stack.
+
 ## Real cost and billing-alert reconciliation — what actually happened
 
 Dated 2026-10-04. Queried AWS Cost Explorer directly (`aws ce get-cost-and-usage`, itemized by

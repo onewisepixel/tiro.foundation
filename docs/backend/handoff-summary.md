@@ -309,6 +309,20 @@ since the underlying `DeletionInProgressError`/`VersionConflictError` classifica
 already proven live in the second round. `--apply` stays deliberately unrun. See the evidence
 matrix's "Legacy media migration" entry (third review round) for the full detail.
 
+**Update, a fourth review round (2026-10-06) — one reporting gap in the third round's own fix:** an
+ORDINARY write failure (reproduced by injecting a real `AccessDeniedException` directly into the
+CLI) still landed in `"skipped-ineligible"` once cleanup succeeded — reported as a benign skip with
+the CLI exiting 0, the record left genuinely un-migrated with nothing in the output distinguishing
+it from a correct-by-design exclusion. Fixed by splitting that one outcome into two with a real
+semantic difference: `"skipped-ineligible"` stays reserved for refusals that are correct BY DESIGN
+(the early eligibility checks, plus `DeletionInProgressError`/`VersionConflictError`, per explicit
+instruction to keep eligibility/concurrency refusals there); every OTHER confirmed non-commit — a
+genuine operational error — is now its own `"failed"` outcome, counted and reported, never folded
+into a label implying nothing went wrong. The existing regression test for this exact path was
+corrected in place to assert `"failed"`, directly reproducing the reviewer's CLI finding at the
+service layer; 188 tests still pass (a test was corrected, not added). `--apply` stays deliberately
+unrun. See the evidence matrix's "Legacy media migration" entry (fourth review round).
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

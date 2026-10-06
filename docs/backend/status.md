@@ -496,6 +496,14 @@ and documented rather than chased further; revisit when either upstream ships a 
   object — fixed with a new `"needs-reconciliation"` outcome carrying the exact objectKey/versionId,
   which the CLI now counts and exits non-zero on. 3 new regression tests (188 total). Migration
   stays dry-run only. See the evidence matrix for the full detail.
+- 2026-10-06, a fourth review round caught that an ORDINARY write failure (e.g. a real
+  `AccessDeniedException`, reproduced by injecting one directly into the CLI) still landed in
+  `"skipped-ineligible"` once cleanup succeeded — reported as a benign skip, CLI exit 0, record left
+  genuinely un-migrated with nothing distinguishing it from a correct-by-design exclusion. Fixed:
+  `"skipped-ineligible"` is now reserved for refusals that are correct by design (early eligibility
+  checks, plus `DeletionInProgressError`/`VersionConflictError`); every other confirmed non-commit is
+  now a distinct `"failed"` outcome that the CLI counts and exits non-zero on. Migration stays
+  dry-run only. See the evidence matrix for the full detail.
 
 ## What remains open, by kind
 

@@ -337,9 +337,15 @@ than depending on a second read that could itself fail, and if the recheck IS at
 genuinely uncertain errors) and fails, both failure messages are preserved in a dedicated
 `"needs-reconciliation"` outcome instead of an uncaught exception. Any orphan that cleanup could not
 confirm removed — for any reason — is reported this way, with its exact `objectKey`/`versionId`, and
-the CLI exits non-zero whenever one exists; it is never folded into `"skipped-ineligible"`. See
-`docs/backend/evidence-matrix.md`'s "Legacy media migration" entry (second and third review rounds)
-for the full detail and the regression tests proving all four findings closed.
+the CLI exits non-zero whenever one exists. A fourth round (2026-10-06) caught that an ORDINARY
+write failure (e.g. a real `AccessDeniedException`) could still land in `"skipped-ineligible"` once
+cleanup succeeded — reported as a benign skip with the CLI exiting 0, even though the record stayed
+genuinely un-migrated. Fixed: `"skipped-ineligible"` is now reserved for refusals that are correct
+BY DESIGN (the early eligibility checks, plus `DeletionInProgressError`/`VersionConflictError`,
+which mean "should not migrate" or "something else changed it" respectively); every other confirmed
+non-commit is now `"failed"` — the CLI counts it, prints it under its own banner, and exits non-zero.
+See `docs/backend/evidence-matrix.md`'s "Legacy media migration" entry (second through fourth
+review rounds) for the full detail and the regression tests proving all five findings closed.
 
 Last run (dry run) 2026-10-06 against the drill stack, with the TOCTOU/cleanup fixes above: 41
 legacy references found, 37 rebindable, 4 correctly classified ineligible because their record is
