@@ -141,10 +141,11 @@ test(
     const mediaId = active.record.mediaRefs[0].mediaId;
 
     const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
-    assert.equal(result.outcome, "failed");
-    if (result.outcome === "failed") {
-      assert.equal(result.cleanedUp, true, "the just-uploaded object must be cleaned up when the atomic write fails");
-    }
+    // An uncertain error (not DeletionInProgressError/VersionConflictError)
+    // whose recheck confirms the write genuinely never committed, and
+    // whose cleanup succeeds, is reported as "skipped-ineligible" — the
+    // orphan was fully resolved, nothing needs a human's attention.
+    assert.equal(result.outcome, "skipped-ineligible");
 
     const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
     const versions = await mediaStore.listObjectVersions(uploadedKey);
@@ -247,10 +248,10 @@ test(
     };
 
     const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, racingMediaStore, committer);
+    // A DEFINITE refusal (DeletionInProgressError) whose cleanup succeeds
+    // is "skipped-ineligible" — confirmed below via the real S3 listing,
+    // not a cleanedUp field (that only exists on needs-reconciliation).
     assert.equal(result.outcome, "skipped-ineligible");
-    if (result.outcome === "skipped-ineligible") {
-      assert.equal(result.cleanedUp, true, "the upload that landed just before the race was caught must be cleaned up");
-    }
 
     const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
     const versions = await racingMediaStore.listObjectVersions(uploadedKey);
@@ -308,5 +309,146 @@ test(
       copies.some((c) => c.mediaId === mediaId && c.objectVersionId === media?.versionId),
       "the committed CustodyCopy must still exist, still pointing at the real (not deleted) object",
     );
+  },
+);
+
+// Throws from its second call onward — simulates a recovery read (the
+// idempotent recheck) failing, without affecting the FIRST call (the
+// early eligibility check, which must always succeed for the test to
+// reach the upload/commit stage at all).
+class ThrowsOnSecondGetFixtureStore extends InMemoryFixtureStore {
+  private getCalls = 0;
+  override async getRecord(recordId: string) {
+    this.getCalls += 1;
+    if (this.getCalls > 1) {
+      throw new Error("simulated read failure — a recheck must never be attempted for a DEFINITE non-commit signal");
+    }
+    return super.getRecord(recordId);
+  }
+}
+
+test(
+  "applyLegacyMediaRebind handles a DEFINITE custody refusal without a second read at all — cleanup still proceeds even though a recheck would fail (reviewer-caught finding: a failed follow-up read bypassed cleanup)",
+  async () => {
+    const fixtureStore = new ThrowsOnSecondGetFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const committer = new InMemoryCustodyCopyCommitter(fixtureStore, registerStore);
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+    const mediaId = active.record.mediaRefs[0].mediaId;
+
+    // Same race-injection technique as the earlier "lands entirely in the
+    // gap" test: deletion starts right after the upload, AFTER the early
+    // check already passed, so the atomic commit is refused with a
+    // DEFINITE DeletionInProgressError.
+    const racingMediaStore = new InMemoryMediaStore();
+    const originalPutObject = racingMediaStore.putObject.bind(racingMediaStore);
+    racingMediaStore.putObject = async (...args) => {
+      const result = await originalPutObject(...args);
+      await startDeletion(fixtureStore, registerStore, {
+        requestId: "req-legacy-migration-second-round-race-delete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+      });
+      return result;
+    };
+
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, racingMediaStore, committer);
+    // Must not throw uncaught (it would, if the implementation still
+    // attempted a second read here) and must still clean up correctly.
+    assert.equal(result.outcome, "skipped-ineligible");
+
+    const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
+    const versions = await racingMediaStore.listObjectVersions(uploadedKey);
+    assert.equal(versions.length, 0, "cleanup must have succeeded even though a recheck read would have failed if attempted");
+  },
+);
+
+// Commits uncertainly (throws a GENERIC error, not DeletionInProgressError/
+// VersionConflictError — simulating a timeout or dropped connection with
+// no definite signal either way) AND fails the recovery read that would
+// normally resolve that uncertainty.
+class UncertainCommitAndFailingRecheckFixtureStore extends InMemoryFixtureStore {
+  private committed = false;
+  private getCalls = 0;
+  override async getRecord(recordId: string) {
+    this.getCalls += 1;
+    if (this.getCalls > 1) {
+      throw new Error("simulated recovery-read failure");
+    }
+    return super.getRecord(recordId);
+  }
+  override async putRecordWithCustodyCopy(
+    ...args: Parameters<InMemoryFixtureStore["putRecordWithCustodyCopy"]>
+  ): Promise<void> {
+    if (!this.committed) {
+      this.committed = true;
+      throw new Error("simulated uncertain write failure (not a definite refusal)");
+    }
+    return super.putRecordWithCustodyCopy(...args);
+  }
+}
+
+test(
+  "applyLegacyMediaRebind reports needs-reconciliation, preserving BOTH failure messages, when an uncertain write's recovery read itself fails (reviewer-caught finding: a failed follow-up read bypassed cleanup)",
+  async () => {
+    const fixtureStore = new UncertainCommitAndFailingRecheckFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const committer = new InMemoryCustodyCopyCommitter(fixtureStore, registerStore);
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+    const mediaId = active.record.mediaRefs[0].mediaId;
+    const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
+
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
+    assert.equal(result.outcome, "needs-reconciliation");
+    if (result.outcome === "needs-reconciliation") {
+      assert.match(result.reason, /simulated uncertain write failure/, "the original write failure must be preserved");
+      assert.match(result.reason, /simulated recovery-read failure/, "the recovery-read failure must ALSO be preserved, not lost");
+      assert.equal(result.objectKey, uploadedKey);
+    }
+
+    // Cleanup must NOT have been attempted — the commit status could not
+    // be verified, so deleting the object would risk destroying a real
+    // binding. The uploaded object must still be present, untouched.
+    const versions = await mediaStore.listObjectVersions(uploadedKey);
+    assert.equal(versions.length, 1, "the uploaded object must be left untouched when its commit status cannot be verified");
+  },
+);
+
+// Always fails the delete call — simulates S3 cleanup itself failing.
+class FailingDeleteMediaStore extends InMemoryMediaStore {
+  override async deleteObjectVersion(): Promise<void> {
+    throw new Error("simulated S3 delete failure");
+  }
+}
+
+test(
+  "applyLegacyMediaRebind reports needs-reconciliation, not skipped-ineligible, when a DEFINITE refusal's cleanup itself fails (reviewer-caught finding: failed cleanup must count as a failure requiring reconciliation, never a quiet success)",
+  async () => {
+    const { fixtureStore, registerStore, committer, recordId, mediaId } = await setupActive();
+    const failingDeleteMediaStore = new FailingDeleteMediaStore();
+    const originalPutObject = failingDeleteMediaStore.putObject.bind(failingDeleteMediaStore);
+    failingDeleteMediaStore.putObject = async (...args) => {
+      const result = await originalPutObject(...args);
+      await startDeletion(fixtureStore, registerStore, {
+        requestId: "req-legacy-migration-cleanup-fails-delete",
+        recordId,
+        requesterCapacity: "[SYNTHETIC] steward",
+        reason: "[SYNTHETIC] test",
+      });
+      return result;
+    };
+
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, failingDeleteMediaStore, committer);
+    assert.equal(result.outcome, "needs-reconciliation");
+    if (result.outcome === "needs-reconciliation") {
+      assert.equal(result.objectKey, `fixtures/legacy-migration/${recordId}/${mediaId}.txt`);
+      assert.match(result.reason, /CLEANUP FAILED/);
+    }
   },
 );

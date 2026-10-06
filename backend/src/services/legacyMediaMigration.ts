@@ -48,9 +48,37 @@
 //    idempotent-recovery idiom used throughout services/lifecycle.ts) and
 //    never touch the uploaded object. Cleanup only proceeds once the
 //    record is confirmed to NOT reflect the write.
+//
+// A THIRD review round reproduced two further real failures in that fix:
+//
+// 5. A failed follow-up read bypassed cleanup. The idempotent recheck
+//    above is ITSELF a network call that can fail. A reviewer forced a
+//    DEFINITE custody refusal (DeletionInProgressError — a real
+//    TransactWriteItems ConditionCheck failure, which GUARANTEES nothing
+//    committed, no ambiguity at all) immediately followed by a recheck
+//    read failure: the uncaught exception propagated out of
+//    applyLegacyMediaRebind entirely, skipping cleanup altogether, and a
+//    later completeDeletion() reported "completed" while the untracked
+//    upload survived — resurrecting the original bug via a new path.
+//    Fixed two ways: (a) DEFINITE non-commit signals (DeletionInProgressError,
+//    VersionConflictError — both mean the WHOLE transaction was atomically
+//    cancelled) go straight to cleanup, with no recheck at all, since
+//    there is no uncertainty to resolve for these; (b) the recheck itself
+//    is now wrapped in its own try/catch — if IT fails, nothing is
+//    cleaned up (we cannot know it's safe to), and both the original
+//    error and the recheck failure are preserved in a distinct
+//    "needs-reconciliation" outcome instead of being lost to an uncaught
+//    exception.
+// 6. Failed cleanup still produced a successful CLI exit. Reporting a
+//    failed-to-clean-up orphan as "skipped-ineligible" meant the CLI's
+//    failure count and exit code never reflected it. Fixed by giving
+//    "an orphaned object survives and needs a human to reconcile it" its
+//    OWN outcome kind, "needs-reconciliation", carrying the exact
+//    objectKey/versionId as structured fields (not just prose) — the CLI
+//    now counts these as failures and exits non-zero.
 import type { CustodyStatus, FixtureRecord, MediaRef, RestrictionRegisterEntry } from "../domain/types";
 import type { CustodyCopyCommitter, FixtureStore, RestrictionRegisterStore } from "../store/store";
-import { DeletionInProgressError } from "../store/store";
+import { DeletionInProgressError, VersionConflictError } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import { uuidv7 } from "../domain/id";
 
@@ -171,8 +199,15 @@ export async function inventoryLegacyMedia(
 
 export type ApplyOutcome =
   | { outcome: "rebound"; recordId: string; mediaId: string; objectKey: string; versionId: string }
-  | { outcome: "skipped-ineligible"; recordId: string; mediaId: string; reason: string; cleanedUp?: boolean }
-  | { outcome: "failed"; recordId: string; mediaId: string; reason: string; cleanedUp: boolean };
+  | { outcome: "skipped-ineligible"; recordId: string; mediaId: string; reason: string }
+  // An upload happened, the write did not commit, and the orphaned S3
+  // object could NOT be confirmed cleaned up — either the delete itself
+  // failed, or the write's outcome could not even be verified (the
+  // idempotent recheck read also failed). ALWAYS a failure requiring a
+  // human to reconcile objectKey/versionId directly against S3 — never
+  // folded into "skipped-ineligible", which implies nothing is left
+  // behind.
+  | { outcome: "needs-reconciliation"; recordId: string; mediaId: string; reason: string; objectKey: string; versionId: string };
 
 function recordReflectsUpload(record: FixtureRecord | null, mediaId: string, versionId: string): boolean {
   return record?.mediaRefs.find((m) => m.mediaId === mediaId)?.versionId === versionId;
@@ -256,39 +291,75 @@ export async function applyLegacyMediaRebind(
       },
     );
   } catch (error) {
-    // The write failed — or at least, the client was TOLD it failed. That
-    // is not the same thing as "nothing committed": a timeout or a
-    // dropped connection can report failure even after the server
-    // actually applied the transaction. Before touching S3, resolve this
-    // uncertainty the same way the rest of this codebase does (compare
-    // services/lifecycle.ts's getCorrection/getRedaction idempotent-replay
-    // checks) — re-read the record fresh and see whether it already
-    // reflects the write we just attempted.
-    const recheck = await fixtureStore.getRecord(item.recordId);
+    const baseMessage = error instanceof Error ? error.message : String(error);
+
+    // DEFINITE non-commit: both of these mean the WHOLE transaction was
+    // atomically cancelled by DynamoDB itself — there is no uncertainty
+    // to resolve, and therefore no need for (or dependency on) a recheck
+    // read, which is itself a network call that can fail. Reviewer-caught
+    // finding: making cleanup depend on a recheck even for these DEFINITE
+    // refusals meant a recheck failure could abandon cleanup entirely,
+    // with the exception propagating out of this function uncaught.
+    if (error instanceof DeletionInProgressError || error instanceof VersionConflictError) {
+      const cleanedUp = await cleanupOrphanedUpload(mediaStore, key, uploaded.versionId);
+      if (cleanedUp) {
+        return { outcome: "skipped-ineligible", recordId: item.recordId, mediaId: item.mediaId, reason: baseMessage };
+      }
+      return {
+        outcome: "needs-reconciliation",
+        recordId: item.recordId,
+        mediaId: item.mediaId,
+        reason: `${baseMessage} (CLEANUP FAILED — an untracked object remains at ${key} version ${uploaded.versionId}; this needs direct, manual investigation, not a silent retry.)`,
+        objectKey: key,
+        versionId: uploaded.versionId,
+      };
+    }
+
+    // UNCERTAIN: this error does not by itself say whether the write
+    // committed — a timeout or dropped connection can occur even after
+    // the server actually applied the transaction. Resolve this the same
+    // way the rest of this codebase does (compare services/lifecycle.ts's
+    // getCorrection/getRedaction idempotent-replay checks) — re-read the
+    // record fresh and see whether it already reflects the write we just
+    // attempted. That recheck can ITSELF fail; if it does, we cannot
+    // determine whether cleanup is safe, so we do not attempt it, and we
+    // preserve BOTH failure messages rather than losing them to an
+    // uncaught exception.
+    let recheck: FixtureRecord | null;
+    try {
+      recheck = await fixtureStore.getRecord(item.recordId);
+    } catch (recheckError) {
+      const recheckMessage = recheckError instanceof Error ? recheckError.message : String(recheckError);
+      return {
+        outcome: "needs-reconciliation",
+        recordId: item.recordId,
+        mediaId: item.mediaId,
+        reason: `Original error: ${baseMessage}. Could not verify whether the write committed — the recovery read itself failed: ${recheckMessage}. An object at ${key} version ${uploaded.versionId} may or may not be bound; do NOT delete it without checking directly, and do NOT assume the record does or doesn't reflect it.`,
+        objectKey: key,
+        versionId: uploaded.versionId,
+      };
+    }
+
     if (recordReflectsUpload(recheck, item.mediaId, uploaded.versionId)) {
       // It actually committed. The error was a false failure signal —
-      // reporting this as "failed" and deleting the object we just bound
-      // would destroy a successful, already-live binding.
+      // reporting this as a failure and deleting the object we just
+      // bound would destroy a successful, already-live binding.
       return { outcome: "rebound", recordId: item.recordId, mediaId: item.mediaId, objectKey: key, versionId: uploaded.versionId };
     }
 
-    // Confirmed: it genuinely did not commit. Safe to clean up now.
+    // Confirmed via a successful recheck: it genuinely did not commit.
     const cleanedUp = await cleanupOrphanedUpload(mediaStore, key, uploaded.versionId);
-    const baseMessage = error instanceof Error ? error.message : String(error);
-    const cleanupNote = cleanedUp
-      ? `the just-uploaded object at ${key} version ${uploaded.versionId} was cleaned up — nothing untracked survives`
-      : `CLEANUP ALSO FAILED — an untracked object may remain at ${key} version ${uploaded.versionId}; this needs direct, manual investigation, not a silent retry`;
-
-    if (error instanceof DeletionInProgressError) {
-      return {
-        outcome: "skipped-ineligible",
-        recordId: item.recordId,
-        mediaId: item.mediaId,
-        reason: `${baseMessage} (${cleanupNote})`,
-        cleanedUp,
-      };
+    if (cleanedUp) {
+      return { outcome: "skipped-ineligible", recordId: item.recordId, mediaId: item.mediaId, reason: baseMessage };
     }
-    return { outcome: "failed", recordId: item.recordId, mediaId: item.mediaId, reason: `${baseMessage} (${cleanupNote})`, cleanedUp };
+    return {
+      outcome: "needs-reconciliation",
+      recordId: item.recordId,
+      mediaId: item.mediaId,
+      reason: `${baseMessage} (CLEANUP FAILED — an untracked object remains at ${key} version ${uploaded.versionId}; this needs direct, manual investigation, not a silent retry.)`,
+      objectKey: key,
+      versionId: uploaded.versionId,
+    };
   }
 
   return { outcome: "rebound", recordId: item.recordId, mediaId: item.mediaId, objectKey: key, versionId: uploaded.versionId };

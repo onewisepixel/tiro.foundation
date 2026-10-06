@@ -310,17 +310,27 @@ async function main() {
     if (outcome.outcome === "rebound") {
       log("REBOUND", `Record ${outcome.recordId}'s media ${outcome.mediaId} is now bound to a real S3 version`, { objectKey: outcome.objectKey, versionId: outcome.versionId });
     } else if (outcome.outcome === "skipped-ineligible") {
-      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied`, { reason: outcome.reason, cleanedUp: outcome.cleanedUp });
+      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied`, { reason: outcome.reason });
     } else {
-      log("FAILED", `Record ${outcome.recordId}'s media ${outcome.mediaId} failed to rebind`, { reason: outcome.reason, cleanedUp: outcome.cleanedUp });
+      log("NEEDS RECONCILIATION", `Record ${outcome.recordId}'s media ${outcome.mediaId}: an untracked S3 object needs direct, manual attention`, {
+        reason: outcome.reason,
+        objectKey: outcome.objectKey,
+        versionId: outcome.versionId,
+      });
     }
   }
 
   const rebound = outcomes.filter((o) => o.outcome === "rebound").length;
   const skipped = outcomes.filter((o) => o.outcome === "skipped-ineligible").length;
-  const failed = outcomes.filter((o) => o.outcome === "failed").length;
-  console.log(`\n${rebound} reference(s) rebound. ${skipped} skipped (became ineligible since the inventory snapshot). ${failed} failed. ${stuck.length} left unavailable (no trustworthy origin).`);
-  if (failed > 0) {
+  const needsReconciliation = outcomes.filter((o) => o.outcome === "needs-reconciliation");
+  console.log(`\n${rebound} reference(s) rebound. ${skipped} skipped (became ineligible since the inventory snapshot). ${needsReconciliation.length} need manual reconciliation. ${stuck.length} left unavailable (no trustworthy origin).`);
+  if (needsReconciliation.length > 0) {
+    console.log("\n==================== NEEDS RECONCILIATION — direct, manual attention required ====================");
+    for (const item of needsReconciliation) {
+      if (item.outcome === "needs-reconciliation") {
+        console.log(`  record=${item.recordId} mediaId=${item.mediaId} objectKey=${item.objectKey} versionId=${item.versionId}\n    ${item.reason}`);
+      }
+    }
     process.exitCode = 1;
   }
 }
