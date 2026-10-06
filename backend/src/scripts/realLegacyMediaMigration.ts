@@ -310,7 +310,9 @@ async function main() {
     if (outcome.outcome === "rebound") {
       log("REBOUND", `Record ${outcome.recordId}'s media ${outcome.mediaId} is now bound to a real S3 version`, { objectKey: outcome.objectKey, versionId: outcome.versionId });
     } else if (outcome.outcome === "skipped-ineligible") {
-      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied`, { reason: outcome.reason });
+      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied (refused by design — eligibility or a concurrency conflict)`, { reason: outcome.reason });
+    } else if (outcome.outcome === "failed") {
+      log("FAILED", `Record ${outcome.recordId}'s media ${outcome.mediaId}: the migration write failed and was not applied`, { reason: outcome.reason });
     } else {
       log("NEEDS RECONCILIATION", `Record ${outcome.recordId}'s media ${outcome.mediaId}: an untracked S3 object needs direct, manual attention`, {
         reason: outcome.reason,
@@ -322,8 +324,19 @@ async function main() {
 
   const rebound = outcomes.filter((o) => o.outcome === "rebound").length;
   const skipped = outcomes.filter((o) => o.outcome === "skipped-ineligible").length;
+  const failed = outcomes.filter((o) => o.outcome === "failed");
   const needsReconciliation = outcomes.filter((o) => o.outcome === "needs-reconciliation");
-  console.log(`\n${rebound} reference(s) rebound. ${skipped} skipped (became ineligible since the inventory snapshot). ${needsReconciliation.length} need manual reconciliation. ${stuck.length} left unavailable (no trustworthy origin).`);
+  console.log(
+    `\n${rebound} reference(s) rebound. ${skipped} skipped (refused by design — eligibility or concurrency). ${failed.length} failed (a genuine write error, nothing left behind). ${needsReconciliation.length} need manual reconciliation. ${stuck.length} left unavailable (no trustworthy origin).`,
+  );
+  if (failed.length > 0) {
+    console.log("\n==================== FAILED — the migration write did not succeed ====================");
+    for (const item of failed) {
+      if (item.outcome === "failed") {
+        console.log(`  record=${item.recordId} mediaId=${item.mediaId}\n    ${item.reason}`);
+      }
+    }
+  }
   if (needsReconciliation.length > 0) {
     console.log("\n==================== NEEDS RECONCILIATION — direct, manual attention required ====================");
     for (const item of needsReconciliation) {
@@ -331,6 +344,8 @@ async function main() {
         console.log(`  record=${item.recordId} mediaId=${item.mediaId} objectKey=${item.objectKey} versionId=${item.versionId}\n    ${item.reason}`);
       }
     }
+  }
+  if (failed.length > 0 || needsReconciliation.length > 0) {
     process.exitCode = 1;
   }
 }

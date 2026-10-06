@@ -76,6 +76,27 @@
 //    OWN outcome kind, "needs-reconciliation", carrying the exact
 //    objectKey/versionId as structured fields (not just prose) — the CLI
 //    now counts these as failures and exits non-zero.
+//
+// A FOURTH review round reproduced one more reporting gap in that fix:
+//
+// 7. Ordinary write failures were reported as "skipped-ineligible" once
+//    cleanup succeeded. A reviewer injected a real AccessDeniedException
+//    into the CLI: the commit failed for a genuine operational reason
+//    (not eligibility, not a concurrency conflict), the recheck correctly
+//    confirmed nothing committed, cleanup correctly removed the upload —
+//    and the whole thing was reported as "0 rebound, 1 skipped, 0 need
+//    reconciliation," exit 0. The record stayed un-migrated with no
+//    indication anything had gone wrong; a caller scanning for failures
+//    would see none. Fixed by splitting "skipped-ineligible" back into
+//    two outcomes: "skipped-ineligible" stays reserved for refusals that
+//    are CORRECT BY DESIGN — the early eligibility checks, and the two
+//    DEFINITE commit refusals that mean "this item should not be
+//    migrated" (DeletionInProgressError) or "something else concurrently
+//    changed this exact record" (VersionConflictError) — while every
+//    OTHER commit failure (a genuine operational error, confirmed via
+//    recheck to not have committed, with cleanup succeeding) is now
+//    "failed" — a real failure, reported and counted as one, even though
+//    nothing is left behind in S3 to reconcile.
 import type { CustodyStatus, FixtureRecord, MediaRef, RestrictionRegisterEntry } from "../domain/types";
 import type { CustodyCopyCommitter, FixtureStore, RestrictionRegisterStore } from "../store/store";
 import { DeletionInProgressError, VersionConflictError } from "../store/store";
@@ -199,14 +220,25 @@ export async function inventoryLegacyMedia(
 
 export type ApplyOutcome =
   | { outcome: "rebound"; recordId: string; mediaId: string; objectKey: string; versionId: string }
+  // Refused BY DESIGN: the early pre-upload eligibility checks, or a
+  // DEFINITE commit refusal (DeletionInProgressError — this item should
+  // not be migrated — or VersionConflictError — something else
+  // concurrently changed this exact record) whose cleanup (if an upload
+  // happened at all) succeeded. Genuinely benign; nothing to retry, and
+  // (for the concurrency case) a fresh inventory run would re-evaluate it.
   | { outcome: "skipped-ineligible"; recordId: string; mediaId: string; reason: string }
+  // An upload happened, the write failed for an operational reason that
+  // is NOT a definite eligibility/concurrency refusal (confirmed via
+  // recheck to have genuinely not committed), and cleanup succeeded — so
+  // nothing is left behind in S3, but the record is still un-migrated and
+  // this attempt genuinely failed. Must be reported and counted as a
+  // failure, never silently folded into "skipped-ineligible".
+  | { outcome: "failed"; recordId: string; mediaId: string; reason: string }
   // An upload happened, the write did not commit, and the orphaned S3
   // object could NOT be confirmed cleaned up — either the delete itself
   // failed, or the write's outcome could not even be verified (the
   // idempotent recheck read also failed). ALWAYS a failure requiring a
-  // human to reconcile objectKey/versionId directly against S3 — never
-  // folded into "skipped-ineligible", which implies nothing is left
-  // behind.
+  // human to reconcile objectKey/versionId directly against S3.
   | { outcome: "needs-reconciliation"; recordId: string; mediaId: string; reason: string; objectKey: string; versionId: string };
 
 function recordReflectsUpload(record: FixtureRecord | null, mediaId: string, versionId: string): boolean {
@@ -348,9 +380,16 @@ export async function applyLegacyMediaRebind(
     }
 
     // Confirmed via a successful recheck: it genuinely did not commit.
+    // This is NOT a definite eligibility/concurrency refusal — it's a
+    // real operational failure (e.g. AccessDeniedException, a network
+    // error) — so even with cleanup succeeding, this must be reported as
+    // "failed", not folded into "skipped-ineligible" as though it were a
+    // correct-by-design exclusion. Reviewer-caught finding: the previous
+    // version did exactly that, letting a genuine write failure exit
+    // clean with no indication anything had gone wrong.
     const cleanedUp = await cleanupOrphanedUpload(mediaStore, key, uploaded.versionId);
     if (cleanedUp) {
-      return { outcome: "skipped-ineligible", recordId: item.recordId, mediaId: item.mediaId, reason: baseMessage };
+      return { outcome: "failed", recordId: item.recordId, mediaId: item.mediaId, reason: baseMessage };
     }
     return {
       outcome: "needs-reconciliation",

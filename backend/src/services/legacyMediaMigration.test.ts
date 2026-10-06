@@ -129,7 +129,7 @@ class FlakyCustodyCopyFixtureStore extends InMemoryFixtureStore {
 }
 
 test(
-  "applyLegacyMediaRebind cleans up the uploaded object when the atomic write genuinely never committed, leaving nothing untracked behind (reviewer-caught finding: a failed custody-copy write must not let a later deletion report completion while media survives)",
+  "applyLegacyMediaRebind reports FAILED (not skipped-ineligible), and cleans up the uploaded object, when the atomic write genuinely never committed for an operational reason (reviewer-caught finding: a failed custody-copy write must not let a later deletion report completion while media survives, and must not be reported as a benign skip)",
   async () => {
     const fixtureStore = new FlakyCustodyCopyFixtureStore();
     const registerStore = new InMemoryRestrictionRegisterStore();
@@ -141,11 +141,15 @@ test(
     const mediaId = active.record.mediaRefs[0].mediaId;
 
     const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
-    // An uncertain error (not DeletionInProgressError/VersionConflictError)
-    // whose recheck confirms the write genuinely never committed, and
-    // whose cleanup succeeds, is reported as "skipped-ineligible" — the
-    // orphan was fully resolved, nothing needs a human's attention.
-    assert.equal(result.outcome, "skipped-ineligible");
+    // An uncertain, operational error (not DeletionInProgressError/
+    // VersionConflictError) whose recheck confirms the write genuinely
+    // never committed, and whose cleanup succeeds, is reported as
+    // "failed" — the orphan was fully resolved (nothing left in S3), but
+    // this is still a genuine write failure, never a benign
+    // "skipped-ineligible" (reviewer-caught finding: that mislabeling let
+    // a real AccessDeniedException exit the CLI clean, with the record
+    // left un-migrated and no indication anything had gone wrong).
+    assert.equal(result.outcome, "failed");
 
     const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
     const versions = await mediaStore.listObjectVersions(uploadedKey);
