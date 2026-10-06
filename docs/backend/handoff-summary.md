@@ -288,6 +288,27 @@ refusal) and re-confirmed Finding 2b's fix live. See the evidence matrix's "Lega
 migration," "Combinatorial cases," and "S3 noncurrent-version expiration observation" notes, and
 "Browser-flow verification" for the staff-UI fix, for the full detail and real results.
 
+**Update, a third review round (2026-10-06) — the second round's own fixes had two more gaps, both
+fixed:** (1) the idempotent-recovery recheck added to resolve an uncertain commit was itself an
+unguarded network call that could fail — a reviewer forced a DEFINITE custody refusal
+(`DeletionInProgressError`, which GUARANTEES the whole transaction was atomically cancelled, no
+ambiguity) immediately followed by a recheck failure; the uncaught exception skipped cleanup
+entirely, and a later `completeDeletion()` reported `"completed"` while the untracked upload
+survived — resurrecting the FIRST round's original bug via a brand-new path. Fixed: definite
+non-commit signals (`DeletionInProgressError`/`VersionConflictError`) now go straight to cleanup
+with no recheck at all, since there is no uncertainty to resolve for them; the recheck, kept only
+for genuinely uncertain errors, is now wrapped in its own `try`/`catch` so a failure there preserves
+BOTH failure messages in a new outcome instead of throwing uncaught. (2) A failed cleanup was still
+reported as `"skipped-ineligible"` — implying nothing was left behind — so the CLI's failure count
+and exit code never reflected a real orphan. Fixed with a dedicated `"needs-reconciliation"`
+outcome carrying the exact `objectKey`/`versionId` as structured fields; the CLI now counts these,
+prints them under their own banner, and exits non-zero whenever any exist. 3 new regression tests
+(188 total, up from 185) reproduce both findings exactly. These are local, fault-injection-proven
+fixes to service-layer control flow — not independently re-verified against real AWS this round,
+since the underlying `DeletionInProgressError`/`VersionConflictError` classification itself was
+already proven live in the second round. `--apply` stays deliberately unrun. See the evidence
+matrix's "Legacy media migration" entry (third review round) for the full detail.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

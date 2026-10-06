@@ -484,6 +484,18 @@ and documented rather than chased further; revisit when either upstream ships a 
   log. `realFullFixtureChecks.ts` now also directly verifies the new cross-table transaction
   mechanism against real DynamoDB. See the evidence matrix for the full detail and real re-run
   results.
+- 2026-10-06, a third review round found the second round's own fixes had two more gaps: (1) the
+  idempotent-recovery recheck (added to resolve an uncertain commit) was itself an unguarded network
+  call — a reviewer forced a DEFINITE custody refusal immediately followed by a recheck failure, and
+  the resulting uncaught exception skipped cleanup entirely, resurrecting the original orphaned-S3-
+  object bug via a new path. Fixed: definite non-commit signals now skip the recheck entirely (no
+  dependency on a read that could itself fail), and the recheck — for the genuinely uncertain cases
+  that still need it — is now wrapped so a failure there preserves both error messages in a new,
+  dedicated outcome rather than throwing uncaught. (2) A failed cleanup was still reported as
+  `"skipped-ineligible"`, so the CLI's failure count and exit code never reflected an orphaned
+  object — fixed with a new `"needs-reconciliation"` outcome carrying the exact objectKey/versionId,
+  which the CLI now counts and exits non-zero on. 3 new regression tests (188 total). Migration
+  stays dry-run only. See the evidence matrix for the full detail.
 
 ## What remains open, by kind
 

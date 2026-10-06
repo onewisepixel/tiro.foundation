@@ -1188,6 +1188,46 @@ same pattern seen in every other drill in this project's history. Fixed with the
 `withThrottleRetry` backoff pattern used elsewhere. See `docs/backend/runbook.md`'s "Legacy media
 migration against real AWS" section for the run command.
 
+### Third review round (2026-10-06): the uncertain-commit recovery itself could fail, and a failed cleanup still exited clean
+
+**Reviewer-caught finding, part 1: a failed follow-up read bypassed cleanup.** The second round's
+idempotent-recovery fix re-read the record on ANY commit error to resolve whether it had actually
+landed — but that recheck is itself a network call, and nothing guarded against IT failing. A
+reviewer forced a DEFINITE custody refusal (`DeletionInProgressError` — a real `ConditionCheck`
+failure, which GUARANTEES the whole transaction was cancelled, no ambiguity at all) immediately
+followed by a recheck read failure: the uncaught exception propagated straight out of
+`applyLegacyMediaRebind`, skipping cleanup entirely, and a later `completeDeletion()` reported
+`"completed"` while the untracked upload survived — resurrecting the ORIGINAL bug (from the first
+review round) via a brand-new path. Fixed two ways: (1) DEFINITE non-commit signals
+(`DeletionInProgressError`, `VersionConflictError` — both mean DynamoDB itself atomically cancelled
+the whole transaction) now go straight to cleanup, with no recheck at all — there is no uncertainty
+to resolve for these, and therefore no dependency on a second read that could itself fail; (2) the
+recheck is now wrapped in its own `try`/`catch` for the cases that genuinely need it (anything
+else) — if it fails, nothing is cleaned up (safety cannot be confirmed), and BOTH the original error
+and the recheck failure are preserved in the outcome's `reason`, rather than being lost to an
+uncaught exception.
+
+**Reviewer-caught finding, part 2: failed cleanup still produced a successful CLI exit.** When a
+commit was refused and the S3 cleanup that followed ALSO failed, the previous code still returned
+`"skipped-ineligible"` — a label implying nothing was left behind — so the CLI's failure count and
+exit code never reflected the orphan. Fixed by giving "an upload survives untracked and needs a
+human to reconcile it" its own outcome kind, `"needs-reconciliation"`, carrying the exact
+`objectKey`/`versionId` as structured fields (not just embedded in prose) rather than a boolean
+`cleanedUp` flag folded into other outcomes. `realLegacyMediaMigration.ts` now counts these
+explicitly, prints them under their own "NEEDS RECONCILIATION" banner with the exact key/version,
+and exits non-zero whenever any exist.
+
+Three new regression tests (`legacyMediaMigration.test.ts`, now 12) reproduce both findings exactly
+and prove them closed: a DEFINITE refusal whose recheck WOULD fail (proving the recheck is never
+attempted at all for that error class); an uncertain error whose recheck ALSO fails (proving both
+failure messages survive into a `"needs-reconciliation"` outcome instead of an uncaught exception,
+and that cleanup is correctly skipped rather than guessed at); and a DEFINITE refusal whose cleanup
+itself fails (proving `"needs-reconciliation"`, not `"skipped-ineligible"`, is reported). These are
+local, fault-injection-proven fixes — not independently re-verified against real AWS this round,
+since nothing about the real `DeletionInProgressError`/`VersionConflictError` classification itself
+changed (that was already proven live in the second round); only the service-layer control flow
+around them did. `--apply` stays deliberately unrun against the live stack.
+
 ## Real cost and billing-alert reconciliation — what actually happened
 
 Dated 2026-10-04. Queried AWS Cost Explorer directly (`aws ce get-cost-and-usage`, itemized by

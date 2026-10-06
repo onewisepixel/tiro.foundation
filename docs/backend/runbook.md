@@ -331,8 +331,15 @@ place in this codebase that writes across both tables together, deliberately nar
 is refused this way, or fails for any other reason, the client-side error is resolved via an
 idempotent re-read BEFORE any cleanup — a write that actually committed but merely failed to report
 success is never mistaken for one that didn't, which would otherwise destroy a real, successful
-binding. See `docs/backend/evidence-matrix.md`'s "Legacy media migration" entry (the second review
-round, 2026-10-06) for the full detail and the regression tests proving both are closed.
+binding. A third round (2026-10-06) found that recheck itself needed guarding too: a DEFINITE
+refusal (`DeletionInProgressError`/`VersionConflictError`) now skips the recheck entirely rather
+than depending on a second read that could itself fail, and if the recheck IS attempted (for
+genuinely uncertain errors) and fails, both failure messages are preserved in a dedicated
+`"needs-reconciliation"` outcome instead of an uncaught exception. Any orphan that cleanup could not
+confirm removed — for any reason — is reported this way, with its exact `objectKey`/`versionId`, and
+the CLI exits non-zero whenever one exists; it is never folded into `"skipped-ineligible"`. See
+`docs/backend/evidence-matrix.md`'s "Legacy media migration" entry (second and third review rounds)
+for the full detail and the regression tests proving all four findings closed.
 
 Last run (dry run) 2026-10-06 against the drill stack, with the TOCTOU/cleanup fixes above: 41
 legacy references found, 37 rebindable, 4 correctly classified ineligible because their record is
