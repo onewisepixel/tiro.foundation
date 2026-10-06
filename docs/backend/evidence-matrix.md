@@ -634,8 +634,36 @@ had never been observed before now.
   post-race state within one record. Confirmed live for both withdrawal and deletion variants.
 
 All six combinatorial checks passed against real DynamoDB after both fixes, bringing the script's
-total to **15/15**. See `docs/backend/runbook.md`'s "Full-fixture seed and correctness checks
-against real DynamoDB" section for the run command.
+total to 15/15.
+
+### Finding 2b carried the same two defects, and a live cross-table transaction check was added — 2026-10-06
+
+Reviewer-caught finding: **Finding 2b** (the original `startDeletion()` + `restrict()` race, at the
+top of this section) had the EXACT SAME two defects the combinatorial case above did — it required
+a genuine conflict that isn't actually guaranteed, and it never retried a real loser at all,
+leaving its `LifecycleRequest` permanently `"in-progress"` whenever one occurred. Fixed with the
+identical pattern: accept EITHER a genuine conflict (one rejected, retryable) or both calls
+serializing cleanly (both fulfilled); when a conflict DOES occur, retry the loser with its ORIGINAL
+requestId and confirm it resumes to `"completed"`. Confirmed live 2026-10-06: the real run that
+day DID hit a genuine conflict, exercising the retry-and-complete path for real, not just the
+both-succeed path.
+
+**A live, dedicated verification of the NEW cross-table transaction mechanism was also added.**
+The legacy-media migration's TOCTOU fix (see "Legacy media migration" below) introduced the ONE
+place in this system that writes across BOTH the primary table and the restriction register table
+in a single DynamoDB transaction (`CustodyCopyCommitter`/`DynamoCustodyCopyCommitter`,
+`store.ts`/`dynamoStore.ts`). Two new checks seed a fresh, dedicated fixture and exercise this
+directly against real DynamoDB: (1) a commit succeeds and lands atomically when custody is NOT in
+the deletion workflow; (2) a commit is refused — via the real cross-table `ConditionCheck`, not an
+earlier separate read — once custody is `"deletion-pending"`, with NOTHING partial landing (record
+title unchanged, no custody copy created). Both confirmed live.
+
+**Live result 2026-10-06: 19/19 checks passed** (15 from the prior round, +2 for Finding 2b's fix —
+its new retry-completion check fired for real this run, confirming a genuine conflict occurred and
+was resumed, not just the both-succeed path — and +2 for the new `CustodyCopyCommitter` checks,
+both confirmed live including the real cross-table `ConditionCheck` refusal). See
+`docs/backend/runbook.md`'s "Full-fixture seed and correctness checks against real DynamoDB"
+section for the run command.
 
 ## Real staff API smoke test — what actually happened
 
@@ -739,6 +767,26 @@ hand (2 minutes, per `staff-ui/README.md`'s setup steps).
 Test artifacts (two synthetic Cognito users, one across both this and the smoke-test section) were
 created and deleted within this check; no lasting state changes beyond the ordinary fixture
 mutations already described.
+
+### Reviewer-caught UI defect (2026-10-06): action responses disappeared before they could be read
+
+Preparing for the actual human click-through (`docs/backend/browser-acceptance-checklist.md`), a
+reviewer caught a real usability/evidence defect in `staff-ui/app.js`: every `actionForm`'s submit
+handler shows the raw JSON response in a `.result` div directly under the form, but its `onDone`
+callback (`reload`) then calls `loadRecord()` again, which rewrites the ENTIRE `#record-output`
+container the form lives in — wiping that response almost immediately. In practice this meant
+`start-deletion`'s returned `requestId` (needed moments later for `complete-deletion`) and every
+action's `requesterCapacity` (needed for step 16's attribution check) were visible for only a
+fraction of a second after a successful submit, with no way to recover them afterward short of the
+browser's network inspector. Fixed by adding a persistent, page-level **Action log** section
+(`index.html`, a sibling of `#record-output`, never touched by `loadRecord`'s re-render) that every
+`actionForm` and the `permission-check` form now append a durable entry to — timestamp, action,
+recordId, and the full JSON response, newest first — alongside the existing ephemeral `.result`
+display. `docs/backend/browser-acceptance-checklist.md`'s steps 15 and 16 now point testers at this
+log instead of the inline result or the network inspector. Not unit-tested (this is a vanilla-JS,
+no-build-step static page with no existing test harness, consistent with the rest of this project's
+approach to `staff-ui/`) — verified with `node --check` for syntax only; the actual behavior still
+needs the human click-through this exists to support.
 
 ## Real S3 media acceptance drill — what actually happened
 
@@ -1059,14 +1107,9 @@ object exists, so a LATER deletion could report `"completed"` while that object 
 untracked, forever.
 
 Both are fixed by extracting the classification/apply logic into a new, unit-tested module,
-`backend/src/services/legacyMediaMigration.ts` (6 regression tests in `legacyMediaMigration.test.ts`
-reproduce both original failures against the in-memory fakes and prove them closed): eligibility is
-now checked FRESH, immediately before any S3 upload, against the record's live custody status —
-never trusted from the dry-run snapshot alone — and the `MediaRef` rewrite plus its new
-`CustodyCopy` are written in ONE atomic DynamoDB transaction
-(`FixtureStore.putRecordWithCustodyCopy`, mirroring `putRecordWithCorrection`/
-`putRecordWithRedaction`'s existing pattern). If that atomic write still fails after an upload
-already happened, the uploaded object is cleaned up best-effort rather than left orphaned.
+`backend/src/services/legacyMediaMigration.ts`: eligibility is checked FRESH, immediately before
+any S3 upload, against the record's live custody status — never trusted from the dry-run snapshot
+alone.
 
 **Real result, re-run against the live stack with the fix (2026-10-05): 37 legacy
 (`versionId: null`) references found across every record in the register. 34 matched the known
@@ -1076,20 +1119,74 @@ of rebindable, exactly the case the reviewer's finding (1) named. 0 had no trust
 The 3 ineligible entries are real, concrete proof the new gate is doing actual work, not a
 theoretical fix: under the ORIGINAL logic, all 37 would have been reported rebindable.
 
+### Second review round (2026-10-06): the fresh check alone still raced deletion, and cleanup could destroy a real success
+
+**Reviewer-caught finding, part 1: migration can still race deletion.** A deterministic
+reproduction showed that even WITH the fresh custody check above, `startDeletion()` AND
+`completeDeletion()` can run to full completion ENTIRELY in the gap between that check and the
+atomic write landing — uploading real bytes to S3 takes real wall-clock time, and that gap is
+exactly the window. The repro: deletion reports `"completed"` and removes the record while one
+newly migrated S3 version and its unreconciled `CustodyCopy` survive, untracked, forever.
+Compounding this, `completeDeletion`'s own custody-copy reads (`listCustodyCopies`, used by both
+`purgeMediaCustody` and the outstanding-copies check) were NOT strongly consistent — even a
+correctly-ordered write could be missed by a stale read.
+
+Both are fixed. **`listCustodyCopies`** (`dynamoStore.ts`) is no longer routed through the shared,
+eventually-consistent `queryByPrefix` helper — it now issues its own `ConsistentRead: true` query,
+so a just-committed copy can never be missed by staleness alone. The write side needed a stronger
+guarantee than a read, however: a new, narrow `CustodyCopyCommitter` interface (`store.ts`,
+implemented by `DynamoCustodyCopyCommitter` in `dynamoStore.ts`) commits the record+copy write in
+ONE DynamoDB transaction that ALSO includes a `ConditionCheck` against the restriction register's
+custody status — the ONE place in this codebase that writes across both the primary table and the
+register table atomically, deliberately narrow and not a precedent for blurring their separation
+elsewhere. Because the custody assertion and the write are now part of the SAME indivisible
+transaction, a concurrent `startDeletion()` either lands strictly before (the migration's
+`ConditionCheck` then fails, cleanly, nothing commits) or strictly after (the already-committed
+`CustodyCopy` is guaranteed visible to `completeDeletion`'s later, now-strongly-consistent read) —
+there is no window left in between. `services/legacyMediaMigration.ts`'s former
+`FixtureStore.putRecordWithCustodyCopy` call was replaced with this committer; the plain,
+single-table `putRecordWithCustodyCopy` method stays in `FixtureStore` as a general-purpose
+primitive, just no longer used by the path that needs the stronger, deletion-aware guarantee.
+
+**Reviewer-caught finding, part 2: cleanup can destroy a successful binding.** A reviewer simulated
+the atomic transaction committing on the server while its success response failed to reach the
+client (a realistic DynamoDB failure mode — a timeout does not mean a write didn't happen). The
+previous code treated ANY error from the write as "didn't commit" and deleted the just-uploaded S3
+object — leaving the ALREADY-COMMITTED record and `CustodyCopy` pointing at now-missing media.
+Fixed by resolving the uncertainty BEFORE ever touching S3: on any error, the record is re-read
+fresh; if it already reflects the attempted write, this is treated as the success it actually was
+(the same idempotent-recovery idiom `services/lifecycle.ts` already uses for corrections and
+redactions) and nothing is cleaned up. Cleanup only proceeds once the record is confirmed to NOT
+reflect the write.
+
+Both are proven with new regression tests against the in-memory fakes (`legacyMediaMigration.test.ts`,
+now 9 tests total, up from 6) — including a direct test of `CustodyCopyCommitter` refusing
+atomically once custody has moved into the deletion workflow, an end-to-end test simulating
+`startDeletion()` landing in the exact gap between the early check and the upload completing, and a
+test proving a binding that actually committed is never cleaned up even when the client is told it
+failed — AND against real DynamoDB: two new checks in `realFullFixtureChecks.ts` exercise
+`CustodyCopyCommitter` directly (a successful commit, and a real cross-table `ConditionCheck`
+refusal) against a dedicated, fresh fixture — see "Real full-fixture checks" above.
+
+**Dry run re-confirmed against the live stack with all fixes applied (2026-10-06): 41 legacy
+references found (up from 37, as this engagement's drill history continues to accumulate records),
+37 rebindable, 4 correctly classified ineligible (deletion workflow), 0 with no trustworthy
+origin.** The classification logic itself is unaffected by this round's fixes (those are entirely
+about the APPLY path's atomicity/cleanup) — this re-run exists to confirm the dry-run path still
+works cleanly end to end after the refactor into `services/legacyMediaMigration.ts` and the new
+`CustodyCopyCommitter`/`DynamoCustodyCopyCommitter` wiring.
+
 Rebinding here means giving a known, synthetic, reconstructable placeholder its real analog — NOT
 "recovering lost original bytes," since the placeholder was never backed by anything real to begin
 with. **`--apply` was deliberately NOT run against this shared, live stack** — the request was for
 a dry-run report; actually mutating real records' media is a separate decision left open for the
-user (see the end-of-round summary), and the user has separately asked to keep migration in
-dry-run mode for now regardless.
+user, and the user has separately asked to keep migration in dry-run mode until these fixes landed.
 
 A first run without throttle-aware retry hit `ProvisionedThroughputExceededException` partway
-through (around record 16 of 215) — expected, given this deliberately tiny 5-RCU table and the
+through (around record 16) — expected, given this deliberately tiny 5-RCU table and the
 same pattern seen in every other drill in this project's history. Fixed with the same
-`withThrottleRetry` backoff pattern used elsewhere; the corrected re-run completed cleanly
-(`EXIT:0`), taking several minutes of real backoff waiting across ~200 individually-throttled
-reads. See `docs/backend/runbook.md`'s "Legacy media migration against real AWS" section for the
-run command.
+`withThrottleRetry` backoff pattern used elsewhere. See `docs/backend/runbook.md`'s "Legacy media
+migration against real AWS" section for the run command.
 
 ## Real cost and billing-alert reconciliation — what actually happened
 
@@ -1167,6 +1264,22 @@ Noncurrent since (UTC): 2026-10-04T22:44:18.761Z
    positive control, and a genuine expiration are now three distinct, clearly labeled outcomes,
    never conflated. The seed record for this existing observation (the version ids above) was
    persisted retroactively on 2026-10-05 so `--check` has real ground truth to verify against.
+
+**Reviewer-caught finding (2026-10-06), a third, narrower false pass:** the eligibility-date guard
+from fix 1 above only ran inside the "v1 present" branch — if v1 was absent for ANY reason BEFORE
+real eligibility was reached (a bug elsewhere, manual intervention, anything other than the
+lifecycle rule actually firing on schedule), the code unconditionally reported "EXPIRED, OBSERVED
+FOR REAL" regardless of the date. Fixed: the date check now gates BOTH outcomes, not just one — v1
+disappearing before `earliestEligibleUtc` is reported as its own distinct `anomaly-early-
+disappearance` outcome, never as an early, lucky pass.
+
+All three fixes are now also unit-tested, not just reasoned about: the eligibility-date math and
+the full `--check` decision tree were extracted into `backend/src/services/s3ExpiryObservation.ts`
+(`realS3ExpiryObservationSeed.ts` is now a thin CLI wrapper around it), with 8 regression tests in
+`s3ExpiryObservation.test.ts` against the in-memory `MediaStore` fake — including the exact repro
+of this third finding (v2 present, v1 deleted, checked BEFORE the real eligibility date — asserts
+`anomaly-early-disappearance`, never `expired-observed`) and the second finding's missing-positive-
+control case.
 
 **This is genuinely PENDING until 2026-11-04T00:00:00Z.** Re-run the same script with `--check`
 on or after that date to see the real result — checking earlier is harmless and, confirmed live on

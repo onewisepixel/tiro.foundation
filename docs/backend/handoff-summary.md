@@ -254,6 +254,40 @@ and confirmed a different, organizational address (`cero@tiro.foundation`) rathe
 `SubscriptionArn`, not just the confirmation screen), not merely taken on the confirmation
 screenshot's word. The billing alarm now has a real, confirmed, actionable recipient.
 
+**Update, a second review round of the operational-readiness work (2026-10-06) — five more real
+gaps, all fixed:** (1) legacy-media migration could still race deletion EVEN with the fresh custody
+check from the first round — `startDeletion()` + `completeDeletion()` can run to full completion
+entirely in the real wall-clock gap between that check and the S3 upload finishing, leaving a newly
+migrated object and its unreconciled `CustodyCopy` to survive an already-"completed" deletion. Fixed
+with `CustodyCopyCommitter` (`store.ts`/`dynamoStore.ts`): the record+copy write and a
+`ConditionCheck` on the restriction register's custody status now commit in ONE DynamoDB
+transaction spanning both tables — the one place in this codebase that does — so there is no window
+left for a concurrent deletion to land in. `listCustodyCopies` was also made strongly consistent,
+closing the matching read-side gap. (2) The cleanup-on-failure path could destroy a binding that
+actually committed — a timeout can report failure even after the server applied the write — fixed
+by re-reading the record fresh before ever deleting the uploaded object, resolving the uncertainty
+the same way `services/lifecycle.ts` already does for corrections and redactions, rather than
+assuming any error means "didn't commit." (3) The S3 expiry checker's eligibility-date guard only
+ran when v1 was still present, so v1 disappearing for any OTHER reason before real eligibility
+would have been misreported as an early, lucky pass — fixed, and the whole eligibility/`--check`
+decision tree was extracted into a new unit-tested module, `services/s3ExpiryObservation.ts`. (4)
+The older `Finding 2b` concurrency check (`startDeletion` racing `restrict`) carried the exact same
+two defects the first round's revocation/restriction combinatorial check did (requiring a
+conflict that isn't guaranteed, never retrying a real loser) — fixed with the identical pattern.
+(5) The staff UI's action forms showed their response only in a spot the next record reload wiped
+almost immediately — losing `start-deletion`'s requestId and every action's actor attribution
+before a human tester could read them — fixed with a persistent, page-level Action log.
+
+11 new regression tests prove these closed (185 total, up from 174): 3 new tests in
+`legacyMediaMigration.test.ts` (now 9) reproduce the TOCTOU race and the false-cleanup scenario
+directly and prove both fixed; a new `s3ExpiryObservation.test.ts` (8 tests) covers the full
+`--check` decision tree, including the exact third-finding repro. `realFullFixtureChecks.ts` also
+grew two checks that exercise
+`CustodyCopyCommitter` directly against real DynamoDB (a successful commit, and a real cross-table
+refusal) and re-confirmed Finding 2b's fix live. See the evidence matrix's "Legacy media
+migration," "Combinatorial cases," and "S3 noncurrent-version expiration observation" notes, and
+"Browser-flow verification" for the staff-UI fix, for the full detail and real results.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

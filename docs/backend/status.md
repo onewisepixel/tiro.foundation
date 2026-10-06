@@ -464,6 +464,26 @@ and documented rather than chased further; revisit when either upstream ships a 
   empty listing or for the inverse case where the current version vanished — fixed by persisting
   the exact seeded version ids as a positive control. `realFullFixtureChecks.ts` now passes 15/15
   live. See the evidence matrix for the full detail.
+- 2026-10-06, a second review round of the operational-readiness work above found five more real
+  gaps, all fixed: (1) legacy-media migration could still race deletion EVEN with a fresh custody
+  check — `startDeletion`+`completeDeletion` can run to completion entirely in the gap between that
+  check and the upload finishing — fixed with a new `CustodyCopyCommitter` that commits the
+  record+copy in ONE DynamoDB transaction spanning both the primary table and the restriction
+  register, asserting custody status as part of that same atomic commit; `listCustodyCopies` was
+  also made strongly consistent. (2) The cleanup-on-failure path could destroy a binding that
+  actually committed (a timeout can report failure after the server already applied the write) —
+  fixed by re-checking the record fresh before ever deleting the uploaded object, the same
+  idempotent-recovery idiom used throughout `services/lifecycle.ts`. (3) The S3 expiry checker's
+  date guard only ran when v1 was still present, so v1 disappearing for any other reason before real
+  eligibility would have been misreported as an early pass — fixed, and the whole eligibility/check
+  decision tree was extracted into a unit-tested module, `services/s3ExpiryObservation.ts`. (4) The
+  older `Finding 2b` race check carried the exact same two defects the first round's combinatorial
+  check did — fixed with the identical accept-either-outcome, retry-the-original-requestId pattern.
+  (5) The staff UI wiped every action's response (including `start-deletion`'s requestId and actor
+  attribution) almost immediately via its own reload — fixed with a persistent, page-level Action
+  log. `realFullFixtureChecks.ts` now also directly verifies the new cross-table transaction
+  mechanism against real DynamoDB. See the evidence matrix for the full detail and real re-run
+  results.
 
 ## What remains open, by kind
 

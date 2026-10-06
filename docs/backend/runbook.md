@@ -169,20 +169,24 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
   npx tsx backend/src/scripts/realFullFixtureChecks.ts
 ```
 
-Runs 15 checks and exits non-zero if any fails: 4 permission-parity checks (one per fixture case),
+Exits non-zero if any check fails: 4 permission-parity checks (one per fixture case),
 a grant-revocation check, two concurrency checks (a direct `RestrictionRegisterStore.setCurrent`
-compare-and-swap race, plus a full `startDeletion`/`restrict` integration race), two
-export-authorization checks (`public-redacted` and `complete-preservation` scopes both excluding
-the expired-consent and disputed-authority records), and six combinatorial-case checks added for
-operational-readiness review: revocation racing restriction (a FORCED deterministic
+compare-and-swap race, plus a full `startDeletion`/`restrict` integration race — `Finding 2b`, with
+the same accept-either-outcome, retry-the-original-requestId handling as the combinatorial case
+below), two export-authorization checks (`public-redacted` and `complete-preservation` scopes both
+excluding the expired-consent and disputed-authority records), six combinatorial-case checks added
+for operational-readiness review: revocation racing restriction (a FORCED deterministic
 shared-version-conflict check, a real timing-dependent race accepting EITHER a genuine conflict or
 both calls serializing cleanly, a convergence check, and a retry-resumes-the-original-requestId
-check), and export racing withdrawal/deletion (one each) — see `docs/backend/evidence-matrix.md`'s
-"Combinatorial cases" note for the expected outcome this defines for each possible ordering, and
-for the reviewer-caught finding (2026-10-05) that the original revocation/restriction check
-required a conflict that isn't actually guaranteed, plus the real `TransactionConflict` cancellation
-reason bug that fix uncovered in `dynamoStore.ts`'s `isConditionalFailure`. Last run 2026-10-05:
-all 15 passed — see `docs/backend/evidence-matrix.md` for the full results.
+check), and export racing withdrawal/deletion (one each), and two checks exercising
+`CustodyCopyCommitter` (the cross-table transaction `services/legacyMediaMigration.ts` uses to
+close a TOCTOU race against deletion) directly against real DynamoDB — a successful commit, and a
+real cross-table `ConditionCheck` refusal once custody is `"deletion-pending"`. See
+`docs/backend/evidence-matrix.md`'s "Combinatorial cases" and "Legacy media migration" notes for
+the expected outcome each case defines and the reviewer-caught findings (2026-10-05, 2026-10-06)
+that drove these checks, plus the real `TransactionConflict` cancellation-reason bug the forced
+check uncovered in `dynamoStore.ts`'s `isConditionalFailure`. Last run 2026-10-06: all 19 passed —
+see the evidence matrix for the full results.
 
 ## Grant-level revocation restore drill against real DynamoDB
 
@@ -316,19 +320,26 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
   npx tsx backend/src/scripts/realLegacyMediaMigration.ts
 ```
 
-Pass `--apply` to actually rebind entries still eligible at apply time — eligibility is re-checked
-FRESH immediately before any S3 upload (never trusting the dry-run snapshot), and the record's
-`MediaRef` rewrite plus its new `CustodyCopy` are written in ONE atomic DynamoDB transaction
-(`FixtureStore.putRecordWithCustodyCopy`) so a failed custody-copy write can never leave an
-uploaded object untracked outside the deletion workflow; if the atomic write still fails after an
-upload already happened, the script cleans that upload up best-effort rather than leaving an
-orphan.
+Pass `--apply` to actually rebind entries still eligible at apply time. Eligibility is re-checked
+FRESH immediately before any S3 upload (never trusting the dry-run snapshot) — but that fresh check
+alone was found (2026-10-06) not to be enough, since deletion can start AND finish entirely in the
+real wall-clock gap between it and the upload completing. The record's `MediaRef` rewrite plus its
+new `CustodyCopy` are now committed via `CustodyCopyCommitter` (`store.ts`/`dynamoStore.ts`), ONE
+DynamoDB transaction spanning both the primary table and the restriction register table, asserting
+custody status as PART OF the same atomic commit rather than a separate earlier read — the one
+place in this codebase that writes across both tables together, deliberately narrow. If the write
+is refused this way, or fails for any other reason, the client-side error is resolved via an
+idempotent re-read BEFORE any cleanup — a write that actually committed but merely failed to report
+success is never mistaken for one that didn't, which would otherwise destroy a real, successful
+binding. See `docs/backend/evidence-matrix.md`'s "Legacy media migration" entry (the second review
+round, 2026-10-06) for the full detail and the regression tests proving both are closed.
 
-Last run (dry run) 2026-10-05 against the drill stack: 37 legacy references found, 34 rebindable, 3
-correctly classified ineligible because their record is in the deletion workflow (would have been
-misreported as rebindable under the pre-fix logic), 0 with no trustworthy origin. `--apply` has NOT
-been run against the live drill stack; that is a separate, real-data-mutating decision left to
-whoever operates this stack, not something this script does on its own.
+Last run (dry run) 2026-10-06 against the drill stack, with the TOCTOU/cleanup fixes above: 41
+legacy references found, 37 rebindable, 4 correctly classified ineligible because their record is
+in the deletion workflow (would have been misreported as rebindable under the pre-fix logic), 0
+with no trustworthy origin. `--apply` has NOT been run against the live drill stack; that is a
+separate, real-data-mutating decision left to whoever operates this stack, not something this
+script does on its own.
 
 ## S3 noncurrent-version expiry observation
 
@@ -364,7 +375,15 @@ vanished (an inversion, not a pass). `--check` now reads the exact seeded
 version ids back from a persisted S3 object and requires v2 (a surviving
 positive control — the current version, which this rule must never
 touch) to be confirmed present before treating v1's absence as a real,
-observed expiration. On or after 2026-11-04T00:00:00Z, re-run with
+observed expiration. A third, narrower false pass was caught on review
+(2026-10-06): that date guard only ran when v1 was present, so v1
+disappearing for any OTHER reason before real eligibility was reached
+would have been misreported as an early, lucky "EXPIRED, OBSERVED FOR
+REAL" instead of the anomaly it actually is — fixed, and the eligibility
+math plus the full `--check` decision tree are now extracted into
+`backend/src/services/s3ExpiryObservation.ts` and unit-tested (8 tests,
+`s3ExpiryObservation.test.ts`) against the in-memory fake, including this
+exact scenario. On or after 2026-11-04T00:00:00Z, re-run with
 `--check`; running it earlier is harmless and just reports "too early"
 rather than fabricating a result.
 
@@ -422,6 +441,13 @@ Verify it's actually in effect after any change to `staff-ui/` or its serving co
 curl -i "http://localhost:4300/callback.html?code=test&state=test"
 # must return 200 directly, never a 301 to /callback
 ```
+
+Reviewer-caught finding (2026-10-06): every action form's response was shown only in a `.result`
+div that gets wiped almost immediately by the next record reload — losing `start-deletion`'s
+returned requestId and every action's `requesterCapacity` before a human tester could read them.
+Fixed with a persistent, page-level **Action log** section (`index.html`) that `app.js` now appends
+every action's full response to, newest first — untouched by record reloads. See
+`docs/backend/browser-acceptance-checklist.md`'s steps 15–16.
 
 ## Cleanup
 

@@ -126,7 +126,11 @@ checklist is the evidence, not just a rehearsal.
 15. **Start, then complete, deletion of the ALLOWED record.** Use
     `start-deletion` (no fields). Copy the returned `requestId` into
     `complete-deletion`'s `deletionRequestId` field, submit.
-    - [ ] Expect: `start-deletion` returns a request id immediately.
+    - [ ] Expect: `start-deletion` returns a request id immediately. If
+      you need it again later, it's also in the **Action log** section
+      (below "Look up a record") — that entry persists even after the
+      page reloads the record, unlike the inline result under the form
+      itself, which gets replaced the moment the record reloads.
     - [ ] Expect: `complete-deletion` reports `"completed"` (it may need
       a moment to purge the real S3 media versions first).
     - [ ] Reload the record afterward (Look up a record, same id): expect
@@ -138,12 +142,14 @@ checklist is the evidence, not just a rehearsal.
 16. **Every action above is attributed to YOU, not spoofable.** Do this
     from a point before step 15's deletion, since the record's own
     history won't be reachable afterward.
-    - [ ] Expect: each action form (restrict, withdraw, retain,
-      start-deletion, complete-deletion) shows its raw JSON response
-      directly on the page right after you submit it — look at the
-      `requesterCapacity` field there; it must match the Cognito identity
-      you actually signed in with in step 4 (`staff:<your-email>`). No
-      network inspector needed; the UI prints the full response itself.
+    - [ ] Expect: the **Action log** section (below "Look up a record")
+      shows every action you submitted, newest first, each with its full
+      JSON response — look at the `requesterCapacity` field there; it
+      must match the Cognito identity you actually signed in with in
+      step 4 (`staff:<your-email>`). This log persists across record
+      reloads, unlike each form's own inline result, which the next
+      reload replaces — use the log, not the inline result, to check
+      anything after the first action you take.
     - [ ] Expect: the Corrections list entry from step 9's `correct`
       action shows an `attribution` field with that SAME identity.
     - [ ] **Do NOT expect this from audit receipts.** `AuditReceipt`
