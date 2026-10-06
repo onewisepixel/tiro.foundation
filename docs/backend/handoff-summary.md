@@ -323,6 +323,18 @@ corrected in place to assert `"failed"`, directly reproducing the reviewer's CLI
 service layer; 188 tests still pass (a test was corrected, not added). `--apply` stays deliberately
 unrun. See the evidence matrix's "Legacy media migration" entry (fourth review round).
 
+**Update, `--apply` executed (2026-10-06):** with every reported finding across four review rounds
+closed, the reviewer explicitly recommended the live-migration procedure (fresh dry-run, `--apply`,
+verify, re-confirm) and gave final authorization. Executed exactly that: a fresh dry-run found 40
+rebindable; `--apply` rebound all 40, with 0 skipped, 0 failed, and 0 needing reconciliation; an
+independent verification script (not part of the committed suite) confirmed all 40 directly against
+real AWS — exact S3 object, exact SHA-256, exact `MediaRef`, a matching `CustodyCopy` for each; a
+confirmatory dry-run immediately after found 0 remaining rebindable, with only the 6 records
+correctly excluded for being in the deletion workflow still carrying legacy references. DynamoDB
+capacity was confirmed unchanged throughout. This closes the legacy-media migration end to end —
+the one piece of this engagement's real, hard-to-reverse live-data mutation, now done and verified.
+See the evidence matrix's "`--apply` executed" entry for the full detail.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

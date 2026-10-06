@@ -1259,7 +1259,40 @@ The existing regression test for this exact code path (`legacyMediaMigration.tes
 non-definite error (standing in for `AccessDeniedException` or any other operational failure) and
 now asserts `"failed"`, not `"skipped-ineligible"`, directly reproducing the reviewer's exact CLI
 finding at the service-layer level. 188 tests pass (unchanged — a test was corrected, not added).
-Local, fault-injection-proven; `--apply` stays deliberately unrun against the live stack.
+Local, fault-injection-proven; `--apply` stayed deliberately unrun against the live stack through
+four review rounds.
+
+### `--apply` executed — 2026-10-06, after explicit authorization
+
+With all reported findings closed and the user's explicit go-ahead (a fresh dry-run first, then
+`--apply`, then verification, matching the exact procedure requested), `--apply` was run for real
+against the live, shared drill stack.
+
+**Fresh dry-run immediately before applying: 46 legacy references found, 40 rebindable, 6
+ineligible (deletion workflow), 0 no-trustworthy-origin.**
+
+**`--apply` result: 40 rebound, 0 skipped, 0 failed, 0 needing reconciliation. Exit 0.** Every
+eligible reference was migrated on the first attempt; no conflicts, no operational errors, nothing
+left requiring cleanup.
+
+**Independent verification against real AWS, all 40 items, 40/40 confirmed:** for every rebound
+`(recordId, mediaId)`, (1) the S3 object exists at the exact reported `objectKey`/`versionId`, its
+real body matches the deterministic synthetic content exactly, and its SHA-256 matches; (2) the
+record's `MediaRef` carries that exact `objectKey`/`versionId`/`checksumSha256`/`bytes`; (3) a
+`CustodyCopy` exists tracking that exact `mediaId`/`objectVersionId`, with `reconciledAt: null` (not
+yet purged, correct for a live, non-deleted record). Checked with a one-off verification script
+(not part of the committed test suite) built specifically to confirm this run, re-reading every
+value directly from S3 and DynamoDB rather than trusting the apply run's own log output.
+
+**Confirmatory re-run of the dry-run immediately after: 6 legacy references found (all 6
+ineligible-deletion-in-progress, unchanged), 0 rebindable, 0 no-trustworthy-origin.** Every
+reference that could legitimately be migrated now has been; the only remaining legacy references
+are the ones correctly excluded because their records are in the deletion workflow — exactly the
+expected end state.
+
+`cdk synth` confirmed immediately after: DynamoDB capacity unchanged (5/5 RCU/WCU throughout), as
+required. This closes `docs/backend/status.md`'s "Engineering, scoped and ready to pick up" item for
+the legacy-media migration.
 
 ## Real cost and billing-alert reconciliation — what actually happened
 

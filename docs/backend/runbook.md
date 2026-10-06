@@ -347,12 +347,14 @@ non-commit is now `"failed"` — the CLI counts it, prints it under its own bann
 See `docs/backend/evidence-matrix.md`'s "Legacy media migration" entry (second through fourth
 review rounds) for the full detail and the regression tests proving all five findings closed.
 
-Last run (dry run) 2026-10-06 against the drill stack, with the TOCTOU/cleanup fixes above: 41
-legacy references found, 37 rebindable, 4 correctly classified ineligible because their record is
-in the deletion workflow (would have been misreported as rebindable under the pre-fix logic), 0
-with no trustworthy origin. `--apply` has NOT been run against the live drill stack; that is a
-separate, real-data-mutating decision left to whoever operates this stack, not something this
-script does on its own.
+**`--apply` was run for real against the drill stack on 2026-10-06, after explicit authorization**
+(a fresh dry-run, then apply, then independent verification). Result: 40 rebound, 0 skipped, 0
+failed, 0 needing reconciliation — every eligible reference migrated on the first attempt. All 40
+independently re-verified directly against S3 (exact object, exact SHA-256) and DynamoDB (exact
+`MediaRef`, a matching `CustodyCopy`). A confirmatory dry-run immediately afterward found 0
+remaining rebindable — only the 6 records correctly excluded for being in the deletion workflow
+still carry legacy references. `cdk synth` confirmed capacity unchanged throughout. See
+`docs/backend/evidence-matrix.md`'s "`--apply` executed" entry for the full detail.
 
 ## S3 noncurrent-version expiry observation
 

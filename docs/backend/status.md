@@ -504,14 +504,18 @@ and documented rather than chased further; revisit when either upstream ships a 
   checks, plus `DeletionInProgressError`/`VersionConflictError`); every other confirmed non-commit is
   now a distinct `"failed"` outcome that the CLI counts and exits non-zero on. Migration stays
   dry-run only. See the evidence matrix for the full detail.
+- 2026-10-06, `--apply` executed for real against the drill stack, after explicit authorization
+  (fresh dry-run, then apply, then independent verification). Result: 40 rebound, 0 skipped, 0
+  failed, 0 needing reconciliation. All 40 independently re-verified directly against S3 (exact
+  object, exact SHA-256) and DynamoDB (exact `MediaRef`, matching `CustodyCopy`). A confirmatory
+  dry-run immediately afterward found 0 remaining rebindable — only the 6 records correctly in the
+  deletion workflow still carry legacy references. Capacity unchanged throughout. See the evidence
+  matrix's "`--apply` executed" entry.
 
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-Actually applying the legacy-media migration (`realLegacyMediaMigration.ts --apply`) for any
-references its dry run classified as rebindable against a known, exact placeholder signature —
-the dry run itself is done; applying it to live data is a judgment call left to the user, not
-exercised automatically. A literal human browser click-through of the now-prepared and
+A literal human browser click-through of the now-prepared and
 now-fixture-seeded `docs/backend/browser-acceptance-checklist.md`. Actual
 image/audio/video redaction (blur/bleep/crop) — this
 backend's redaction is text-masking and a hard media-access override only, honestly short of real
