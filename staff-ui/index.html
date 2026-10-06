@@ -75,6 +75,19 @@
     </section>
 
     <section>
+      <h2>Action log</h2>
+      <p class="muted">
+        Every submitted action's full response, newest first. This persists
+        across record reloads — unlike the inline result shown directly
+        under each form, which is replaced the moment the page reloads the
+        record (e.g. immediately after a successful action completes). Use
+        this to recover a deletion requestId or check actor attribution
+        after the fact, rather than the DevTools Network tab.
+      </p>
+      <div id="action-log"></div>
+    </section>
+
+    <section>
       <h2>Export</h2>
       <form id="export-form" class="inline" style="display:block; max-width: 480px;">
         <label>Record IDs (comma-separated)<input name="recordIds" required /></label>

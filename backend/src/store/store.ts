@@ -60,6 +60,26 @@ export class IdempotencyKeyConflictError extends Error {
   }
 }
 
+// Thrown by CustodyCopyCommitter.commitIfNotDeleting when the restriction
+// register's custody status is "deletion-pending" or "deleted" at the EXACT
+// instant the atomic commit was attempted — not from an earlier, separate
+// check. Reviewer-caught finding: a "check custody, then upload, then
+// write" sequence has a real window in which startDeletion() AND
+// completeDeletion() can run to full completion entirely between the check
+// and the write — real S3 bytes get uploaded and a CustodyCopy gets
+// created for a record that is, by the time the write lands, already
+// gone, with nothing left to ever purge that object. This error signals a
+// GENUINE, certain non-commit (the whole transaction was cancelled,
+// nothing partial landed) — see CustodyCopyCommitter for the mechanism.
+export class DeletionInProgressError extends Error {
+  constructor(recordId: string) {
+    super(
+      `Custody status for record ${recordId} moved into the deletion workflow at the exact instant this write was attempted; the write did not commit.`,
+    );
+    this.name = "DeletionInProgressError";
+  }
+}
+
 // Primary fixture data — records, their sub-entities, lifecycle work, and
 // custody copies. Everything EXCEPT the restriction register (see below).
 export interface FixtureStore {
@@ -185,4 +205,28 @@ export interface RestrictionRegisterStore {
   // on mismatch.
   setCurrent(entry: RestrictionRegisterEntry, expectedVersion: number | undefined): Promise<void>;
   listAll(): Promise<RestrictionRegisterEntry[]>;
+}
+
+// A narrow, explicit interface for the ONE operation in this system that
+// needs an atomicity guarantee SPANNING both FixtureStore's table and
+// RestrictionRegisterStore's table — deliberately NOT folded into either
+// store's own interface, which otherwise stay scoped to exactly one table
+// each (see docs/ethos.txt §12 on keeping the register "outside the data
+// being rolled back"). Used by services/legacyMediaMigration.ts to close a
+// real TOCTOU race a separate "read custody, then write" sequence cannot:
+// deletion can start AND finish entirely in the gap between a fresh
+// custody check and a later write, because uploading real bytes to S3
+// takes real wall-clock time. Committing the record+copy ATOMICALLY
+// GUARDED by the register's custody status, in one transaction, removes
+// that gap instead of merely narrowing it.
+export interface CustodyCopyCommitter {
+  // Throws VersionConflictError if `expectedVersion` is stale, or
+  // DeletionInProgressError if custody moved into the deletion workflow at
+  // the exact commit instant — in BOTH cases nothing partial is written;
+  // the whole attempt either fully commits or fully doesn't.
+  commitIfNotDeleting(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    copy: CustodyCopy,
+  ): Promise<void>;
 }

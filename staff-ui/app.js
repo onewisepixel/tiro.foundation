@@ -60,6 +60,25 @@ async function loadRequests() {
   });
 }
 
+// Prepends a durable entry to the page-level action log (index.html's
+// #action-log, a sibling of #record-output, never touched by
+// loadRecord()'s re-render). Reviewer-caught finding: actionForm's own
+// `.result` div shows the response too, but loadRecord()'s reload callback
+// (onDone) wipes the ENTIRE #record-output container, including that
+// result, almost immediately after a successful submit — losing
+// start-deletion's returned requestId and, after any later reload,
+// every past response's requesterCapacity. Logging here keeps every
+// response readable regardless of what gets reloaded afterward.
+function logAction(recordId, action, responseBody) {
+  const log = document.getElementById("action-log");
+  const entry = document.createElement("div");
+  entry.className = "action-log-entry";
+  entry.innerHTML = `
+    <p class="muted">${escapeHtml(new Date().toISOString())} — <strong>${escapeHtml(action)}</strong> on <code>${escapeHtml(recordId)}</code></p>
+    <pre>${escapeHtml(JSON.stringify(responseBody, null, 2))}</pre>`;
+  log.insertBefore(entry, log.firstChild);
+}
+
 function actionForm(recordId, action, extraFields, onDone) {
   const fieldsHtml = extraFields
     .map((f) => `<label>${escapeHtml(f.label)}<input name="${f.name}" ${f.required ? "required" : ""} /></label>`)
@@ -89,6 +108,7 @@ function actionForm(recordId, action, extraFields, onDone) {
       body: JSON.stringify(body),
     });
     resultEl.innerHTML = `<pre>${escapeHtml(JSON.stringify(responseBody, null, 2))}</pre>`;
+    logAction(recordId, action, responseBody);
     if (status === 200 && onDone) onDone();
   });
   return container;
@@ -238,6 +258,7 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
       body: JSON.stringify({ purpose: data.get("purpose"), audience: data.get("audience") }),
     });
     checkForm.querySelector(".result").innerHTML = `<pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>`;
+    logAction(recordId, "permission-check", result);
   });
   actions.append(checkForm);
 }

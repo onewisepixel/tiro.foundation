@@ -33,7 +33,14 @@ import type {
   Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
-import { AlreadyAppliedError, VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
+import {
+  AlreadyAppliedError,
+  DeletionInProgressError,
+  VersionConflictError,
+  type CustodyCopyCommitter,
+  type FixtureStore,
+  type RestrictionRegisterStore,
+} from "./store";
 
 export type DynamoStoreConfig = {
   client: DynamoDBClient;
@@ -199,8 +206,25 @@ export class DynamoFixtureStore implements FixtureStore {
     }
   }
 
-  listCustodyCopies(recordId: string): Promise<CustodyCopy[]> {
-    return this.queryByPrefix<CustodyCopy>(recordId, "COPY#");
+  // NOT routed through queryByPrefix (which defaults to eventually
+  // consistent): completeDeletion's outstanding-copies check and
+  // purgeMediaCustody (services/lifecycle.ts) both use this result to
+  // decide whether it is safe to remove a record — an eventually
+  // consistent read could miss a custody copy that was JUST committed
+  // (e.g. by a legacy-media migration racing this exact deletion),
+  // letting deletion proceed past media it doesn't yet know needs
+  // purging. Reviewer-caught finding, alongside the CustodyCopyCommitter
+  // fix below that closes the write-side half of the same race.
+  async listCustodyCopies(recordId: string): Promise<CustodyCopy[]> {
+    const result = await this.doc.send(
+      new QueryCommand({
+        TableName: this.config.primaryTableName,
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
+        ExpressionAttributeValues: { ":pk": pk(recordId), ":skPrefix": "COPY#" },
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Items ?? []) as CustodyCopy[];
   }
 
   async putCustodyCopy(copy: CustodyCopy): Promise<void> {
@@ -575,5 +599,92 @@ export class DynamoRestrictionRegisterStore implements RestrictionRegisterStore 
     // synthetic records; would need a proper index before any real-scale use.
     const result = await this.doc.send(new ScanCommand({ TableName: this.config.tableName }));
     return (result.Items ?? []) as RestrictionRegisterEntry[];
+  }
+}
+
+export type CustodyCopyCommitterConfig = {
+  client: DynamoDBClient;
+  primaryTableName: string;
+  registerTableName: string;
+};
+
+// Real AWS implementation of CustodyCopyCommitter (store.ts). The ONE place
+// in this codebase that writes across BOTH the primary table AND the
+// restriction register table in a single DynamoDB transaction — deliberate
+// and narrow, not a precedent for blurring their separation elsewhere (see
+// store.ts's interface comment). A single TransactWriteItems call CAN span
+// multiple tables in the same account/region; this uses that to make "is
+// the record not currently being deleted" and "commit the new media
+// tracking" one indivisible operation, closing a TOCTOU race a separate
+// read-then-write sequence cannot: deletion can start AND finish entirely
+// in the gap between a fresh check and a later write, since uploading real
+// bytes to S3 takes real wall-clock time.
+export class DynamoCustodyCopyCommitter implements CustodyCopyCommitter {
+  private readonly doc: DynamoDBDocumentClient;
+  constructor(private readonly config: CustodyCopyCommitterConfig) {
+    this.doc = DynamoDBDocumentClient.from(config.client, {
+      marshallOptions: { removeUndefinedValues: true },
+    });
+  }
+
+  async commitIfNotDeleting(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    copy: CustodyCopy,
+  ): Promise<void> {
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              // A pure assertion, no write — part of the SAME atomic unit
+              // as the two Puts below. A register entry that doesn't exist
+              // at all fails this condition too (the attribute comparison
+              // is against a nonexistent item), which is the correct,
+              // fail-closed behavior: every record this is ever called for
+              // was discovered via the register's own listAll() in the
+              // first place, so a missing entry here is itself an anomaly,
+              // not something to silently proceed past.
+              ConditionCheck: {
+                TableName: this.config.registerTableName,
+                Key: { recordId: record.recordId },
+                ConditionExpression: "currentCustodyStatus <> :pending AND currentCustodyStatus <> :deleted",
+                ExpressionAttributeValues: { ":pending": "deletion-pending", ":deleted": "deleted" },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
+                ConditionExpression:
+                  expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
+                ExpressionAttributeValues:
+                  expectedVersion === undefined ? undefined : { ":expectedVersion": expectedVersion },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(copy.recordId), SK: copySk(copy.copyId), ...copy },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (error instanceof TransactionCanceledException) {
+        const reasons = error.CancellationReasons ?? [];
+        if (reasons[0]?.Code === "ConditionalCheckFailed") {
+          throw new DeletionInProgressError(record.recordId);
+        }
+        if (reasons[1]?.Code === "ConditionalCheckFailed") {
+          throw new VersionConflictError("FixtureRecord", record.recordId);
+        }
+      }
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("FixtureRecord", record.recordId);
+      }
+      throw error;
+    }
   }
 }

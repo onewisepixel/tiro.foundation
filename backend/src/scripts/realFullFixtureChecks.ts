@@ -29,13 +29,14 @@
 // Run with:
 // AWS_PROFILE=tiro-fixture-deploy TIRO_PRIMARY_TABLE=... TIRO_REGISTER_TABLE=... npx tsx backend/src/scripts/realFullFixtureChecks.ts
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
+import { DynamoCustodyCopyCommitter, DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { startDeletion, restrict, revokeConsentGrant, withdraw } from "../services/lifecycle";
 import { evaluatePermission } from "../services/permissions";
 import { exportFixtureSet } from "../services/export";
-import { VersionConflictError } from "../store/store";
+import { DeletionInProgressError, VersionConflictError } from "../store/store";
+import { uuidv7 } from "../domain/id";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
@@ -64,6 +65,11 @@ async function main() {
     statusIndexName: STATUS_INDEX,
   });
   const registerStore = new DynamoRestrictionRegisterStore({ client, tableName: REGISTER_TABLE });
+  const custodyCopyCommitter = new DynamoCustodyCopyCommitter({
+    client,
+    primaryTableName: PRIMARY_TABLE,
+    registerTableName: REGISTER_TABLE,
+  });
 
   const results: CheckResult[] = [];
   function check(name: string, passed: boolean, detail?: unknown): void {
@@ -224,16 +230,23 @@ async function main() {
   );
 
   // (b) Best-effort integration-level race: two real lifecycle actions fired
-  // concurrently against the same live record. Expected to reliably exercise
-  // the same guarantee in practice — both calls' several sequential
-  // round-trips (getLifecycleRequest / createLifecycleRequest / getCurrent)
-  // happen well before either reaches setCurrent, given DynamoDB network
-  // latency dominates same-process call-dispatch overhead — but this is
-  // inherently timing-dependent in a way (a) above is not, so it's reported
-  // separately rather than treated as the primary proof.
+  // concurrently against the same live record. Each call does its OWN
+  // independent transitionControl read-then-write round trip, so — exactly
+  // like the revocation-vs-restriction combinatorial case below — EITHER a
+  // genuine conflict (one rejected, retryable) OR both calls serializing
+  // cleanly (both fulfilled, no retry needed) is a valid, safe outcome.
+  // Reviewer-caught finding: this check used to REQUIRE a conflict, which
+  // is not actually guaranteed, and never retried a genuine loser at all
+  // — leaving its LifecycleRequest permanently "in-progress" whenever one
+  // really did occur. Fixed with the same accept-either-outcome,
+  // retry-the-SAME-original-requestId pattern as that combinatorial case
+  // (see its comment for the full reasoning, including the real
+  // TransactionConflict cancellation-reason bug that pattern caught).
+  const liveDeleteRequestId = `real-full-fixture-race-delete-${Date.now()}`;
+  const liveRestrictRequestId = `real-full-fixture-race-restrict-${Date.now()}`;
   const [liveDelete, liveRestrict] = await Promise.allSettled([
     startDeletion(fixtureStore, registerStore, {
-      requestId: `real-full-fixture-race-delete-${Date.now()}`,
+      requestId: liveDeleteRequestId,
       recordId: preservationOnly.record.recordId,
       requesterCapacity: "[SYNTHETIC] steward",
       reason: "[SYNTHETIC] real-AWS concurrency check",
@@ -242,7 +255,7 @@ async function main() {
       fixtureStore,
       registerStore,
       {
-        requestId: `real-full-fixture-race-restrict-${Date.now()}`,
+        requestId: liveRestrictRequestId,
         recordId: preservationOnly.record.recordId,
         requesterCapacity: "[SYNTHETIC] staff",
         reason: "[SYNTHETIC] real-AWS concurrency check",
@@ -251,16 +264,54 @@ async function main() {
     ),
   ]);
   const liveStatuses = [liveDelete.status, liveRestrict.status];
-  const liveFinalState = await registerStore.getCurrent(preservationOnly.record.recordId);
+  const liveExactlyOneRejected = liveStatuses.includes("fulfilled") && liveStatuses.includes("rejected");
+  const liveBothFulfilled = liveDelete.status === "fulfilled" && liveRestrict.status === "fulfilled";
   check(
-    "Finding 2b: concurrent startDeletion + restrict against REAL DynamoDB — exactly one wins, no corrupted merge",
-    liveStatuses.includes("fulfilled") && liveStatuses.includes("rejected"),
+    "Finding 2b: concurrent startDeletion + restrict against REAL DynamoDB — EITHER a genuine CAS conflict (one rejected, retryable) OR both calls serialize cleanly and both succeed; both are valid, safe outcomes",
+    liveExactlyOneRejected || liveBothFulfilled,
     {
       startDeletion: liveDelete.status === "rejected" ? String(liveDelete.reason) : "fulfilled",
       restrict: liveRestrict.status === "rejected" ? String(liveRestrict.reason) : "fulfilled",
-      finalRegisterState: liveFinalState,
     },
   );
+
+  let liveRetriedRequestId: string | null = null;
+  if (liveDelete.status === "rejected") {
+    liveRetriedRequestId = liveDeleteRequestId;
+    await startDeletion(fixtureStore, registerStore, {
+      requestId: liveDeleteRequestId,
+      recordId: preservationOnly.record.recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] real-AWS concurrency check",
+    });
+  } else if (liveRestrict.status === "rejected") {
+    liveRetriedRequestId = liveRestrictRequestId;
+    await restrict(
+      fixtureStore,
+      registerStore,
+      {
+        requestId: liveRestrictRequestId,
+        recordId: preservationOnly.record.recordId,
+        requesterCapacity: "[SYNTHETIC] staff",
+        reason: "[SYNTHETIC] real-AWS concurrency check",
+      },
+      ["research"],
+    );
+  }
+  const liveFinalState = await registerStore.getCurrent(preservationOnly.record.recordId);
+  check(
+    "Finding 2b: after resolving any conflict, BOTH the deletion and the restriction are present in the register — whether they serialized cleanly or one needed a retry, neither is ever permanently lost, and no corrupted merge",
+    liveFinalState?.currentCustodyStatus === "deletion-pending" && (liveFinalState?.restrictedPurposes.includes("research") ?? false),
+    liveFinalState,
+  );
+  if (liveRetriedRequestId) {
+    const liveRetriedFinal = await fixtureStore.getLifecycleRequest(liveRetriedRequestId);
+    check(
+      "Finding 2b: retrying the SAME original requestId resumes and completes it against REAL DynamoDB — never left permanently stuck in-progress",
+      liveRetriedFinal?.status === "completed",
+      liveRetriedFinal,
+    );
+  }
 
   // --------------------------- Combinatorial case: revocation racing restriction ----
   // Reviewer-requested combinatorial case, against REAL DynamoDB.
@@ -519,6 +570,92 @@ async function main() {
       startDeletionOutcome: deletionRaceStart.status === "rejected" ? String(deletionRaceStart.reason) : "fulfilled",
       exportRecordCount: exportResultDuringDeletion?.records.length,
       controlStateAtExport: exportResultDuringDeletion?.records[0]?.controlStateAtExport,
+    },
+  );
+
+  // --------------------- CustodyCopyCommitter: real cross-table transaction ----
+  // Operational-readiness review, second round: the legacy-media migration
+  // (services/legacyMediaMigration.ts) closes a TOCTOU race against
+  // deletion by committing its record+copy write ATOMICALLY GUARDED by the
+  // restriction register's custody status, via ONE DynamoDB transaction
+  // spanning BOTH the primary table and the register table (store.ts's
+  // CustodyCopyCommitter, dynamoStore.ts's DynamoCustodyCopyCommitter).
+  // This is the ONE place in the system that writes across both tables in
+  // a single transaction — proven here against REAL DynamoDB, not just the
+  // in-memory fake's synchronous approximation of it.
+  const [committerFixture] = buildSeedFixtures();
+  await seedStore(fixtureStore, registerStore, [committerFixture]);
+  const committerRecordId = committerFixture.record.recordId;
+
+  const beforeCommit = await fixtureStore.getRecord(committerRecordId);
+  if (!beforeCommit) {
+    throw new Error("Sanity check failed: committerFixture must have a record after seeding.");
+  }
+  const committerMediaId = beforeCommit.mediaRefs[0].mediaId;
+  const committerCopyId = uuidv7();
+  await custodyCopyCommitter.commitIfNotDeleting(
+    { ...beforeCommit, title: "[SYNTHETIC] rewritten by CustodyCopyCommitter check", updatedAt: new Date().toISOString() },
+    beforeCommit.version,
+    {
+      recordId: committerRecordId,
+      copyId: committerCopyId,
+      location: "primary",
+      objectVersionId: "fake-version-for-real-aws-check",
+      mediaId: committerMediaId,
+      createdAt: new Date().toISOString(),
+      reconciledAt: null,
+    },
+  );
+  const afterCommit = await fixtureStore.getRecord(committerRecordId);
+  const copiesAfterCommit = await fixtureStore.listCustodyCopies(committerRecordId);
+  check(
+    "CustodyCopyCommitter.commitIfNotDeleting against REAL DynamoDB: commits the record+copy atomically when custody is not in the deletion workflow",
+    afterCommit?.title === "[SYNTHETIC] rewritten by CustodyCopyCommitter check" &&
+      copiesAfterCommit.some((c) => c.copyId === committerCopyId),
+    { afterCommitTitle: afterCommit?.title, copyCommitted: copiesAfterCommit.some((c) => c.copyId === committerCopyId) },
+  );
+
+  await startDeletion(fixtureStore, registerStore, {
+    requestId: `real-full-fixture-committer-delete-${Date.now()}`,
+    recordId: committerRecordId,
+    requesterCapacity: "[SYNTHETIC] steward",
+    reason: "[SYNTHETIC] real-AWS CustodyCopyCommitter refusal check",
+  });
+  const beforeRefusal = await fixtureStore.getRecord(committerRecordId);
+  if (!beforeRefusal) {
+    throw new Error("Sanity check failed: committerFixture's record must still exist (deletion-pending, not yet completed).");
+  }
+  const refusedCopyId = uuidv7();
+  let committerRefusalError: unknown = null;
+  try {
+    await custodyCopyCommitter.commitIfNotDeleting(
+      { ...beforeRefusal, title: "[SYNTHETIC] must NOT land — custody is deletion-pending", updatedAt: new Date().toISOString() },
+      beforeRefusal.version,
+      {
+        recordId: committerRecordId,
+        copyId: refusedCopyId,
+        location: "primary",
+        objectVersionId: "fake-version-should-never-commit",
+        mediaId: committerMediaId,
+        createdAt: new Date().toISOString(),
+        reconciledAt: null,
+      },
+    );
+  } catch (error) {
+    committerRefusalError = error;
+  }
+  const afterRefusal = await fixtureStore.getRecord(committerRecordId);
+  const copiesAfterRefusal = await fixtureStore.listCustodyCopies(committerRecordId);
+  check(
+    "CustodyCopyCommitter.commitIfNotDeleting against REAL DynamoDB: refuses atomically, via the real cross-table ConditionCheck, once custody is deletion-pending — nothing partial lands",
+    committerRefusalError instanceof DeletionInProgressError &&
+      afterRefusal?.title !== "[SYNTHETIC] must NOT land — custody is deletion-pending" &&
+      !copiesAfterRefusal.some((c) => c.copyId === refusedCopyId),
+    {
+      threwDeletionInProgressError: committerRefusalError instanceof DeletionInProgressError,
+      errorMessage: committerRefusalError instanceof Error ? committerRefusalError.message : String(committerRefusalError),
+      titleStayedUnchanged: afterRefusal?.title !== "[SYNTHETIC] must NOT land — custody is deletion-pending",
+      copyNeverCreated: !copiesAfterRefusal.some((c) => c.copyId === refusedCopyId),
     },
   );
 

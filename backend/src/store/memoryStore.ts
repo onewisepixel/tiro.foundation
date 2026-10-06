@@ -21,7 +21,14 @@ import type {
   Redaction,
   RestrictionRegisterEntry,
 } from "../domain/types";
-import { AlreadyAppliedError, VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "./store";
+import {
+  AlreadyAppliedError,
+  DeletionInProgressError,
+  VersionConflictError,
+  type CustodyCopyCommitter,
+  type FixtureStore,
+  type RestrictionRegisterStore,
+} from "./store";
 
 export class InMemoryFixtureStore implements FixtureStore {
   private records = new Map<string, FixtureRecord>();
@@ -294,5 +301,41 @@ export class InMemoryRestrictionRegisterStore implements RestrictionRegisterStor
 
   async listAll(): Promise<RestrictionRegisterEntry[]> {
     return [...this.entries.values()];
+  }
+
+  // Synchronous peek — no Promise/microtask boundary at all. Used ONLY by
+  // InMemoryCustodyCopyCommitter below to perform a genuinely atomic (not
+  // merely fast) check-then-write: calling this immediately before
+  // InMemoryFixtureStore.putRecordWithCustodyCopy (itself synchronous
+  // internally, with no `await` between its own two mutations) means the
+  // ENTIRE check-and-commit runs as one uninterrupted synchronous stretch
+  // of JS execution — nothing else can interleave, mirroring what the real
+  // adapter's single DynamoDB transaction guarantees. Not part of the
+  // RestrictionRegisterStore interface; deliberately a plain extra method
+  // on the concrete fake class.
+  getCurrentSync(recordId: string): RestrictionRegisterEntry | null {
+    return this.entries.get(recordId) ?? null;
+  }
+}
+
+// Logic-level fake of CustodyCopyCommitter (store.ts). See
+// getCurrentSync's comment above for exactly how this achieves genuine
+// (not just fast) atomicity without a real cross-table transaction.
+export class InMemoryCustodyCopyCommitter implements CustodyCopyCommitter {
+  constructor(
+    private readonly fixtureStore: InMemoryFixtureStore,
+    private readonly registerStore: InMemoryRestrictionRegisterStore,
+  ) {}
+
+  async commitIfNotDeleting(
+    record: FixtureRecord,
+    expectedVersion: number | undefined,
+    copy: CustodyCopy,
+  ): Promise<void> {
+    const current = this.registerStore.getCurrentSync(record.recordId);
+    if (current?.currentCustodyStatus === "deletion-pending" || current?.currentCustodyStatus === "deleted") {
+      throw new DeletionInProgressError(record.recordId);
+    }
+    await this.fixtureStore.putRecordWithCustodyCopy(record, expectedVersion, copy);
   }
 }

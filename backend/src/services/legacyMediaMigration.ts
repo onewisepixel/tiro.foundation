@@ -17,13 +17,40 @@
 // Both are fixed here: eligibility is checked against FRESH custody state
 // immediately before any upload (never trusting a possibly-stale inventory
 // snapshot), and the record's MediaRef rewrite plus its new CustodyCopy are
-// written together via FixtureStore.putRecordWithCustodyCopy — one atomic
-// DynamoDB transaction, never two separate writes. If the atomic write
-// still fails AFTER the S3 upload already created real bytes, this cleans
-// up that upload best-effort rather than leaving an orphaned, untracked
-// object behind.
-import type { CustodyStatus, MediaRef, RestrictionRegisterEntry } from "../domain/types";
-import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+// written together via a CustodyCopyCommitter — one atomic DynamoDB
+// transaction, never two separate writes.
+//
+// A SECOND review round reproduced two further real failures:
+//
+// 3. Migration can still race deletion. Even with the fresh check and the
+//    atomic record+copy write, startDeletion() AND completeDeletion() can
+//    run to full completion ENTIRELY in the gap between the fresh check
+//    and the write landing — uploading real bytes to S3 takes real
+//    wall-clock time, and that gap is exactly the window. Fixed by
+//    replacing the plain FixtureStore.putRecordWithCustodyCopy write with
+//    CustodyCopyCommitter.commitIfNotDeleting (store.ts), which asserts
+//    the register's custody status as PART OF the same atomic transaction
+//    the record+copy write belongs to — not a separate, earlier read.
+//    (completeDeletion's own custody-copy reads were ALSO fixed, in
+//    dynamoStore.ts, to be strongly consistent — closing the matching
+//    read-side gap: an eventually consistent read could otherwise miss a
+//    copy this module just committed, even once it's causally ordered
+//    correctly.)
+// 4. Cleanup can destroy a successful binding. If the atomic write ACTUALLY
+//    commits on the server but the client never receives a successful
+//    response (a timeout, a dropped connection after the server
+//    processed it), the previous code treated ANY error as "didn't
+//    commit" and deleted the just-uploaded object — leaving the
+//    ALREADY-COMMITTED record+copy pointing at now-missing media. Fixed
+//    by resolving the uncertainty BEFORE cleaning anything up: on any
+//    error, re-read the record fresh; if it already reflects the
+//    attempted write, treat this as the success it actually was (the same
+//    idempotent-recovery idiom used throughout services/lifecycle.ts) and
+//    never touch the uploaded object. Cleanup only proceeds once the
+//    record is confirmed to NOT reflect the write.
+import type { CustodyStatus, FixtureRecord, MediaRef, RestrictionRegisterEntry } from "../domain/types";
+import type { CustodyCopyCommitter, FixtureStore, RestrictionRegisterStore } from "../store/store";
+import { DeletionInProgressError } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import { uuidv7 } from "../domain/id";
 
@@ -144,21 +171,42 @@ export async function inventoryLegacyMedia(
 
 export type ApplyOutcome =
   | { outcome: "rebound"; recordId: string; mediaId: string; objectKey: string; versionId: string }
-  | { outcome: "skipped-ineligible"; recordId: string; mediaId: string; reason: string }
+  | { outcome: "skipped-ineligible"; recordId: string; mediaId: string; reason: string; cleanedUp?: boolean }
   | { outcome: "failed"; recordId: string; mediaId: string; reason: string; cleanedUp: boolean };
 
-// Applies ONE previously-inventoried "rebindable" item. Re-derives
-// eligibility from a FRESH read of both the register and the record
-// immediately before doing anything real — the inventory snapshot can be
-// seconds to minutes stale by the time this actually runs (this stack's
-// deliberately tiny, throttled table paces a full inventory at roughly one
-// record every few seconds under load), and a record can move into the
-// deletion workflow, or have its media reference changed, in that window.
+function recordReflectsUpload(record: FixtureRecord | null, mediaId: string, versionId: string): boolean {
+  return record?.mediaRefs.find((m) => m.mediaId === mediaId)?.versionId === versionId;
+}
+
+// Best-effort: deletes the just-uploaded S3 object and reports whether
+// that succeeded. Only ever called once the record has been CONFIRMED to
+// not reflect the attempted write (see recordReflectsUpload above) —
+// never on the strength of an error alone, which can be a false signal
+// (see the module header's second finding).
+async function cleanupOrphanedUpload(mediaStore: MediaStore, key: string, versionId: string): Promise<boolean> {
+  try {
+    await mediaStore.deleteObjectVersion(key, versionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Applies ONE previously-inventoried "rebindable" item. The EARLY fresh
+// custody/signature check below is a fast path only — it avoids an S3
+// upload and a doomed transaction attempt in the common case where a
+// record is ALREADY ineligible, but it is NOT what makes this safe against
+// deletion racing the upload: that guarantee comes from
+// CustodyCopyCommitter.commitIfNotDeleting's single atomic transaction,
+// which re-asserts custody at the exact commit instant, not from this
+// earlier read (see the module header for why the earlier read alone
+// cannot close that gap — real time passes during the S3 upload).
 export async function applyLegacyMediaRebind(
   item: Pick<LegacyMediaInventoryEntry, "recordId" | "mediaId">,
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
   mediaStore: MediaStore,
+  custodyCopyCommitter: CustodyCopyCommitter,
 ): Promise<ApplyOutcome> {
   const freshControl = await registerStore.getCurrent(item.recordId);
   if (isDeletionInProgress(freshControl?.currentCustodyStatus)) {
@@ -192,9 +240,9 @@ export async function applyLegacyMediaRebind(
   );
 
   try {
-    // ATOMIC: the MediaRef rewrite and its CustodyCopy commit together or
-    // not at all — see store.ts's interface comment for why this matters.
-    await fixtureStore.putRecordWithCustodyCopy(
+    // ATOMIC, and guarded by live custody state as part of the SAME
+    // transaction — see store.ts's CustodyCopyCommitter interface comment.
+    await custodyCopyCommitter.commitIfNotDeleting(
       { ...freshRecord, mediaRefs: updatedMediaRefs, updatedAt: new Date().toISOString() },
       freshRecord.version,
       {
@@ -208,24 +256,39 @@ export async function applyLegacyMediaRebind(
       },
     );
   } catch (error) {
-    // The atomic write failed AFTER the upload already created real S3
-    // bytes. Clean up best-effort — completeDeletion's purge only ever
-    // learns what to purge from a CustodyCopy, which this object now will
-    // never have, so leaving it in place would mean it survives forever,
-    // outside the deletion workflow entirely, invisible to every normal
-    // check in this system.
-    let cleanedUp = false;
-    try {
-      await mediaStore.deleteObjectVersion(key, uploaded.versionId);
-      cleanedUp = true;
-    } catch {
-      cleanedUp = false;
+    // The write failed — or at least, the client was TOLD it failed. That
+    // is not the same thing as "nothing committed": a timeout or a
+    // dropped connection can report failure even after the server
+    // actually applied the transaction. Before touching S3, resolve this
+    // uncertainty the same way the rest of this codebase does (compare
+    // services/lifecycle.ts's getCorrection/getRedaction idempotent-replay
+    // checks) — re-read the record fresh and see whether it already
+    // reflects the write we just attempted.
+    const recheck = await fixtureStore.getRecord(item.recordId);
+    if (recordReflectsUpload(recheck, item.mediaId, uploaded.versionId)) {
+      // It actually committed. The error was a false failure signal —
+      // reporting this as "failed" and deleting the object we just bound
+      // would destroy a successful, already-live binding.
+      return { outcome: "rebound", recordId: item.recordId, mediaId: item.mediaId, objectKey: key, versionId: uploaded.versionId };
     }
-    const baseReason = error instanceof Error ? error.message : String(error);
-    const reason = cleanedUp
-      ? `${baseReason} (the just-uploaded object at ${key} version ${uploaded.versionId} was cleaned up — nothing untracked survives)`
-      : `${baseReason} (CLEANUP ALSO FAILED — an untracked object may remain at ${key} version ${uploaded.versionId}; this needs direct, manual investigation, not a silent retry)`;
-    return { outcome: "failed", recordId: item.recordId, mediaId: item.mediaId, reason, cleanedUp };
+
+    // Confirmed: it genuinely did not commit. Safe to clean up now.
+    const cleanedUp = await cleanupOrphanedUpload(mediaStore, key, uploaded.versionId);
+    const baseMessage = error instanceof Error ? error.message : String(error);
+    const cleanupNote = cleanedUp
+      ? `the just-uploaded object at ${key} version ${uploaded.versionId} was cleaned up — nothing untracked survives`
+      : `CLEANUP ALSO FAILED — an untracked object may remain at ${key} version ${uploaded.versionId}; this needs direct, manual investigation, not a silent retry`;
+
+    if (error instanceof DeletionInProgressError) {
+      return {
+        outcome: "skipped-ineligible",
+        recordId: item.recordId,
+        mediaId: item.mediaId,
+        reason: `${baseMessage} (${cleanupNote})`,
+        cleanedUp,
+      };
+    }
+    return { outcome: "failed", recordId: item.recordId, mediaId: item.mediaId, reason: `${baseMessage} (${cleanupNote})`, cleanedUp };
   }
 
   return { outcome: "rebound", recordId: item.recordId, mediaId: item.mediaId, objectKey: key, versionId: uploaded.versionId };

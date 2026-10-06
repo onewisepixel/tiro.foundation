@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { InMemoryFixtureStore, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
+import { InMemoryCustodyCopyCommitter, InMemoryFixtureStore, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
 import { InMemoryMediaStore } from "../store/mediaStore";
+import { DeletionInProgressError } from "../store/store";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { startDeletion, completeDeletion } from "../services/lifecycle";
@@ -11,9 +12,17 @@ async function setupActive() {
   const fixtureStore = new InMemoryFixtureStore();
   const registerStore = new InMemoryRestrictionRegisterStore();
   const mediaStore = new InMemoryMediaStore();
+  const committer = new InMemoryCustodyCopyCommitter(fixtureStore, registerStore);
   const [active] = buildSeedFixtures();
   await seedStore(fixtureStore, registerStore, [active]);
-  return { fixtureStore, registerStore, mediaStore, recordId: active.record.recordId, mediaId: active.record.mediaRefs[0].mediaId };
+  return {
+    fixtureStore,
+    registerStore,
+    mediaStore,
+    committer,
+    recordId: active.record.recordId,
+    mediaId: active.record.mediaRefs[0].mediaId,
+  };
 }
 
 test("inventoryLegacyMedia classifies an exact known-placeholder match as rebindable", async () => {
@@ -57,8 +66,8 @@ test(
 );
 
 test("applyLegacyMediaRebind uploads and atomically rebinds a genuinely eligible item", async () => {
-  const { fixtureStore, registerStore, mediaStore, recordId, mediaId } = await setupActive();
-  const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore);
+  const { fixtureStore, registerStore, mediaStore, committer, recordId, mediaId } = await setupActive();
+  const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
   assert.equal(result.outcome, "rebound");
 
   const record = await fixtureStore.getRecord(recordId);
@@ -75,7 +84,7 @@ test("applyLegacyMediaRebind uploads and atomically rebinds a genuinely eligible
 test(
   "applyLegacyMediaRebind refuses, and uploads nothing, when the record entered the deletion workflow after the inventory snapshot was taken (reviewer-caught finding: migration must not create media for an already-deleted record)",
   async () => {
-    const { fixtureStore, registerStore, mediaStore, recordId, mediaId } = await setupActive();
+    const { fixtureStore, registerStore, mediaStore, committer, recordId, mediaId } = await setupActive();
     const entries = await registerStore.listAll();
     const inventory = await inventoryLegacyMedia(fixtureStore, entries);
     const staleItem = inventory.find((i) => i.recordId === recordId && i.mediaId === mediaId);
@@ -89,7 +98,7 @@ test(
       reason: "[SYNTHETIC] test",
     });
 
-    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore);
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
     assert.equal(result.outcome, "skipped-ineligible");
 
     const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
@@ -102,6 +111,10 @@ test(
   },
 );
 
+// Fails BEFORE ever actually writing — simulates a genuine, certain
+// non-commit (e.g. a rejected transaction), distinct from
+// CommitsThenReportsFailureFixtureStore below (which commits for real and
+// THEN throws, simulating an uncertain/false failure signal).
 class FlakyCustodyCopyFixtureStore extends InMemoryFixtureStore {
   private failed = false;
   override async putRecordWithCustodyCopy(
@@ -116,17 +129,18 @@ class FlakyCustodyCopyFixtureStore extends InMemoryFixtureStore {
 }
 
 test(
-  "applyLegacyMediaRebind cleans up the uploaded object when the atomic write fails, leaving nothing untracked behind (reviewer-caught finding: a failed custody-copy write must not let a later deletion report completion while media survives)",
+  "applyLegacyMediaRebind cleans up the uploaded object when the atomic write genuinely never committed, leaving nothing untracked behind (reviewer-caught finding: a failed custody-copy write must not let a later deletion report completion while media survives)",
   async () => {
     const fixtureStore = new FlakyCustodyCopyFixtureStore();
     const registerStore = new InMemoryRestrictionRegisterStore();
     const mediaStore = new InMemoryMediaStore();
+    const committer = new InMemoryCustodyCopyCommitter(fixtureStore, registerStore);
     const [active] = buildSeedFixtures();
     await seedStore(fixtureStore, registerStore, [active]);
     const recordId = active.record.recordId;
     const mediaId = active.record.mediaRefs[0].mediaId;
 
-    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore);
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
     assert.equal(result.outcome, "failed");
     if (result.outcome === "failed") {
       assert.equal(result.cleanedUp, true, "the just-uploaded object must be cleaned up when the atomic write fails");
@@ -164,5 +178,135 @@ test(
     );
     assert.equal(completeResult.status, "completed");
     assert.equal(await fixtureStore.getRecord(recordId), null);
+  },
+);
+
+test(
+  "CustodyCopyCommitter.commitIfNotDeleting refuses, atomically, once custody has moved into the deletion workflow (reviewer-caught finding: migration can still race deletion)",
+  async () => {
+    const { fixtureStore, registerStore, committer, recordId, mediaId } = await setupActive();
+    const record = await fixtureStore.getRecord(recordId);
+    if (!record) throw new Error("sanity check failed");
+
+    await startDeletion(fixtureStore, registerStore, {
+      requestId: "req-legacy-migration-committer-deletion-pending",
+      recordId,
+      requesterCapacity: "[SYNTHETIC] steward",
+      reason: "[SYNTHETIC] test",
+    });
+
+    await assert.rejects(
+      () =>
+        committer.commitIfNotDeleting(record, record.version, {
+          recordId,
+          copyId: "fake-copy-id",
+          location: "primary",
+          objectVersionId: "fake-version-id",
+          mediaId,
+          createdAt: new Date().toISOString(),
+          reconciledAt: null,
+        }),
+      DeletionInProgressError,
+    );
+
+    const after = await fixtureStore.getRecord(recordId);
+    assert.deepEqual(after?.mediaRefs, record.mediaRefs, "the record must be completely untouched when the commit is refused");
+    const copies = await fixtureStore.listCustodyCopies(recordId);
+    assert.ok(
+      !copies.some((c) => c.copyId === "fake-copy-id"),
+      "the rejected custody copy must not have been created when the commit is refused (the fixture's own pre-existing bookkeeping copy is expected to still be there)",
+    );
+  },
+);
+
+test(
+  "applyLegacyMediaRebind refuses, atomically, even when deletion lands entirely in the gap between the early check and the upload finishing (reviewer-caught finding: migration can still race deletion)",
+  async () => {
+    const { fixtureStore, registerStore, committer, recordId, mediaId } = await setupActive();
+
+    // Simulates startDeletion() landing in the exact window a separate
+    // "check, then upload, then write" sequence cannot close: AFTER the
+    // early fresh custody check passed, but BEFORE the atomic commit. The
+    // upload itself is the most realistic place for this to happen, since
+    // it is the one step that takes real wall-clock time against S3.
+    const racingMediaStore = new InMemoryMediaStore();
+    const originalPutObject = racingMediaStore.putObject.bind(racingMediaStore);
+    let triggered = false;
+    racingMediaStore.putObject = async (...args) => {
+      const result = await originalPutObject(...args);
+      if (!triggered) {
+        triggered = true;
+        await startDeletion(fixtureStore, registerStore, {
+          requestId: "req-legacy-migration-apply-race-delete",
+          recordId,
+          requesterCapacity: "[SYNTHETIC] steward",
+          reason: "[SYNTHETIC] test",
+        });
+      }
+      return result;
+    };
+
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, racingMediaStore, committer);
+    assert.equal(result.outcome, "skipped-ineligible");
+    if (result.outcome === "skipped-ineligible") {
+      assert.equal(result.cleanedUp, true, "the upload that landed just before the race was caught must be cleaned up");
+    }
+
+    const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
+    const versions = await racingMediaStore.listObjectVersions(uploadedKey);
+    assert.equal(versions.length, 0, "no untracked S3 object must survive — the atomic commit never let the record+copy write land");
+
+    const record = await fixtureStore.getRecord(recordId);
+    const media = record?.mediaRefs.find((m) => m.mediaId === mediaId);
+    assert.equal(media?.versionId, null, "the record must stay untouched by the refused commit");
+    const copies = await fixtureStore.listCustodyCopies(recordId);
+    assert.ok(
+      !copies.some((c) => c.mediaId === mediaId),
+      "no custody copy tracking this media must survive a refused commit",
+    );
+  },
+);
+
+// Commits for REAL (delegates to the base implementation) and THEN
+// throws — simulating a transaction that actually succeeded on the server
+// but whose success response never reached the client (a timeout, a
+// dropped connection). Distinct from FlakyCustodyCopyFixtureStore above,
+// which never commits at all.
+class CommitsThenReportsFailureFixtureStore extends InMemoryFixtureStore {
+  override async putRecordWithCustodyCopy(
+    ...args: Parameters<InMemoryFixtureStore["putRecordWithCustodyCopy"]>
+  ): Promise<void> {
+    await super.putRecordWithCustodyCopy(...args);
+    throw new Error("simulated network failure after the server actually committed the transaction");
+  }
+}
+
+test(
+  "applyLegacyMediaRebind does NOT clean up a binding that actually committed, even when the client is told it failed (reviewer-caught finding: cleanup can destroy a successful binding)",
+  async () => {
+    const fixtureStore = new CommitsThenReportsFailureFixtureStore();
+    const registerStore = new InMemoryRestrictionRegisterStore();
+    const mediaStore = new InMemoryMediaStore();
+    const committer = new InMemoryCustodyCopyCommitter(fixtureStore, registerStore);
+    const [active] = buildSeedFixtures();
+    await seedStore(fixtureStore, registerStore, [active]);
+    const recordId = active.record.recordId;
+    const mediaId = active.record.mediaRefs[0].mediaId;
+
+    const result = await applyLegacyMediaRebind({ recordId, mediaId }, fixtureStore, registerStore, mediaStore, committer);
+    assert.equal(result.outcome, "rebound", "the idempotent recheck must detect the write actually committed, not report a false failure");
+
+    const uploadedKey = `fixtures/legacy-migration/${recordId}/${mediaId}.txt`;
+    const versions = await mediaStore.listObjectVersions(uploadedKey);
+    assert.equal(versions.length, 1, "the real, committed object must NOT be deleted just because the client was told the write failed");
+
+    const record = await fixtureStore.getRecord(recordId);
+    const media = record?.mediaRefs.find((m) => m.mediaId === mediaId);
+    assert.notEqual(media?.versionId, null, "the record's media reference must reflect the real, committed binding");
+    const copies = await fixtureStore.listCustodyCopies(recordId);
+    assert.ok(
+      copies.some((c) => c.mediaId === mediaId && c.objectVersionId === media?.versionId),
+      "the committed CustodyCopy must still exist, still pointing at the real (not deleted) object",
+    );
   },
 );

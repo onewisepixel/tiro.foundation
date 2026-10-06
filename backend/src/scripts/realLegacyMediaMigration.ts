@@ -9,20 +9,23 @@
 // deliberately tiny, throttled table, and prints the report.
 //
 // A reviewer running that service module's logic against local fakes
-// reproduced two real bugs in an earlier version of this script that lived
-// entirely inline here: (1) it would rebind media for a record already in
-// the deletion workflow just because the media happened to match the known
-// placeholder signature — fixed by checking custody eligibility, freshly,
-// BEFORE any upload, separately from the signature match; (2) a failed
-// custody-copy write could leave a record's MediaRef already pointing at a
-// newly uploaded S3 object with no CustodyCopy tracking it, so a LATER
-// deletion could report success while that object survived, untracked,
-// forever — fixed by writing the MediaRef rewrite and its CustodyCopy
-// atomically (FixtureStore.putRecordWithCustodyCopy, one DynamoDB
-// transaction) and, if that transaction still fails after the upload
-// already happened, cleaning the orphaned upload up best-effort. See
+// reproduced FOUR real bugs across two review rounds, all fixed: (1) it
+// would rebind media for a record already in the deletion workflow just
+// because the media happened to match the known placeholder signature —
+// fixed by checking custody eligibility, freshly, before any upload,
+// separately from the signature match; (2) migration could still race
+// deletion EVEN with that fresh check — startDeletion()+completeDeletion()
+// can run to full completion entirely in the gap between the check and the
+// write, since uploading to S3 takes real wall-clock time — fixed by
+// store.ts's CustodyCopyCommitter, which asserts custody status as PART OF
+// the same atomic cross-table transaction as the record+copy write, not a
+// separate earlier read; (3) the cleanup-on-failure path could destroy a
+// binding that actually committed (a timeout can report failure even after
+// the server applied the write) — fixed by re-checking the record fresh
+// before ever deleting the uploaded object, the same idempotent-recovery
+// idiom used throughout services/lifecycle.ts. See
 // legacyMediaMigration.ts's header comment and its test file for the full
-// detail and the regression tests proving both are closed.
+// detail and the regression tests proving each is closed.
 //
 // "Known source bytes" is a narrow, exact claim, not a loose heuristic: a
 // MediaRef is treated as rebindable ONLY if it matches this project's OWN
@@ -47,10 +50,10 @@
 //   npx tsx backend/src/scripts/realLegacyMediaMigration.ts --apply
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
-import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
+import { DynamoCustodyCopyCommitter, DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { S3MediaStore } from "../store/s3MediaStore";
 import { applyLegacyMediaRebind, inventoryLegacyMedia, type LegacyMediaInventoryEntry } from "../services/legacyMediaMigration";
-import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import type { CustodyCopyCommitter, FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type {
   AuditReceipt,
   AuthorityClaim,
@@ -106,12 +109,14 @@ async function withThrottleRetry<T>(fn: () => Promise<T>, label: string): Promis
 }
 
 // Delegates every FixtureStore method to the real adapter unchanged,
-// except getRecord and putRecordWithCustodyCopy — throttle-paced here so
-// the shared service module (services/legacyMediaMigration.ts) stays
-// AWS-pacing-agnostic and testable against instant in-memory fakes; only
-// this live-AWS wrapper needs to know about backoff at all. Same
-// delegate-wrapper shape as the failure-injection test doubles in
-// services/lifecycle.test.ts.
+// except getRecord — throttle-paced here so the shared service module
+// (services/legacyMediaMigration.ts) stays AWS-pacing-agnostic and
+// testable against instant in-memory fakes; only this live-AWS wrapper
+// needs to know about backoff at all. Same delegate-wrapper shape as the
+// failure-injection test doubles in services/lifecycle.test.ts. The
+// record+copy write itself no longer goes through this class at all — see
+// ThrottledCustodyCopyCommitter below, which throttle-paces the atomic
+// cross-table commit instead.
 //
 // Deliberately NOT done by wrapping the whole applyLegacyMediaRebind()
 // call in withThrottleRetry: a throttling error from the FINAL write (the
@@ -128,10 +133,7 @@ class ThrottledFixtureStore implements FixtureStore {
     return withThrottleRetry(() => this.inner.getRecord(recordId), `getRecord ${this.callIndex}/${this.totalExpected}`);
   }
   putRecordWithCustodyCopy(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
-    return withThrottleRetry(
-      () => this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy),
-      `putRecordWithCustodyCopy ${record.recordId}`,
-    );
+    return this.inner.putRecordWithCustodyCopy(record, expectedVersion, copy);
   }
   putRecord(record: FixtureRecord, expectedVersion: number | undefined) {
     return this.inner.putRecord(record, expectedVersion);
@@ -224,12 +226,33 @@ class ThrottledRegisterStore implements RestrictionRegisterStore {
   }
 }
 
+// Same throttle-pacing rationale again, for the atomic cross-table commit
+// itself (store.ts's CustodyCopyCommitter). Retrying the WHOLE commit on a
+// throttling error is safe here — unlike retrying the whole
+// applyLegacyMediaRebind() call, this happens strictly AFTER the S3
+// upload already completed, so a retry re-attempts only the DynamoDB
+// transaction, never a second upload.
+class ThrottledCustodyCopyCommitter implements CustodyCopyCommitter {
+  constructor(private readonly inner: CustodyCopyCommitter) {}
+  commitIfNotDeleting(record: FixtureRecord, expectedVersion: number | undefined, copy: CustodyCopy) {
+    return withThrottleRetry(
+      () => this.inner.commitIfNotDeleting(record, expectedVersion, copy),
+      `custodyCopyCommitter.commitIfNotDeleting ${record.recordId}`,
+    );
+  }
+}
+
 async function main() {
   const dynamoClient = new DynamoDBClient({ region: REGION });
   const s3Client = new S3Client({ region: REGION });
   const fixtureStore = new DynamoFixtureStore({ client: dynamoClient, primaryTableName: PRIMARY_TABLE, statusIndexName: STATUS_INDEX });
   const registerStore = new DynamoRestrictionRegisterStore({ client: dynamoClient, tableName: REGISTER_TABLE });
   const mediaStore = new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET });
+  const custodyCopyCommitter = new DynamoCustodyCopyCommitter({
+    client: dynamoClient,
+    primaryTableName: PRIMARY_TABLE,
+    registerTableName: REGISTER_TABLE,
+  });
 
   log("MODE", APPLY ? "APPLY — eligible entries WILL be uploaded and rewritten" : "DRY RUN — no writes to DynamoDB or S3 will be made (pass --apply to actually migrate)");
 
@@ -274,19 +297,20 @@ async function main() {
   // ------------------------------------------------------------ apply ----
   console.log(`\n==================== APPLYING: up to ${rebindable.length} rebind(s) ====================`);
   const throttledRegisterStore = new ThrottledRegisterStore(registerStore);
+  const throttledCommitter = new ThrottledCustodyCopyCommitter(custodyCopyCommitter);
   const outcomes: Awaited<ReturnType<typeof applyLegacyMediaRebind>>[] = [];
   for (const item of rebindable) {
     // Throttle pacing happens INSIDE each individual DynamoDB call now
-    // (ThrottledFixtureStore/ThrottledRegisterStore above), not around
-    // this whole call — see those classes' comments for why wrapping the
-    // whole function here would be wrong once an upload has already
-    // happened.
-    const outcome = await applyLegacyMediaRebind(item, throttledFixtureStore, throttledRegisterStore, mediaStore);
+    // (ThrottledFixtureStore/ThrottledRegisterStore/
+    // ThrottledCustodyCopyCommitter above), not around this whole call —
+    // see those classes' comments for why wrapping the whole function
+    // here would be wrong once an upload has already happened.
+    const outcome = await applyLegacyMediaRebind(item, throttledFixtureStore, throttledRegisterStore, mediaStore, throttledCommitter);
     outcomes.push(outcome);
     if (outcome.outcome === "rebound") {
       log("REBOUND", `Record ${outcome.recordId}'s media ${outcome.mediaId} is now bound to a real S3 version`, { objectKey: outcome.objectKey, versionId: outcome.versionId });
     } else if (outcome.outcome === "skipped-ineligible") {
-      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied`, { reason: outcome.reason });
+      log("SKIPPED", `Record ${outcome.recordId}'s media ${outcome.mediaId} was not applied`, { reason: outcome.reason, cleanedUp: outcome.cleanedUp });
     } else {
       log("FAILED", `Record ${outcome.recordId}'s media ${outcome.mediaId} failed to rebind`, { reason: outcome.reason, cleanedUp: outcome.cleanedUp });
     }
