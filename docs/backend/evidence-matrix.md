@@ -1436,16 +1436,17 @@ here until it is actually observed.
 
 | Check | Command |
 | --- | --- |
-| A literal browser click-through of Hosted UI → callback → API | No browser-automation tool is available in this environment. `docs/backend/browser-acceptance-checklist.md` (16 steps, corrected 2026-10-05 — step 16 now checks lifecycle-response `requesterCapacity`/correction `attribution`, not audit receipts, which carry no actor field at all) is PREPARED; its fixtures are SEEDED (2026-10-05) — `ALLOWED` record `01a10b16-a400-7644-b6d3-c463fe20c13d`, `DENIED (expired consent)` record `01a10b16-a400-790f-991c-273171bbb8fe`, `DENIED (disputed authority)` record `01a10b16-a400-72db-a9e9-61f4595f77b4` — ready for a human to run against `staff-ui/README.md`'s setup, but genuinely not yet executed by a human; everything server-side and every line of client code it would exercise is already verified for real; see "Browser-flow verification" above for exactly what that does and doesn't cover. |
-| S3 noncurrent-version expiry, actually observed firing | Seeded 2026-10-04T22:44:18.761Z (`realS3ExpiryObservationSeed.ts`); genuinely PENDING until 2026-11-04T00:00:00Z (corrected 2026-10-05 — see "S3 noncurrent-version expiration observation" below for why the original date was wrong). Not something that can be observed early without fabricating a result; checked live on 2026-10-05 and correctly reported "too early." |
+| S3 noncurrent-version expiry, actually observed firing | Seeded 2026-10-04T22:44:18.761Z (`realS3ExpiryObservationSeed.ts`); genuinely PENDING until 2026-11-04T00:00:00Z (corrected 2026-10-05 — see "S3 noncurrent-version expiration observation" below for why the original date was wrong). Not something that can be observed early without fabricating a result; checked live on 2026-10-05 and correctly reported "too early." Run `... --check` again on or after 2026-11-04T00:00:00Z. |
 | Forcing the export response budget's real whole-record TEXT exclusion live (as opposed to proving the field exists) | Needs reading several real MB back out of this table's deliberately tiny, always-free-tier provisioned RCU (5/s) inside one Lambda invocation. Every attempt tried observably throttled — see "Real correction/redaction drill"'s seventh-round note for the measured CloudWatch/Lambda-log evidence — but that is an observed result, not proof a single large read is categorically impossible at this provisioning (AWS's documented burst capacity means a different attempt or timing could succeed). Keep the shared table's capacity unchanged per explicit instruction; if this needs closing for real anyway, the move is a TEMPORARY `UpdateTable` capacity bump (e.g. to 50+ RCU) for the duration of one drill run, reverted immediately after — a real infra/cost decision, so get sign-off first. |
 
 ~~Inventory S3 object versions after delete~~, ~~real `completeDeletion` resumability/stale-precondition confirmation~~,
 ~~cost reconciliation against actual billing~~, ~~a combinatorial real-AWS case~~,
 ~~script the staff API smoke test into a reusable drill~~, ~~migrating already-live legacy media
-references~~, ~~the billing alarm's SNS email subscription~~ — **all closed, see "Real S3 media
-acceptance drill", "Combinatorial cases added 2026-10-04", "Real staff API smoke test", "Legacy
-media migration", and "Real cost and billing-alert reconciliation" above/below.**
+references~~, ~~the billing alarm's SNS email subscription~~, ~~a literal browser click-through of
+Hosted UI → callback → API~~ — **all closed, see "Real S3 media acceptance drill", "Combinatorial
+cases added 2026-10-04", "Real staff API smoke test", "Legacy media migration", "Real cost and
+billing-alert reconciliation", and "The literal human click-through, done (2026-10-07)"
+above/below.**
 
 ## Explicitly not built in this pass
 
