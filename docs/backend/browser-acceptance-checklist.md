@@ -169,3 +169,16 @@ in. File any FAIL as its own finding — do not mark this checklist
 "passed" with an unresolved FAIL, and do not re-run a failed step
 silently hoping it passes the second time without understanding why it
 failed the first.
+
+**2026-10-07: 16 / 16 steps passed.** Staff email `cero@tiro.foundation`,
+against the deployed `TiroFixtureBackend-drill-20261002` stack, commit
+`47f6098`. Record ids used: ALLOWED `01a11677-9db9-76b7-951a-5508c62ee7c6`,
+DENIED (expired consent) `01a11677-9db9-7b56-85c2-1ed94fc9828a`, DENIED
+(disputed authority) `01a11677-9db9-75e5-8728-2e49d0f93ff2`. Every step
+confirmed directly from the page, including the two exact cases prior
+review rounds added this checklist to catch: the correction-history
+masking for a redacted field (step 11) and the public-redacted vs.
+complete-preservation export difference (steps 13–14). See
+`docs/backend/evidence-matrix.md`'s "Browser-flow verification" section
+for the one real bug this run's setup caught before the click-through
+even started.

@@ -788,6 +788,45 @@ no-build-step static page with no existing test harness, consistent with the res
 approach to `staff-ui/`) — verified with `node --check` for syntax only; the actual behavior still
 needs the human click-through this exists to support.
 
+### The literal human click-through, done (2026-10-07): 16/16, plus one setup-time bug found and fixed
+
+The gap named above — no browser-automation tool, so this needed a human — is closed. A human
+tester signed in via the real Hosted UI and ran all 16 steps of
+`docs/backend/browser-acceptance-checklist.md` against the real deployed stack
+(`TiroFixtureBackend-drill-20261002`, commit `47f6098`), reporting each page's actual content back
+verbatim. **16/16 passed**, including the two cases prior review rounds added this checklist
+specifically to catch: step 11's correction-history masking for a redacted field (the Corrections
+list entry for the redacted `summary` field showed `[REDACTED]` for both `previousValue` and
+`correctedValue`, not the real text), and steps 13-14's public-redacted vs. complete-preservation
+export difference (the public export's `consentGrants`/`redactions`/`mediaObjects` were all the
+`"redacted-for-public-export"`/`"omitted-for-public-export"` sentinels with no real text anywhere;
+the complete-preservation export carried the real original/corrected text, the real consent grant,
+the non-redacted media's real bytes, and the redacted media honestly listed in
+`mediaObjectsSkipped` rather than silently dropped). Step 16's attribution check confirmed every
+mutating action's Action-log entry carried `requesterCapacity: "staff:cero@tiro.foundation"` —
+matching the signed-in identity, never a value typed into a form. See
+`docs/backend/browser-acceptance-checklist.md`'s own "Result" section for the full record (ids
+used, date, signer).
+
+**One real bug found and fixed during setup, before the click-through started:** `staff-ui/serve.json`
+sets `cleanUrls: false` specifically to stop `serve` from 301-redirecting
+`callback.html?code=...&state=...` to `/callback` and dropping the query string (the original,
+documented reason for that setting — see `staff-ui/README.md`). What wasn't previously noticed:
+`serve-handler`'s directory-to-`index.html` resolution for a bare directory request shares the exact
+same `cleanUrls` gate internally (`findRelated()`'s `index.html` lookup only runs when `cleanUrl ||
+rewrittenPath` is true) — so disabling `cleanUrls` to fix the callback problem silently disabled
+`index.html` auto-serving for the root path too. `http://localhost:4300/` was serving a raw directory
+listing (`<title>Files within staff-ui\</title>`), not the staff page, the entire time `serve.json`
+has existed — nobody had hit this because every prior verification of this setup (the
+`auth.js`-in-`vm` check above, the CLI smoke tests) never actually requested `/` through a real HTTP
+server. Fixed with a targeted rewrite that doesn't touch the callback behavior at all:
+```json
+{ "cleanUrls": false, "rewrites": [{ "source": "/", "destination": "/index.html" }] }
+```
+Verified both behaviors directly afterward: `/` now serves the real `index.html` (confirmed by page
+title), and `curl -i "http://localhost:4300/callback.html?code=test&state=test"` still returns `200`
+directly, not a `301`.
+
 ## Real S3 media acceptance drill — what actually happened
 
 Dated 2026-10-03, updated after the fifth review round, again after the sixth (2026-10-04), again

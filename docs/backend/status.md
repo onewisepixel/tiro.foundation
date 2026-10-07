@@ -512,12 +512,20 @@ and documented rather than chased further; revisit when either upstream ships a 
   deletion workflow still carry legacy references. Capacity unchanged throughout. See the evidence
   matrix's "`--apply` executed" entry.
 
+- 2026-10-07, the literal human browser click-through of `docs/backend/browser-acceptance-checklist.md`
+  was run for real against the deployed stack: **16/16 steps passed**, staff identity
+  `cero@tiro.foundation`. Caught and fixed one real setup-time bug along the way: `staff-ui/serve.json`'s
+  `cleanUrls: false` (needed to stop the `callback.html` query-string-dropping redirect) also silently
+  disabled `index.html` auto-serving at the root path, since `serve-handler` gates both behaviors on the
+  same flag — `http://localhost:4300/` had been serving a raw directory listing instead of the staff
+  page. Fixed with a targeted `rewrites` entry for `/` only. See the evidence matrix's "Browser-flow
+  verification" section for the full result and the two specific prior-review-round cases (step 11's
+  correction-history masking, steps 13-14's export-scope difference) this run directly confirmed live.
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-A literal human browser click-through of the now-prepared and
-now-fixture-seeded `docs/backend/browser-acceptance-checklist.md`. Actual
-image/audio/video redaction (blur/bleep/crop) — this
+Actual image/audio/video redaction (blur/bleep/crop) — this
 backend's redaction is text-masking and a hard media-access override only, honestly short of real
 media-content processing, which needs infrastructure this project doesn't have. Forcing the export
 response budget's real whole-record TEXT exclusion live, as opposed to proving the field merely
