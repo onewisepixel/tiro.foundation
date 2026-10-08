@@ -1528,10 +1528,18 @@ authorizer as every other route, and a narrowly scoped `mediaBucket.grantPut(api
 "fixtures/*")` — the first time this Lambda has ever uploaded media itself; every prior write to
 this bucket came from a separately-credentialed script. DynamoDB capacity unchanged throughout.
 
-**Still open:** a literal human browser click-through of the new staff-ui sections (create
-submission, review queue, intake submission detail with evidence/media-upload/supersede/approval
-forms) — prepared, not yet run by a human, the same honestly-named gap this project has named for
-every other control until a human actually clicked through it.
+**Done, 2026-10-08:** the literal human browser click-through, run interactively — create
+submission, add evidence (including a deliberately blank optional field, confirming the browser
+validation fix), upload and preview media, confirm quarantine denies access even with real
+evidence attached, approve preservation, confirm the access change, approve publication via the
+review queue's own link and the record view's approve-publication form, confirm publication
+access, withdraw, delete, confirm gone. One more real bug caught live and fixed on the spot: `GET
+/intake/queue` threw `ProvisionedThroughputExceededException` against this stack's now
+240+-row register table — fixed with a cheap pre-filter using the scan's own already-free data
+before any expensive per-entry read, confirmed resolved live immediately after redeploying. See
+`docs/backend/status.md`'s 2026-10-08 entries for the full detail of this round plus the two
+residual P1s (a queue-masking read-order race, and raw content — not just media — surviving in
+LifecycleRequest fingerprints) a prior same-day round closed. 219 backend tests pass.
 
 ### A second review round (2026-10-08) found seven more real gaps, all fixed
 

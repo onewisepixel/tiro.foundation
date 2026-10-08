@@ -619,13 +619,26 @@ and documented rather than chased further; revisit when either upstream ships a 
   storage. 218 backend tests pass (up from 214). Redeployed; `realIntakeAcceptanceDrill.ts`
   re-run — **25/25 checks pass live.**
 
+- 2026-10-08, the literal human browser click-through of the staff-intake flow: create →
+  evidence (authority claim, legal right with a deliberately blank optional field, two separate
+  consent grants) → media upload and preview → confirmed quarantine denies access even with that
+  evidence attached → approve preservation → confirmed access change → approve publication via
+  the review queue's own `Open` link and the (newly added) approve-publication form on the
+  record view → confirmed publication access → withdraw → delete → confirmed gone. One more real
+  bug surfaced mid-walkthrough and fixed on the spot: `GET /intake/queue` threw
+  `ProvisionedThroughputExceededException` once the register table's accumulated history (240+
+  rows from this engagement's own drills) made the prior round's per-entry race fix read every
+  single entry rather than just the relevant ones — fixed with a cheap pre-filter using the
+  scan's own already-free data before any expensive per-entry read, confirmed live immediately
+  after redeploying. 219 backend tests pass (up from 218). This closes the staff-intake-and-
+  review milestone's last open item — every control has now been proven both live against AWS
+  and through a real human click-through, the same bar every other control in this system has
+  met.
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-A literal human browser click-through of the staff-intake flow (create → evidence → review →
-lifecycle) in `staff-ui/`, the same literal-human bar `browser-acceptance-checklist.md` already
-established for every other control — prepared (both new UI sections, the file-upload form, the
-review queue) but not yet run by a human. Actual image/audio/video redaction (blur/bleep/crop) — this
+Actual image/audio/video redaction (blur/bleep/crop) — this
 backend's redaction is text-masking and a hard media-access override only, honestly short of real
 media-content processing, which needs infrastructure this project doesn't have. Forcing the export
 response budget's real whole-record TEXT exclusion live, as opposed to proving the field merely
