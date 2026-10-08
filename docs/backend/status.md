@@ -659,6 +659,36 @@ and documented rather than chased further; revisit when either upstream ships a 
   pass live.** This closes the shared-snapshot gap the reviewer held sign-off on; the staff
   intake and review milestone is now complete.
 
+- 2026-10-08, a review of commit `f599117` found one more, deeper P1 in that same function —
+  the "now complete" claim above was premature. `evaluatePermission` (`services/permissions.ts`)
+  read the authoritative register FIRST, before any evidence (`record`/`authorityClaims`/
+  `legalRights`/`consentGrants`) read — the previous round fixed WHICH snapshot gets returned as
+  `decision.control`, but not WHEN that snapshot is taken relative to the evidence it's combined
+  with. The reviewer reproduced this directly against the real lifecycle functions: a
+  preservation grant starts unverified (access denied); after `evaluatePermission` reads
+  control, a concurrent redaction and publication approval commit for real (verifying the
+  grant); `evaluatePermission` then reads the newly verified grant and allows access — using
+  control from before the redaction. Same observable symptom as the prior round (queue shows
+  the original title, detail shows "[REDACTED]"), but caused one level deeper: register control
+  version 5 reported alongside evidence that only became valid once the record was actually at
+  version 7. Fixed with the same "content first, authoritative-register last" ordering already
+  applied to `services/intakeViews.ts`'s own reads: `evaluatePermission` now reads
+  `record`/`authorityClaims`/`legalRights`/`consentGrants` FIRST and `registerStore.getCurrent`
+  LAST, immediately before computing and returning the decision — so `decision.control` is
+  always at least as fresh as the evidence it was evaluated against; a transition landing in the
+  (now harmless) gap between the evidence reads and the control read is observed by neither,
+  never a mix of the two. New regression test (`permissions.test.ts`) wraps `FixtureStore` so
+  its first `getRecord` call for the target record triggers a REAL `redactText` +
+  `approvePublication` (verifying the grant, publishing) as a side effect before returning the
+  pre-transition record — directly modeling "the evaluator reads control, then a transition
+  commits during its own evidence reads." Confirmed it's a real regression guard, not a
+  tautology: temporarily reverted `evaluatePermission` to the control-first ordering, watched
+  the test fail with exactly the reported combination (`currentPublicationStatus:
+  "not-published"` paired with the newly-allowed decision), then restored the fix and confirmed
+  it passes. 221 backend tests pass (up from 220). Redeployed to
+  `TiroFixtureBackend-drill-20261002`; `realIntakeAcceptanceDrill.ts` re-run — **25/25 checks
+  pass live.**
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**

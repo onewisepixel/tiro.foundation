@@ -82,8 +82,31 @@ export async function evaluatePermission(
 ): Promise<PermissionDecision> {
   const { recordId, purpose, audience, now } = query;
 
-  // The control register is authoritative and checked first. Missing
-  // control state denies — it is never treated as "no restriction".
+  // Reviewer-caught finding, round five: control used to be read FIRST,
+  // before any evidence (record/authorityClaims/legalRights/consentGrants)
+  // read — reproduced directly against the real lifecycle functions: a
+  // consent grant's verification, committed atomically with a redaction
+  // and a custody/publication transition (services/intake.ts's
+  // commitApproval), landing in the gap between this function's control
+  // read and its (later) evidence reads let the OLD control snapshot
+  // combine with the NEWLY verified grant — allowed became true using
+  // control from before the redaction that should have masked the title.
+  // No single real moment in time ever actually held that combination.
+  // Fixed with the same "content first, authoritative-register last"
+  // ordering already applied to services/intakeViews.ts's reads: every
+  // piece of evidence is read FIRST, and the register — authoritative over
+  // whether any of it may be used, and the exact snapshot returned as
+  // decision.control for every caller that masks or reports against it —
+  // is read LAST, immediately before use, so it is at least as fresh as
+  // everything else this function combines with it. A transition landing
+  // in the (now unavoidable, but harmless) gap between these evidence
+  // reads and the control read is read by neither — evaluated evidence
+  // and control from the same side of the transition, never a mix.
+  const record = await fixtureStore.getRecord(recordId);
+  const authorityClaims = await fixtureStore.listAuthorityClaims(recordId);
+  const legalRights = await fixtureStore.listLegalRights(recordId);
+  const grants = await fixtureStore.listConsentGrants(recordId);
+
   const control = await registerStore.getCurrent(recordId);
   if (!control) {
     return {
@@ -125,14 +148,12 @@ export async function evaluatePermission(
     return { allowed: false, reason: "Publication status is \"withdrawn\".", control };
   }
 
-  const record = await fixtureStore.getRecord(recordId);
   if (!record) {
     return { allowed: false, reason: "Record not found.", control };
   }
 
   // Authority: missing, disputed, or unknown claims deny — undisputed
   // identified-or-shared authority is required, not merely "not disputed".
-  const authorityClaims = await fixtureStore.listAuthorityClaims(recordId);
   if (authorityClaims.length === 0) {
     return { allowed: false, reason: "No authority claim on record; missing authority denies the affected use.", control };
   }
@@ -150,7 +171,6 @@ export async function evaluatePermission(
   // Legal rights: unlike authority, an EMPTY list is fine (no claimed right
   // in dispute) — but any disputed or unknown right on record denies, the
   // same way a disputed authority claim does.
-  const legalRights = await fixtureStore.listLegalRights(recordId);
   const blockingLegalRight = legalRights.find(
     (right) => right.status === "disputed" || right.status === "unknown",
   );
@@ -167,7 +187,6 @@ export async function evaluatePermission(
   // the register is the one place a restore of an old ConsentGrant backup
   // cannot resurrect a revocation, so it is always consulted here too, never
   // trusted-away because the grant row itself looks unrevoked.
-  const grants = await fixtureStore.listConsentGrants(recordId);
   const matching = findApprovableGrant(grants, { purpose, audience, now, revokedConsentIds: control.revokedConsentIds, requireVerified: true });
   if (!matching) {
     const unverifiedOnly = grants.some(

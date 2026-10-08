@@ -1615,6 +1615,51 @@ configuration), then restored the fix and confirmed it passes again. (4) Full su
 tests pass (up from 219). (5) Redeployed to `TiroFixtureBackend-drill-20261002`;
 `realIntakeAcceptanceDrill.ts` re-run end to end — **25/25 checks pass live.**
 
+### A fifth review round (2026-10-08, commit `f599117`) found one more, deeper P1 in the same
+function — evaluatePermission's own read ordering, now fixed
+
+The fourth round fixed WHICH register snapshot `evaluatePermission` returns as
+`decision.control` (a single, shared read instead of two independently-timed ones). It did not
+fix WHEN that single read happens relative to the evidence (`record`/`authorityClaims`/
+`legalRights`/`consentGrants`) it gets combined with — `evaluatePermission` still read the
+register FIRST, before any of that evidence. The reviewer reproduced the consequence directly
+against the real lifecycle functions, not just a crafted store wrapper: a preservation consent
+grant starts unverified, so an initial evaluation denies; `evaluatePermission` reads control;
+concurrently (for real: `redactText` then `approvePublication`, verifying the grant and
+publishing) a transition commits; `evaluatePermission` then reads the now-verified grant and
+allows access — but using the control snapshot from before the redaction and publication. Same
+observable symptom as the fourth round (the queue shows the original title while the detail
+route shows `"[REDACTED]"`), produced one level deeper: the register control reported was
+version 5 while the evidence that made the decision "allowed" only became valid once the
+record had actually moved to version 7.
+
+Fixed with the same ordering principle already applied to `services/intakeViews.ts`'s own reads
+(and described there as "content first, register last"): `evaluatePermission` now reads
+`record`, `authorityClaims`, `legalRights`, and `consentGrants` FIRST, and calls
+`registerStore.getCurrent` LAST, immediately before computing and returning the decision — the
+check ORDER (which denial fires first) is unchanged, only the READ order changed. `decision.control`
+is now guaranteed to be at least as fresh as every piece of evidence it was evaluated alongside;
+a transition landing in the gap between the evidence reads and the control read is observed by
+neither read, so evidence and control are always from the same side of any such transition,
+never a mix.
+
+New regression test (`permissions.test.ts`, "evaluatePermission never combines a stale control
+snapshot with evidence resolved during its own reads") wraps `FixtureStore` so its first
+`getRecord` call for the target record — `evaluatePermission`'s first evidence read in the fixed
+ordering — triggers, as a side effect, the real `redactText` and `approvePublication` functions
+(verifying the grant and publishing) against the same underlying stores, then returns the
+pre-transition record. Asserts `decision.allowed === true` (the grant now qualifies) AND
+`decision.control!.currentPublicationStatus === "published"` with `redactedTextFields` including
+`"title"` — the fresh, post-transition state, not the stale pre-transition one the bug would
+have returned. Confirmed this is a real regression guard, not a tautology, the same way as the
+fourth round: temporarily reverted `evaluatePermission` to read control first, re-ran the suite,
+watched this exact test fail (`currentPublicationStatus: "not-published"` returned alongside
+`allowed: true` — precisely the stale-control-plus-fresh-evidence combination reported), then
+restored the fix and confirmed it passes again.
+
+221 backend tests pass (up from 220). Redeployed to `TiroFixtureBackend-drill-20261002`;
+`realIntakeAcceptanceDrill.ts` re-run end to end — **25/25 checks pass live.**
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
