@@ -775,3 +775,23 @@ test("a consent grant covering both preservation and publication purposes can be
   });
   assert.equal(approvedPublication.status, "completed");
 });
+
+test("createSubmission's idempotency fingerprint never carries the raw title/summary/provenanceRef — persisted forever on a row deletion never touches", async () => {
+  const deps = setup();
+  const secretTitle = "[SYNTHETIC] this exact secret title must never appear in any stored fingerprint";
+  const request = await createSubmission(deps.fixtureStore, deps.intakeCommitter, {
+    requestId: "create-content-fingerprint-check",
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] new submission",
+    fixtureSetId: "fixture-set-intake-test",
+    title: secretTitle,
+    summary: "[SYNTHETIC] summary",
+    provenanceRef: "fixture://invented-intake-003",
+  });
+  const stored = await deps.fixtureStore.getLifecycleRequest(request.requestId);
+  assert.ok(stored);
+  assert.doesNotMatch(stored!.payloadFingerprint, /secret title/);
+  // A genuine digest, not a coincidentally-safe-looking string — confirms
+  // this is actually hashed, not just differently-shaped JSON.
+  assert.match(stored!.payloadFingerprint, /^[0-9a-f]{64}$/);
+});

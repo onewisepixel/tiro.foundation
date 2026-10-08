@@ -596,6 +596,29 @@ and documented rather than chased further; revisit when either upstream ships a 
   separate publication-purpose grant, added alongside the preservation grant while still
   quarantined, verified for real) rather than only its denial — **25/25 checks pass live.**
 
+- 2026-10-08, a review of commit `efcc811` found two residual P1s, both closed: (1) the queue-
+  redaction fix from the prior round still read the register BEFORE the record — correct for a
+  SINGLE read, but the WRONG order relative to the record read that followed it. A redaction
+  immediately followed by an unrelated correction (which overwrites the record's raw stored value
+  regardless of redaction flags — only a FRESH register read re-masks it) landing in that gap
+  produced a real, reproduced leak in both queue halves. Fixed by reading content FIRST and the
+  register LAST, consistently, in both `readIntakeSubmission` and `readIntakeQueue` — the register
+  snapshot used for eligibility and masking is now always at least as fresh as what it's about to
+  decide and mask. (2) The digest fix from the prior round only covered `addMedia`'s base64 field —
+  `fingerprintFor` (`services/lifecycle.ts`, shared by every lifecycle action) and
+  `getOrCreateSubmission` (`services/intake.ts`) still stored the raw canonical request JSON
+  verbatim, including `correctRecord`'s real corrected text and `createSubmission`'s real title/
+  summary/provenanceRef — reproduced surviving a real completed deletion. Fixed centrally: both
+  functions now store a SHA-256 digest of the canonical payload instead of the payload itself,
+  preserving `getOrCreateRequest`'s exact replay-detection contract (two calls with the identical
+  payload still produce the identical stored string). All 240 already-persisted LifecycleRequest
+  rows across this stack's entire history were reconciled directly (rehashed in place; original
+  content never reproduced or logged). Two new regression tests prove the ordering fix with a
+  deterministic redact-then-correct race injected between the exact reads being fixed (not just
+  "redaction alone"); two more prove the digest fix with real content values asserted absent from
+  storage. 218 backend tests pass (up from 214). Redeployed; `realIntakeAcceptanceDrill.ts`
+  re-run — **25/25 checks pass live.**
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**

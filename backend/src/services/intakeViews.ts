@@ -38,10 +38,6 @@ export async function readIntakeSubmission(
   registerStore: RestrictionRegisterStore,
   recordId: string,
 ): Promise<IntakeSubmissionView | null> {
-  const control = await registerStore.getCurrent(recordId);
-  if (!control || control.currentCustodyStatus !== "quarantined" || control.currentPublicationStatus === "withdrawn") {
-    return null;
-  }
   const record = await fixtureStore.getRecord(recordId);
   if (!record || !record.isSynthetic) {
     return null;
@@ -55,6 +51,20 @@ export async function readIntakeSubmission(
     fixtureStore.listCorrections(recordId),
     fixtureStore.listRedactions(recordId),
   ]);
+  // The FINAL read, taken deliberately last — used consistently for
+  // eligibility AND masking below. Reviewer-caught finding: reading the
+  // register FIRST (as this function originally did) left a real window —
+  // a redaction immediately followed by an unrelated correction (which
+  // overwrites the record's raw stored value regardless of redaction
+  // flags; only a fresh register read is what re-masks it) landing inside
+  // that window could leak: the OLD register snapshot still said "not
+  // redacted", so the newly-corrected raw content would pass straight
+  // through unmasked. Taking this read last, after every content read
+  // above, makes it at least as fresh as what it's about to mask.
+  const control = await registerStore.getCurrent(recordId);
+  if (!control || control.currentCustodyStatus !== "quarantined" || control.currentPublicationStatus === "withdrawn") {
+    return null;
+  }
   return {
     recordId,
     controlVersion: control.controlVersion,
@@ -83,63 +93,72 @@ export async function readIntakeQueue(fixtureStore: FixtureStore, registerStore:
   const entries = await registerStore.listAll();
   const now = new Date();
 
-  // Reviewer-caught finding: masking with the SCANNED entry (captured once,
-  // up front, by listAll()) rather than a fresh read let a stale snapshot
-  // expose a title the detail endpoint (readIntakeSubmission, which always
-  // reads fresh) correctly withheld — a redaction landing after the scan
-  // but before this function finished iterating would be invisible here.
-  // getCurrent is always strongly consistent (RestrictionRegisterStore's
-  // own contract — the one read in this system that cannot be stale), so
-  // every entry below is re-read fresh immediately before it's used for
-  // either filtering or masking, never trusted from the initial scan
-  // beyond "this recordId exists and might currently qualify."
+  // Reviewer-caught finding, round two: the first fix here still read the
+  // register BEFORE the record, on the theory that getCurrent is always
+  // strongly consistent so "fresh" was good enough. That's true in
+  // isolation, but it's the WRONG order relative to the record read that
+  // follows it: a redaction landing in the gap between this register read
+  // and the record read, immediately followed by an unrelated correction
+  // (which overwrites the record's raw value regardless of redaction
+  // flags — only a fresh register read re-masks it), produced a real,
+  // reproduced leak — the register snapshot taken here was already stale
+  // by the time the newly-corrected raw title was read and masked against
+  // it. Fixed for real this time: content (record, grants) is read FIRST
+  // for every candidate, and the register is read LAST, immediately
+  // before use, so it is always at least as fresh as what it's about to
+  // decide and mask — the same ordering fix applied to readIntakeSubmission
+  // above.
 
   const pendingPreservation: IntakeQueueEntry[] = [];
   for (const scanned of entries) {
-    const fresh = await registerStore.getCurrent(scanned.recordId);
-    if (!fresh || fresh.currentCustodyStatus !== "quarantined" || fresh.currentPublicationStatus === "withdrawn") continue;
     const record = await fixtureStore.getRecord(scanned.recordId);
     if (!record) continue;
+    const control = await registerStore.getCurrent(scanned.recordId);
+    if (!control || control.currentCustodyStatus !== "quarantined" || control.currentPublicationStatus === "withdrawn") continue;
     // A quarantined record's title CAN already be text-redacted
     // (redactText has no custody precondition) — the listing must never
     // show the pre-redaction value just because it's "only a queue."
-    const masked = applyTextRedactions(record, fresh);
+    const masked = applyTextRedactions(record, control);
     pendingPreservation.push({
       recordId: scanned.recordId,
       title: masked.title,
       fixtureSetId: record.fixtureSetId,
       createdAt: record.createdAt,
-      controlVersion: fresh.controlVersion,
+      controlVersion: control.controlVersion,
     });
   }
 
   const pendingPublication: IntakeQueueEntry[] = [];
   for (const scanned of entries) {
-    const fresh = await registerStore.getCurrent(scanned.recordId);
-    if (!fresh || fresh.currentCustodyStatus !== "preserved" || fresh.currentPublicationStatus !== "not-published") continue;
-    const grants = await fixtureStore.listConsentGrants(scanned.recordId);
-    if (!grants.some((g) => g.purposes.includes("publication"))) continue;
     const record = await fixtureStore.getRecord(scanned.recordId);
     if (!record) continue;
+    const grants = await fixtureStore.listConsentGrants(scanned.recordId);
+    if (!grants.some((g) => g.purposes.includes("publication"))) continue;
+    const control = await registerStore.getCurrent(scanned.recordId);
+    if (!control || control.currentCustodyStatus !== "preserved" || control.currentPublicationStatus !== "not-published") continue;
     // These are "preserved" records with real evaluatePermission
     // semantics already in effect — authentication is never a substitute
     // for it, on this surface either. Title is only shown if staff would
     // actually be allowed to see it; otherwise a visible placeholder,
     // never raw content, defense in depth alongside the preservation-
     // adequacy requirement (which should already guarantee this passes).
+    // evaluatePermission does its own internal register read — called
+    // immediately adjacent to `control` above (no further content reads
+    // in between), the smallest practical window without changing its
+    // signature to accept a pre-fetched snapshot.
     const decision = await evaluatePermission(fixtureStore, registerStore, {
       recordId: scanned.recordId,
       purpose: "preservation",
       audience: "staff",
       now,
     });
-    const title = decision.allowed ? applyTextRedactions(record, fresh).title : TITLE_UNAVAILABLE;
+    const title = decision.allowed ? applyTextRedactions(record, control).title : TITLE_UNAVAILABLE;
     pendingPublication.push({
       recordId: scanned.recordId,
       title,
       fixtureSetId: record.fixtureSetId,
       createdAt: record.createdAt,
-      controlVersion: fresh.controlVersion,
+      controlVersion: control.controlVersion,
     });
   }
 

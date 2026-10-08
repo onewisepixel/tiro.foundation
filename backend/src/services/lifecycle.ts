@@ -16,6 +16,7 @@ import type {
   Purpose,
   RestrictionRegisterEntry,
 } from "../domain/types";
+import { createHash } from "node:crypto";
 import { uuidv7 } from "../domain/id";
 import {
   AlreadyAppliedError,
@@ -38,12 +39,28 @@ export type LifecycleActionInput = {
 // itself. Order-independent (JSON.stringify of a fixed key order) so two
 // equivalent calls always fingerprint the same way regardless of how the
 // caller built the payload object.
+//
+// Reviewer-caught finding: this used to return that JSON.stringify output
+// VERBATIM, stored as payloadFingerprint on the LifecycleRequest row — a
+// SEPARATE partition key from the record itself, never touched by
+// redaction or deletion. correctRecord's own payload carries the real
+// correctedValue text; createSubmission's (services/intake.ts) carries
+// the real title/summary/provenanceRef. Both — and every other action's
+// payload, uniformly, by fixing this one shared function rather than
+// each caller separately — persisted real content forever, outliving any
+// later redaction or deletion of the record it describes. A hash is all
+// a fingerprint actually needs: it only ever has to detect "is this the
+// same request", never reproduce the original content. Pure digest
+// replacement preserves getOrCreateRequest's exact replay contract
+// unchanged — two calls with the identical canonical payload still
+// produce the identical stored string, so the existing equality check
+// still works exactly as before.
 function fingerprintFor(
   action: LifecycleAction,
   input: LifecycleActionInput,
   payload: Record<string, unknown>,
 ): string {
-  return JSON.stringify({
+  const canonical = JSON.stringify({
     recordId: input.recordId,
     action,
     requesterCapacity: input.requesterCapacity,
@@ -51,6 +68,7 @@ function fingerprintFor(
     protectiveHold: Boolean(input.protectiveHold),
     payload,
   });
+  return createHash("sha256").update(canonical).digest("hex");
 }
 
 export async function getOrCreateRequest(

@@ -81,7 +81,11 @@ export type CreateSubmissionInput = {
 // before it could ever return the original record id — reproduced and
 // fixed by excluding recordId from this fingerprint entirely.
 async function getOrCreateSubmission(fixtureStore: FixtureStore, input: CreateSubmissionInput): Promise<LifecycleRequest> {
-  const fingerprint = JSON.stringify({
+  // Hashed, not stored verbatim — same reasoning and same fix as
+  // lifecycle.ts's fingerprintFor: the raw title/summary/provenanceRef
+  // would otherwise persist on this LifecycleRequest row forever, outliving
+  // any later redaction or deletion of the record it describes.
+  const canonical = JSON.stringify({
     action: "create-submission",
     requesterCapacity: input.requesterCapacity,
     reason: input.reason,
@@ -90,6 +94,7 @@ async function getOrCreateSubmission(fixtureStore: FixtureStore, input: CreateSu
     summary: input.summary,
     provenanceRef: input.provenanceRef,
   });
+  const fingerprint = createHash("sha256").update(canonical).digest("hex");
   const existing = await fixtureStore.getLifecycleRequest(input.requestId);
   if (existing) {
     if (existing.payloadFingerprint !== fingerprint) {

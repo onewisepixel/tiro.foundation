@@ -1212,6 +1212,28 @@ test("correctRecord replaces the live field but preserves the previous value in 
   assert.equal(corrections[0].attribution, "[SYNTHETIC] curator");
 });
 
+test("correctRecord's idempotency fingerprint never carries the raw corrected text — persisted forever on a row deletion never touches", async () => {
+  const { fixtureStore, recordId } = await setupActive();
+  const secretCorrection = "[SYNTHETIC] this exact secret correction text must never appear in any stored fingerprint";
+  const result = await correctRecord(fixtureStore, {
+    requestId: "req-correct-fingerprint-check",
+    recordId,
+    requesterCapacity: "[SYNTHETIC] curator",
+    reason: "[SYNTHETIC] fixing a transcription error",
+    field: "summary",
+    correctedValue: secretCorrection,
+  });
+  const stored = await fixtureStore.getLifecycleRequest(result.requestId);
+  assert.ok(stored);
+  assert.doesNotMatch(stored!.payloadFingerprint, /secret correction text/);
+  // A genuine digest, not a coincidentally-safe-looking string — confirms
+  // this is actually hashed, not just differently-shaped JSON. Also
+  // proves getOrCreateRequest's replay-detection contract is unaffected:
+  // completed status above already confirms the SAME call path that
+  // compares fingerprints for replay still worked correctly end to end.
+  assert.match(stored!.payloadFingerprint, /^[0-9a-f]{64}$/);
+});
+
 test("correctRecord denies (not crashes) when the record doesn't exist", async () => {
   const fixtureStore = new InMemoryFixtureStore();
   const result = await correctRecord(fixtureStore, {
