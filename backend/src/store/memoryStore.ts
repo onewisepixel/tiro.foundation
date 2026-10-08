@@ -592,8 +592,12 @@ export class InMemoryIntakeRegisterCommitter implements IntakeRegisterCommitter 
         const right = this.fixtureStore.getLegalRightSync(recordId, flip.rightId);
         if (!right || right.status !== "unknown") throw new VersionConflictError("LegalRight", flip.rightId);
       } else {
+        // Existence only, same reasoning as dynamoStore.ts's equivalent fix
+        // — a grant already verified (e.g. by an earlier preservation
+        // approval, for a grant whose purposes cover both) must be a safe
+        // no-op here, never a hard conflict.
         const grant = this.fixtureStore.getConsentGrantSync(recordId, flip.consentId);
-        if (!grant || grant.signerCapacityVerified) throw new VersionConflictError("ConsentGrant", flip.consentId);
+        if (!grant) throw new VersionConflictError("ConsentGrant", flip.consentId);
       }
     }
     if (this.fixtureStore.hasIntakeReceiptSync(recordId, requestId)) {

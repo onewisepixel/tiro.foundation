@@ -93,15 +93,34 @@ function actionForm(recordId, action, extraFields, onDone) {
       <div class="result"></div>
     </form>`;
   const form = container.querySelector("form");
+  // Generated ONCE per form instance (not per submit) and reused across
+  // every retry of THIS same logical operation — reviewer-caught finding:
+  // without a client-supplied requestId, the API mints a fresh one on
+  // every call (router.ts: `validated.value.requestId ?? uuidv7()`), so a
+  // lost response followed by the user clicking Submit again created a
+  // genuinely separate, duplicate operation instead of safely resuming
+  // the first one. A fresh form (e.g. after a successful reload) gets its
+  // own new id, correctly — only retries of the SAME unsent/failed attempt
+  // should share one.
+  const requestId = crypto.randomUUID();
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
-    const body = { reason: data.get("reason") };
+    const body = { reason: data.get("reason"), requestId };
     for (const f of extraFields) {
       const value = data.get(f.name);
+      // optional: an empty text input sends "" — the API's optional
+      // fields (mandateRef/jurisdiction/expiresAt) expect null for "not
+      // provided", and reject "" as neither null nor a non-empty string.
       // numeric: for expectedControlVersion/expectedRecordVersion (approve-*)
       // — the API requires real numbers, not numeric strings.
-      body[f.name] = f.array ? value.split(",").map((s) => s.trim()).filter(Boolean) : f.numeric ? Number(value) : value;
+      body[f.name] = f.array
+        ? value.split(",").map((s) => s.trim()).filter(Boolean)
+        : f.optional && value === ""
+          ? null
+          : f.numeric
+            ? Number(value)
+            : value;
     }
     const resultEl = form.querySelector(".result");
     resultEl.textContent = "Submitting…";
@@ -238,6 +257,28 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
   actions.append(actionForm(recordId, "redact-text", [{ name: "field", label: "Field (title, summary, or provenanceRef)", required: true }], reload));
   actions.append(actionForm(recordId, "redact-media", [{ name: "mediaId", label: "Media id (from Media above)", required: true }], reload));
 
+  // Reviewer-caught finding: this was ONLY ever rendered in the intake
+  // detail view (loadIntakeSubmission), which 404s once a record is
+  // "preserved" — the review queue's "pending publication" entries open
+  // THIS view instead (control.currentCustodyStatus === "preserved"), so
+  // there was no way to actually click approve-publication at all. Shown
+  // only when the record is in the right state to use it; controlVersion/
+  // recordVersion are pre-filled from this same response, already fresh.
+  if (body.access.allowed && body.control?.currentCustodyStatus === "preserved" && body.control?.currentPublicationStatus === "not-published") {
+    actions.append(
+      actionForm(
+        recordId,
+        "approve-publication",
+        [
+          { name: "expectedControlVersion", label: "Expected control version", required: true, numeric: true, value: body.control.controlVersion },
+          { name: "expectedRecordVersion", label: "Expected record version", required: true, numeric: true, value: body.record.version },
+          { name: "consentGrantIds", label: "Consent grant ids to verify (comma-separated)", required: true, array: true },
+        ],
+        reload,
+      ),
+    );
+  }
+
   // Permission-check isn't a lifecycle action (no reason/mutation), so it
   // gets its own small form rather than reusing actionForm().
   const checkForm = document.createElement("form");
@@ -273,6 +314,12 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
 // the normal "Look up a record" section above is the right place to view
 // it — see services/intakeViews.ts.
 
+// Stable across retries of the SAME unsent/failed attempt (same reasoning
+// as actionForm's per-form requestId) — regenerated only after a
+// successful creation, so the NEXT, genuinely new submission gets its own
+// fresh id rather than ever reusing a completed one.
+let createSubmissionRequestId = crypto.randomUUID();
+
 async function createSubmission(event) {
   event.preventDefault();
   const data = new FormData(event.target);
@@ -282,6 +329,7 @@ async function createSubmission(event) {
     method: "POST",
     body: JSON.stringify({
       reason: data.get("reason"),
+      requestId: createSubmissionRequestId,
       fixtureSetId: data.get("fixtureSetId"),
       title: data.get("title"),
       summary: data.get("summary"),
@@ -292,6 +340,7 @@ async function createSubmission(event) {
     output.innerHTML = `<p class="error">${escapeHtml(body?.error ?? `HTTP ${status}`)}</p>`;
     return;
   }
+  createSubmissionRequestId = crypto.randomUUID();
   output.innerHTML = `
     <p class="muted">Created <code>${escapeHtml(body.recordId)}</code>.</p>
     <pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre>
@@ -319,6 +368,9 @@ function mediaUploadForm(recordId, onDone) {
       <div class="result"></div>
     </form>`;
   const form = container.querySelector("form");
+  // Stable across retries of the same upload attempt — same reasoning as
+  // actionForm's per-form requestId.
+  const requestId = crypto.randomUUID();
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const fileInput = form.querySelector('input[type="file"]');
@@ -331,7 +383,7 @@ function mediaUploadForm(recordId, onDone) {
     const reason = new FormData(form).get("reason");
     const { status, body } = await apiFetch(`/records/${encodeURIComponent(recordId)}/add-media`, {
       method: "POST",
-      body: JSON.stringify({ reason, contentType: file.type || "application/octet-stream", base64 }),
+      body: JSON.stringify({ reason, requestId, contentType: file.type || "application/octet-stream", base64 }),
     });
     resultEl.innerHTML = `<pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre>`;
     logAction(recordId, "add-media", body);
@@ -348,16 +400,28 @@ async function loadIntakeSubmission(recordId) {
     output.innerHTML = `<p class="error">${escapeHtml(body?.error ?? `HTTP ${status}`)} — if this was just approved, use "Look up a record" above instead.</p>`;
     return;
   }
+  // Reviewer-caught finding: claimant/holder/purposes alone aren't enough
+  // to actually review a claim — a reviewer needs the scope/evidenceRef
+  // (claims), rightType/jurisdiction/evidenceRef (rights), and
+  // signerCapacitySummary/mandateRef/expiresAt/retentionTermsRef/
+  // withdrawalContact (grants) that were deliberately captured at intake
+  // time precisely so a reviewer could evaluate them.
   const claimRows = body.authorityClaims
-    .map((c) => `<tr><td><code>${escapeHtml(c.claimId)}</code></td><td>${escapeHtml(c.status)}</td><td>${escapeHtml(c.claimant)}</td></tr>`)
+    .map(
+      (c) =>
+        `<tr><td><code>${escapeHtml(c.claimId)}</code></td><td>${escapeHtml(c.status)}</td><td>${escapeHtml(c.claimant)}</td><td>${escapeHtml(c.scope)}</td><td>${escapeHtml(c.evidenceRef)}</td></tr>`,
+    )
     .join("");
   const rightRows = body.legalRights
-    .map((r) => `<tr><td><code>${escapeHtml(r.rightId)}</code></td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.holder)}</td></tr>`)
+    .map(
+      (r) =>
+        `<tr><td><code>${escapeHtml(r.rightId)}</code></td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.holder)}</td><td>${escapeHtml(r.rightType)}</td><td>${escapeHtml(r.jurisdiction ?? "")}</td><td>${escapeHtml(r.evidenceRef)}</td></tr>`,
+    )
     .join("");
   const grantRows = body.consentGrants
     .map(
       (g) =>
-        `<tr><td><code>${escapeHtml(g.consentId)}</code></td><td>${escapeHtml(g.signerCapacityVerified ? "verified" : "unverified")}</td><td>${escapeHtml(g.purposes.join(", "))}</td><td>${escapeHtml(g.audience)}</td></tr>`,
+        `<tr><td><code>${escapeHtml(g.consentId)}</code></td><td>${escapeHtml(g.signerCapacityVerified ? "verified" : "unverified")}</td><td>${escapeHtml(g.signerCapacitySummary)}</td><td>${escapeHtml(g.purposes.join(", "))}</td><td>${escapeHtml(g.audience)}</td><td>${escapeHtml(g.mandateRef ?? "")}</td><td>${escapeHtml(g.expiresAt ?? "")}</td><td>${escapeHtml(g.retentionTermsRef)}</td><td>${escapeHtml(g.withdrawalContact)}</td></tr>`,
     )
     .join("");
   const mediaRows = body.record.mediaRefs
@@ -372,11 +436,11 @@ async function loadIntakeSubmission(recordId) {
     <h3>Record</h3>
     <pre>${escapeHtml(JSON.stringify(body.record, null, 2))}</pre>
     <h3>Authority claims</h3>
-    <table><thead><tr><th>claimId</th><th>status</th><th>claimant</th></tr></thead><tbody>${claimRows}</tbody></table>
+    <table><thead><tr><th>claimId</th><th>status</th><th>claimant</th><th>scope</th><th>evidenceRef</th></tr></thead><tbody>${claimRows}</tbody></table>
     <h3>Legal rights</h3>
-    <table><thead><tr><th>rightId</th><th>status</th><th>holder</th></tr></thead><tbody>${rightRows}</tbody></table>
+    <table><thead><tr><th>rightId</th><th>status</th><th>holder</th><th>rightType</th><th>jurisdiction</th><th>evidenceRef</th></tr></thead><tbody>${rightRows}</tbody></table>
     <h3>Consent grants</h3>
-    <table><thead><tr><th>consentId</th><th>status</th><th>purposes</th><th>audience</th></tr></thead><tbody>${grantRows}</tbody></table>
+    <table><thead><tr><th>consentId</th><th>status</th><th>signerCapacitySummary</th><th>purposes</th><th>audience</th><th>mandateRef</th><th>expiresAt</th><th>retentionTermsRef</th><th>withdrawalContact</th></tr></thead><tbody>${grantRows}</tbody></table>
     <h3>Media</h3>
     <table><thead><tr><th>mediaId</th><th>contentType</th><th></th></tr></thead><tbody>${mediaRows}</tbody></table>
     <div id="intake-media-preview"></div>
@@ -415,15 +479,15 @@ async function loadIntakeSubmission(recordId) {
   evidenceActions.append(actionForm(recordId, "add-legal-right", [
     { name: "holder", label: "Holder", required: true },
     { name: "rightType", label: "Right type", required: true },
-    { name: "jurisdiction", label: "Jurisdiction (optional)" },
+    { name: "jurisdiction", label: "Jurisdiction (optional)", optional: true },
     { name: "evidenceRef", label: "Evidence ref", required: true },
   ], reload));
   evidenceActions.append(actionForm(recordId, "add-consent-grant", [
     { name: "signerCapacitySummary", label: "Signer capacity summary", required: true },
     { name: "purposes", label: "Purposes (comma-separated)", required: true, array: true },
     { name: "audience", label: "Audience (public/staff/research-partner)", required: true },
-    { name: "mandateRef", label: "Mandate ref (optional)" },
-    { name: "expiresAt", label: "Expires at (ISO, optional)" },
+    { name: "mandateRef", label: "Mandate ref (optional)", optional: true },
+    { name: "expiresAt", label: "Expires at (ISO, optional)", optional: true },
     { name: "retentionTermsRef", label: "Retention terms ref", required: true },
     { name: "withdrawalContact", label: "Withdrawal contact", required: true },
   ], reload));
@@ -438,7 +502,7 @@ async function loadIntakeSubmission(recordId) {
     { name: "supersededRightId", label: "Superseded right id", required: true },
     { name: "holder", label: "Corrected holder", required: true },
     { name: "rightType", label: "Right type", required: true },
-    { name: "jurisdiction", label: "Jurisdiction (optional)" },
+    { name: "jurisdiction", label: "Jurisdiction (optional)", optional: true },
     { name: "evidenceRef", label: "Evidence ref", required: true },
   ], reload));
   evidenceActions.append(actionForm(recordId, "correct", [

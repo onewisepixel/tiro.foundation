@@ -133,6 +133,25 @@ test("GET /lifecycle-requests requires a valid status query param", async () => 
   assert.equal(invalid.statusCode, 400);
 });
 
+test("GET /lifecycle-requests never returns payloadFingerprint — an internal idempotency mechanism, not display content", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+  await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, STAFF_IDENTITY, req({
+    method: "POST",
+    pathSegments: ["records", active.record.recordId, "withdraw"],
+    body: { reason: "[SYNTHETIC] api test" },
+  }));
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, STAFF_IDENTITY, req({
+    method: "GET",
+    pathSegments: ["lifecycle-requests"],
+    queryParams: { status: "completed" },
+  }));
+  const body = response.body as { requests: Record<string, unknown>[] };
+  assert.ok(body.requests.length > 0);
+  for (const r of body.requests) {
+    assert.equal("payloadFingerprint" in r, false);
+  }
+});
+
 test("POST /records/:id/withdraw performs the action and attributes it to the authenticated caller, not the request body", async () => {
   const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
   const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, STAFF_IDENTITY, req({

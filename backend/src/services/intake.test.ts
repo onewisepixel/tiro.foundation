@@ -646,3 +646,132 @@ test("commitEvidenceCreate rejects a duplicate id with AlreadyAppliedError, the 
   const bumped = await deps.registerStore.getCurrent(recordId);
   await assert.rejects(() => deps.intakeCommitter.commitEvidenceCreate(recordId, bumped!.controlVersion, claim), AlreadyAppliedError);
 });
+
+test("addMedia's idempotency fingerprint never carries the raw uploaded bytes", async () => {
+  const deps = setup();
+  const recordId = await createBasicSubmission(deps);
+  const secret = "[SYNTHETIC] this exact string must never appear in any stored fingerprint";
+  await addMedia(deps.fixtureStore, deps.registerStore, deps.mediaStore, deps.intakeCommitter, {
+    requestId: "media-fingerprint-check",
+    recordId,
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] media",
+    contentType: "text/plain",
+    base64: Buffer.from(secret).toString("base64"),
+  });
+  const stored = await deps.fixtureStore.getLifecycleRequest("media-fingerprint-check");
+  assert.ok(stored);
+  assert.doesNotMatch(stored!.payloadFingerprint, new RegExp(Buffer.from(secret).toString("base64")));
+  assert.doesNotMatch(stored!.payloadFingerprint, /this exact string/);
+});
+
+test("addMedia's VersionConflictError goes straight to cleanup (definite non-commit, no recheck) and is a terminal denial if cleanup itself fails", async () => {
+  const deps = setup();
+  const recordId = await createBasicSubmission(deps);
+
+  class DefiniteConflictCommitter implements IntakeRegisterCommitter {
+    constructor(private readonly inner: InMemoryIntakeRegisterCommitter) {}
+    commitCreateSubmission(...args: Parameters<IntakeRegisterCommitter["commitCreateSubmission"]>) {
+      return this.inner.commitCreateSubmission(...args);
+    }
+    commitEvidenceCreate(...args: Parameters<IntakeRegisterCommitter["commitEvidenceCreate"]>) {
+      return this.inner.commitEvidenceCreate(...args);
+    }
+    commitEvidenceSupersede(...args: Parameters<IntakeRegisterCommitter["commitEvidenceSupersede"]>) {
+      return this.inner.commitEvidenceSupersede(...args);
+    }
+    commitApproval(...args: Parameters<IntakeRegisterCommitter["commitApproval"]>) {
+      return this.inner.commitApproval(...args);
+    }
+    hasReceipt(...args: Parameters<IntakeRegisterCommitter["hasReceipt"]>) {
+      return this.inner.hasReceipt(...args);
+    }
+    async commitMediaAdd(): Promise<void> {
+      throw new VersionConflictError("RestrictionRegisterEntry", recordId);
+    }
+  }
+  // A media store whose deleteObjectVersion always fails, to force the
+  // "cleanup itself failed" branch.
+  class UndeletableMediaStore extends InMemoryMediaStore {
+    async deleteObjectVersion(): Promise<void> {
+      throw new Error("simulated delete failure");
+    }
+  }
+  const definiteConflictCommitter = new DefiniteConflictCommitter(deps.intakeCommitter);
+  const undeletableMediaStore = new UndeletableMediaStore();
+  // Seed the object so putObject has something real to attempt uploading.
+  const result = await addMedia(deps.fixtureStore, deps.registerStore, undeletableMediaStore, definiteConflictCommitter, {
+    requestId: "media-definite-conflict",
+    recordId,
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] media",
+    contentType: "text/plain",
+    base64: Buffer.from("[SYNTHETIC] file content").toString("base64"),
+  });
+  // Terminal denial, not a retryable "in-progress" — a caller must not
+  // blindly retry this requestId expecting the orphan to resolve itself.
+  assert.equal(result.status, "denied");
+  assert.match(result.receiptSummary ?? "", /NEEDS RECONCILIATION/);
+});
+
+test("a consent grant covering both preservation and publication purposes can be verified by both approvals without conflict", async () => {
+  const deps = setup();
+  const recordId = await createBasicSubmission(deps);
+  await addAuthorityClaim(deps.fixtureStore, deps.registerStore, deps.intakeCommitter, {
+    requestId: "claim-1",
+    recordId,
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] claim",
+    claimant: "[SYNTHETIC] narrator",
+    scope: "full record",
+    evidenceRef: "fixture://invented-evidence-claim-1",
+  });
+  await addConsentGrant(deps.fixtureStore, deps.registerStore, deps.intakeCommitter, {
+    requestId: "grant-dual-purpose",
+    recordId,
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] grant",
+    signerCapacitySummary: "[SYNTHETIC] self",
+    purposes: ["preservation", "publication"],
+    audience: "staff",
+    mandateRef: null,
+    expiresAt: null,
+    retentionTermsRef: "fixture://invented-retention-1",
+    withdrawalContact: "fixture-steward@example.invalid",
+  });
+  const control = await deps.registerStore.getCurrent(recordId);
+  const record = await deps.fixtureStore.getRecord(recordId);
+  const approvedPreservation = await approvePreservation(deps.fixtureStore, deps.registerStore, deps.intakeCommitter, {
+    requestId: "approve-preservation-dual",
+    recordId,
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] approve",
+    expectedControlVersion: control!.controlVersion,
+    expectedRecordVersion: record!.version,
+    authorityClaimIds: ["claim-1"],
+    legalRightIds: [],
+    consentGrantIds: ["grant-dual-purpose"],
+  });
+  assert.equal(approvedPreservation.status, "completed");
+  const grantAfterPreservation = await deps.fixtureStore.getConsentGrant(recordId, "grant-dual-purpose");
+  assert.equal(grantAfterPreservation?.signerCapacityVerified, true);
+
+  const controlAfterPreservation = await deps.registerStore.getCurrent(recordId);
+  // approvePreservation's own best-effort reviewedAt write bumps the
+  // record's version as a side effect — re-read fresh rather than reusing
+  // the pre-approval snapshot.
+  const recordAfterPreservation = await deps.fixtureStore.getRecord(recordId);
+  // Re-verifying the SAME already-verified grant for publication must be a
+  // safe no-op, never rejected just because signerCapacityVerified is
+  // already true.
+  const approvedPublication = await approvePublication(deps.fixtureStore, deps.registerStore, deps.intakeCommitter, {
+    requestId: "approve-publication-dual",
+    recordId,
+    requesterCapacity: STAFF,
+    reason: "[SYNTHETIC] publish",
+    expectedControlVersion: controlAfterPreservation!.controlVersion,
+    expectedRecordVersion: recordAfterPreservation!.version,
+    consentGrantIds: ["grant-dual-purpose"],
+  });
+  assert.equal(approvedPublication.status, "completed");
+});

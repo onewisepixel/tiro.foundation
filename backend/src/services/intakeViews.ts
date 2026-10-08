@@ -83,51 +83,63 @@ export async function readIntakeQueue(fixtureStore: FixtureStore, registerStore:
   const entries = await registerStore.listAll();
   const now = new Date();
 
+  // Reviewer-caught finding: masking with the SCANNED entry (captured once,
+  // up front, by listAll()) rather than a fresh read let a stale snapshot
+  // expose a title the detail endpoint (readIntakeSubmission, which always
+  // reads fresh) correctly withheld — a redaction landing after the scan
+  // but before this function finished iterating would be invisible here.
+  // getCurrent is always strongly consistent (RestrictionRegisterStore's
+  // own contract — the one read in this system that cannot be stale), so
+  // every entry below is re-read fresh immediately before it's used for
+  // either filtering or masking, never trusted from the initial scan
+  // beyond "this recordId exists and might currently qualify."
+
   const pendingPreservation: IntakeQueueEntry[] = [];
-  for (const entry of entries) {
-    if (entry.currentCustodyStatus !== "quarantined" || entry.currentPublicationStatus === "withdrawn") continue;
-    const record = await fixtureStore.getRecord(entry.recordId);
+  for (const scanned of entries) {
+    const fresh = await registerStore.getCurrent(scanned.recordId);
+    if (!fresh || fresh.currentCustodyStatus !== "quarantined" || fresh.currentPublicationStatus === "withdrawn") continue;
+    const record = await fixtureStore.getRecord(scanned.recordId);
     if (!record) continue;
     // A quarantined record's title CAN already be text-redacted
     // (redactText has no custody precondition) — the listing must never
     // show the pre-redaction value just because it's "only a queue."
-    const masked = applyTextRedactions(record, entry);
+    const masked = applyTextRedactions(record, fresh);
     pendingPreservation.push({
-      recordId: entry.recordId,
+      recordId: scanned.recordId,
       title: masked.title,
       fixtureSetId: record.fixtureSetId,
       createdAt: record.createdAt,
-      controlVersion: entry.controlVersion,
+      controlVersion: fresh.controlVersion,
     });
   }
 
   const pendingPublication: IntakeQueueEntry[] = [];
-  for (const entry of entries) {
-    if (entry.currentCustodyStatus !== "preserved" || entry.currentPublicationStatus !== "not-published") continue;
-    const grants = await fixtureStore.listConsentGrants(entry.recordId);
+  for (const scanned of entries) {
+    const fresh = await registerStore.getCurrent(scanned.recordId);
+    if (!fresh || fresh.currentCustodyStatus !== "preserved" || fresh.currentPublicationStatus !== "not-published") continue;
+    const grants = await fixtureStore.listConsentGrants(scanned.recordId);
     if (!grants.some((g) => g.purposes.includes("publication"))) continue;
-    const record = await fixtureStore.getRecord(entry.recordId);
+    const record = await fixtureStore.getRecord(scanned.recordId);
     if (!record) continue;
     // These are "preserved" records with real evaluatePermission
     // semantics already in effect — authentication is never a substitute
     // for it, on this surface either. Title is only shown if staff would
     // actually be allowed to see it; otherwise a visible placeholder,
-    // never raw content, defense in depth alongside Finding 3's
-    // preservation-adequacy requirement (which should already guarantee
-    // this passes).
+    // never raw content, defense in depth alongside the preservation-
+    // adequacy requirement (which should already guarantee this passes).
     const decision = await evaluatePermission(fixtureStore, registerStore, {
-      recordId: entry.recordId,
+      recordId: scanned.recordId,
       purpose: "preservation",
       audience: "staff",
       now,
     });
-    const title = decision.allowed ? applyTextRedactions(record, entry).title : TITLE_UNAVAILABLE;
+    const title = decision.allowed ? applyTextRedactions(record, fresh).title : TITLE_UNAVAILABLE;
     pendingPublication.push({
-      recordId: entry.recordId,
+      recordId: scanned.recordId,
       title,
       fixtureSetId: record.fixtureSetId,
       createdAt: record.createdAt,
-      controlVersion: entry.controlVersion,
+      controlVersion: fresh.controlVersion,
     });
   }
 

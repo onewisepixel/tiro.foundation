@@ -169,6 +169,25 @@ async function main() {
     record("Real POST .../add-consent-grant succeeds", grantResponse.status === 200, `status=${grantResponse.status}`);
     const consentId = (grantResponse.json as { requestId: string }).requestId;
 
+    // A SEPARATE publication-purpose grant — must be added now, while
+    // still quarantined (addConsentGrant's own precondition), so it's
+    // available later for a REAL approve-publication success check, not
+    // just the denial check. Kept deliberately separate from the
+    // preservation grant above, matching the milestone's own "separate
+    // preservation/publication grants" scope.
+    const publicationGrantResponse = await apiPost(`/records/${recordId}/add-consent-grant`, {
+      reason: "[SYNTHETIC] publication grant",
+      signerCapacitySummary: "[SYNTHETIC] invented primary narrator",
+      purposes: ["publication"],
+      audience: "staff",
+      mandateRef: null,
+      expiresAt: null,
+      retentionTermsRef: `fixture://invented-${drillTag}-retention`,
+      withdrawalContact: "fixture-steward@example.invalid",
+    });
+    record("Real POST .../add-consent-grant (publication-purpose) succeeds", publicationGrantResponse.status === 200, `status=${publicationGrantResponse.status}`);
+    const publicationConsentId = (publicationGrantResponse.json as { requestId: string }).requestId;
+
     const mediaResponse = await apiPost(`/records/${recordId}/add-media`, {
       reason: "[SYNTHETIC] media",
       contentType: "text/plain",
@@ -255,10 +274,12 @@ async function main() {
     );
 
     // --------------------------- step 7: publication denied for real ----
+    const afterPreservationDetail = await apiGet(`/records/${recordId}?purpose=preservation&audience=staff`);
+    const afterPreservationBody = afterPreservationDetail.json as { control?: { controlVersion: number }; record?: { version: number } };
     const publishAttempt = await apiPost(`/records/${recordId}/approve-publication`, {
-      reason: "[SYNTHETIC] attempt publication with no publication grant",
-      expectedControlVersion: freshBody.controlVersion + 1,
-      expectedRecordVersion: freshBody.recordVersion,
+      reason: "[SYNTHETIC] attempt publication with the wrong (preservation-purpose) grant",
+      expectedControlVersion: afterPreservationBody.control!.controlVersion,
+      expectedRecordVersion: afterPreservationBody.record!.version,
       consentGrantIds: [consentId], // preservation-purpose, not publication — deliberately wrong
     });
     const publishBody = publishAttempt.json as { status?: string };
@@ -266,6 +287,36 @@ async function main() {
       "approve-publication is denied — THE completion test's central guarantee: publication remains denied without its own grant",
       publishBody.status === "denied",
       JSON.stringify(publishBody),
+    );
+
+    // ------------------- step 7b: publication SUCCEEDS with ITS OWN grant -
+    // Reviewer-caught finding: the drill previously covered only the
+    // denial branch. The real publication-purpose grant added in step 2
+    // (kept separate from the preservation grant throughout) is named
+    // here for real — confirms approve-publication's success path and
+    // the resulting live access change, not just its refusal.
+    const realPublishAttempt = await apiPost(`/records/${recordId}/approve-publication`, {
+      reason: "[SYNTHETIC] approve publication for real, with its own grant",
+      // The denied attempt above never reached commitApproval at all (it
+      // denies as soon as no named grant qualifies, before any register
+      // write) — controlVersion is unchanged from afterPreservationBody.
+      expectedControlVersion: afterPreservationBody.control!.controlVersion,
+      expectedRecordVersion: afterPreservationBody.record!.version,
+      consentGrantIds: [publicationConsentId],
+    });
+    const realPublishBody = realPublishAttempt.json as { status?: string };
+    record(
+      "Real POST .../approve-publication succeeds with its own, correctly-scoped grant",
+      realPublishBody.status === "completed",
+      JSON.stringify(realPublishBody),
+    );
+
+    const publicAllowedNow = await apiGet(`/records/${recordId}?purpose=publication&audience=staff`);
+    const publicAllowedBody = publicAllowedNow.json as { access?: { allowed?: boolean } };
+    record(
+      "staff/publication access is now allowed through the real API, after the real grant was verified",
+      publicAllowedBody.access?.allowed === true,
+      JSON.stringify(publicAllowedBody.access),
     );
 
     // ------------------------------------------- step 8: export/restore -

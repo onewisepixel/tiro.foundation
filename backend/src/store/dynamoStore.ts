@@ -158,8 +158,41 @@ export class DynamoFixtureStore implements FixtureStore {
     return (result.Items ?? []) as T[];
   }
 
+  // Strongly consistent AND fully paginated — unlike queryByPrefix above
+  // (eventually consistent, first page only), which is fine for read-only
+  // display lists (corrections/redactions/audit receipts) but not for
+  // authority claims / legal rights / consent grants: evaluatePermission's
+  // blocking checks and services/intake.ts's approvePreservation
+  // evidence-completeness check both read these lists to decide whether
+  // something is safe to allow or approve. Reviewer-caught finding: an
+  // eventually consistent read can miss a claim/right/grant that another
+  // request just committed — DynamoDB's default reads are eventually
+  // consistent (AWS's own documented behavior, not an edge case) — letting
+  // approval proceed as though an unresolved claim didn't exist. A single
+  // Query page is also only guaranteed up to 1MB; this follows
+  // LastEvaluatedKey until the whole partition's matching items are read,
+  // not just the first page.
+  private async queryByPrefixConsistent<T>(recordId: string, skPrefix: string): Promise<T[]> {
+    const items: T[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.doc.send(
+        new QueryCommand({
+          TableName: this.config.primaryTableName,
+          KeyConditionExpression: "PK = :pk AND begins_with(SK, :skPrefix)",
+          ExpressionAttributeValues: { ":pk": pk(recordId), ":skPrefix": skPrefix },
+          ConsistentRead: true,
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      items.push(...((result.Items ?? []) as T[]));
+      exclusiveStartKey = result.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+    return items;
+  }
+
   listAuthorityClaims(recordId: string): Promise<AuthorityClaim[]> {
-    return this.queryByPrefix<AuthorityClaim>(recordId, "AUTHORITY#");
+    return this.queryByPrefixConsistent<AuthorityClaim>(recordId, "AUTHORITY#");
   }
 
   async putAuthorityClaim(claim: AuthorityClaim): Promise<void> {
@@ -185,7 +218,7 @@ export class DynamoFixtureStore implements FixtureStore {
   }
 
   listLegalRights(recordId: string): Promise<LegalRight[]> {
-    return this.queryByPrefix<LegalRight>(recordId, "LEGALRIGHT#");
+    return this.queryByPrefixConsistent<LegalRight>(recordId, "LEGALRIGHT#");
   }
 
   async putLegalRight(right: LegalRight): Promise<void> {
@@ -209,7 +242,7 @@ export class DynamoFixtureStore implements FixtureStore {
   }
 
   listConsentGrants(recordId: string): Promise<ConsentGrant[]> {
-    return this.queryByPrefix<ConsentGrant>(recordId, "CONSENT#");
+    return this.queryByPrefixConsistent<ConsentGrant>(recordId, "CONSENT#");
   }
 
   async getConsentGrant(recordId: string, consentId: string): Promise<ConsentGrant | null> {
@@ -1023,13 +1056,24 @@ export class DynamoIntakeRegisterCommitter implements IntakeRegisterCommitter {
           },
         });
       } else {
+        // Reviewer-caught finding: requiring signerCapacityVerified to
+        // currently be false rejected a grant that was ALREADY verified —
+        // a real, valid case, not an anomaly: the same ConsentGrant can
+        // legitimately carry both "preservation" and "publication" in its
+        // purposes array, get verified once by approvePreservation, and
+        // then be named again by approvePublication, which only needs
+        // re-verifying it to be a safe no-op, never a hard conflict.
+        // attribute_exists is the real guard instead — the grant must
+        // exist (an Update on a missing item would otherwise silently
+        // CREATE a near-empty one), regardless of its current verified
+        // state.
         transactItems.push({
           Update: {
             TableName: this.config.primaryTableName,
             Key: { PK: pk(recordId), SK: consentSk(flip.consentId) },
             UpdateExpression: "SET signerCapacityVerified = :verified",
-            ConditionExpression: "signerCapacityVerified = :unverified",
-            ExpressionAttributeValues: { ":verified": true, ":unverified": false },
+            ConditionExpression: "attribute_exists(PK)",
+            ExpressionAttributeValues: { ":verified": true },
           },
         });
       }

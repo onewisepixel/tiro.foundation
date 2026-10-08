@@ -7,6 +7,7 @@
 // permissions.ts, now denies "quarantined" unconditionally — see its own
 // comment). Five review rounds found real gaps in this module's design
 // before a line of it was written; each fix is called out where it lives.
+import { createHash } from "node:crypto";
 import { uuidv7 } from "../domain/id";
 import type { AuthorityClaim, ConsentGrant, CustodyCopy, FixtureRecord, LegalRight, LifecycleRequest, Purpose } from "../domain/types";
 import {
@@ -345,9 +346,17 @@ export async function addMedia(
   intakeCommitter: IntakeRegisterCommitter,
   input: AddMediaInput,
 ): Promise<LifecycleRequest> {
+  // Reviewer-caught finding: fingerprinting the raw base64 means the
+  // uploaded bytes sit in payloadFingerprint on the LifecycleRequest row
+  // FOREVER — a completely separate, less-protected place than the
+  // record itself, never touched by redaction OR deletion (LifecycleRequest
+  // rows live under their own PK, not the record's). A digest is all the
+  // fingerprint actually needs — it only ever has to detect "is this the
+  // same upload", never reproduce the bytes.
+  const base64Digest = createHash("sha256").update(input.base64).digest("hex");
   const request = await getOrCreateRequest(fixtureStore, "add-media", input, {
     contentType: input.contentType,
-    base64: input.base64,
+    base64Digest,
   });
   if (request.status === "completed" || request.status === "denied") return request;
 
@@ -409,17 +418,51 @@ export async function addMedia(
     await intakeCommitter.commitMediaAdd(input.recordId, control.controlVersion, updatedRecord, record.version, copy);
   } catch (error) {
     const baseMessage = error instanceof Error ? error.message : String(error);
+
+    // DEFINITE non-commit: a VersionConflictError means the WHOLE
+    // transaction was atomically cancelled by DynamoDB itself — there is
+    // no uncertainty to resolve, and therefore no need for (or dependency
+    // on) a recheck read, which is itself a network call that can fail.
+    // Reviewer-caught finding: routing EVERY error through the "uncertain"
+    // path below meant a definite conflict whose recheck read then failed
+    // left the uploaded bytes completely unreconciled — no cleanup
+    // attempted at all, and the request reported as an ordinary retryable
+    // failure rather than a clear stop/reconcile signal. Mirrors
+    // legacyMediaMigration.ts's applyLegacyMediaRebind exactly (see its
+    // module comment) — this function's own comment claimed that
+    // equivalence before actually implementing it.
+    if (error instanceof VersionConflictError) {
+      try {
+        await mediaStore.deleteObjectVersion(key, uploaded.versionId);
+      } catch {
+        return denyRequest(
+          fixtureStore,
+          request,
+          `${baseMessage} (CLEANUP FAILED — an untracked object remains at ${key} version ${uploaded.versionId}; NEEDS RECONCILIATION, not a silent retry.)`,
+        );
+      }
+      await recordFailure(fixtureStore, request, baseMessage);
+      return request;
+    }
+
+    // UNCERTAIN: this error does not by itself say whether the write
+    // committed — a timeout or dropped connection can occur even after the
+    // server actually applied the transaction. Resolve the same way the
+    // rest of this codebase does: re-read fresh and see whether it already
+    // reflects the attempted write. A failed recheck, or a failed cleanup,
+    // means a human must look directly — denyRequest (terminal), never a
+    // retryable recordFailure, since blindly retrying this requestId can't
+    // fix an orphan it doesn't know to look for.
     let recheck: FixtureRecord | null;
     try {
       recheck = await fixtureStore.getRecord(input.recordId);
     } catch (recheckError) {
       const recheckMessage = recheckError instanceof Error ? recheckError.message : String(recheckError);
-      await recordFailure(
+      return denyRequest(
         fixtureStore,
         request,
         `${baseMessage}. Could not verify whether the write committed — the recovery read itself failed: ${recheckMessage}. An object at ${key} version ${uploaded.versionId} may or may not be bound; NEEDS RECONCILIATION — do NOT delete it without checking directly.`,
       );
-      return request;
     }
     if (recheck?.mediaRefs.find((m) => m.mediaId === mediaId)?.versionId === uploaded.versionId) {
       // It actually committed — the error was a false failure signal.
@@ -430,12 +473,11 @@ export async function addMedia(
     try {
       await mediaStore.deleteObjectVersion(key, uploaded.versionId);
     } catch {
-      await recordFailure(
+      return denyRequest(
         fixtureStore,
         request,
         `${baseMessage} (CLEANUP FAILED — an untracked object remains at ${key} version ${uploaded.versionId}; NEEDS RECONCILIATION, not a silent retry.)`,
       );
-      return request;
     }
     await recordFailure(fixtureStore, request, baseMessage);
     return request;

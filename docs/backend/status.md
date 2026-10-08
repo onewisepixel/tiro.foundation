@@ -562,6 +562,40 @@ and documented rather than chased further; revisit when either upstream ships a 
   object in this system already uses — the first thing this Lambda has ever uploaded itself.
   DynamoDB capacity unchanged throughout.
 
+- 2026-10-08, a review of commit `88f5dc7` found seven real gaps (five P1, two P2), all fixed and
+  re-verified against the real deployed stack: (1) `addMedia`'s idempotency fingerprint stored the
+  full uploaded base64 — persisted forever on the LifecycleRequest row (a different partition key,
+  never touched by redaction or deletion), retrievable via `GET /lifecycle-requests` long after the
+  record itself was gone. Fixed with a SHA-256 digest instead of the raw bytes, `payloadFingerprint`
+  stripped from the queue response entirely, and the two already-persisted rows this stack's own
+  drill runs created reconciled directly. (2) `listAuthorityClaims`/`listLegalRights`/
+  `listConsentGrants` had neither `ConsistentRead` nor pagination — an eventually consistent miss
+  could let `approvePreservation`'s evidence-completeness check (and `evaluatePermission`'s own
+  blocking check) overlook a just-committed claim. Fixed with a new strongly consistent, fully
+  paginated query path for these three specifically. (3) `readIntakeQueue` masked titles using the
+  register entry captured by its own initial scan rather than a fresh read, letting a stale snapshot
+  expose a title the detail route correctly withheld. Fixed by re-reading each candidate's register
+  state fresh immediately before using it. (4) `addMedia`'s cleanup never distinguished a definite
+  non-commit (`VersionConflictError`) from a genuinely uncertain one, so routing every failure
+  through the uncertain path's recheck could skip cleanup entirely if that recheck itself failed —
+  resurrecting the exact orphaned-upload bug `legacyMediaMigration.ts` had already fixed once, this
+  function's own comment claimed equivalence to that fix without actually implementing it. Fixed by
+  adding the definite-vs-uncertain split for real, and using a terminal denial (not a retryable
+  status) for any case needing human reconciliation. (5) `commitApproval`'s consent-grant flip
+  required `signerCapacityVerified === false`, permanently rejecting a grant that legitimately
+  covers both preservation and publication purposes and was already verified by the first approval.
+  Fixed to require only that the grant exists. (6) Three browser gaps: optional consent fields
+  (`mandateRef`/`jurisdiction`/`expiresAt`) sent `""` instead of `null`, always failing validation;
+  `approve-publication` was only ever rendered in the intake detail view, unreachable once a record
+  is "preserved" (exactly where the publication queue opens it); intake evidence tables omitted the
+  fields a reviewer actually needs. All three fixed. (7) The browser never sent a client `requestId`,
+  so a lost response followed by a retry created a genuine duplicate on every form, not just
+  create-submission. Fixed with a stable, per-form-instance requestId, regenerated only after a
+  successful submission. 214 backend tests pass (up from 206).
+  `realIntakeAcceptanceDrill.ts` was extended to cover the publication SUCCESS path (a real,
+  separate publication-purpose grant, added alongside the preservation grant while still
+  quarantined, verified for real) rather than only its denial — **25/25 checks pass live.**
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**

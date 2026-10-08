@@ -1533,6 +1533,40 @@ submission, review queue, intake submission detail with evidence/media-upload/su
 forms) — prepared, not yet run by a human, the same honestly-named gap this project has named for
 every other control until a human actually clicked through it.
 
+### A second review round (2026-10-08) found seven more real gaps, all fixed
+
+Five P1s: (1) `addMedia`'s idempotency fingerprint carried the full uploaded base64, persisted
+forever on the LifecycleRequest row (a separate partition key, never touched by redaction or
+deletion) and retrievable via `GET /lifecycle-requests` long after the record was gone — fixed with
+a SHA-256 digest instead, `payloadFingerprint` stripped from that route's response entirely, and
+the two already-persisted rows this stack's own drills created reconciled directly against the live
+table. (2) The authority/legal-right/consent-grant list reads had neither `ConsistentRead` nor
+pagination, so an eventually consistent miss could let `approvePreservation`'s evidence-
+completeness check overlook a just-committed claim — fixed with a dedicated strongly consistent,
+fully paginated query path for exactly these three lists. (3) `readIntakeQueue` masked titles
+against the register entry its own initial scan captured, not a fresh read — a stale snapshot could
+expose a title the detail route correctly withheld — fixed by re-reading each candidate fresh
+immediately before masking. (4) `addMedia`'s cleanup routed every failure through the "uncertain,
+recheck first" path, so a DEFINITE non-commit (`VersionConflictError`) whose recheck itself failed
+skipped cleanup entirely — resurrecting the exact orphaned-upload bug `legacyMediaMigration.ts` had
+already fixed once; this function's own comment claimed that equivalence without actually
+implementing the definite/uncertain split. Fixed for real, with a terminal denial (not a retryable
+status) for anything needing human reconciliation. (5) `commitApproval`'s consent-grant flip
+required `signerCapacityVerified === false`, permanently rejecting a grant that legitimately covers
+both preservation and publication and was already verified by the first approval — fixed to require
+only that the grant exists.
+
+Two P2s, both browser-side: optional consent fields sent `""` instead of `null` (always failing
+validation); `approve-publication` was only ever rendered in the view that 404s once a record is
+preserved, so the publication queue opened a view with no way to actually click it; intake tables
+omitted fields a reviewer needs — all fixed. And the browser never sent a client `requestId`, so a
+lost response followed by a retry created a genuine duplicate on every form — fixed with a stable,
+per-form-instance id, regenerated only after success.
+
+214 backend tests pass (up from 206). `realIntakeAcceptanceDrill.ts` was extended to cover
+publication's SUCCESS path (a real, separate publication-purpose grant, verified for real) rather
+than only its denial — **25/25 checks pass live**, against the stack redeployed with these fixes.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |

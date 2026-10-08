@@ -226,7 +226,16 @@ export async function routeRequest(
       return badRequest('"status" query parameter is required and must be one of pending, in-progress, completed, denied.');
     }
     const requests = await fixtureStore.listLifecycleRequestsByStatus(status);
-    return { statusCode: 200, body: { requests } };
+    // Reviewer-caught finding: payloadFingerprint is a pure internal
+    // idempotency mechanism, never meant to be display content — and for
+    // at least one action (add-media) its payload used to carry the
+    // uploaded bytes themselves (now a digest — see services/intake.ts),
+    // which this list route would otherwise still hand back to any
+    // authenticated staff caller regardless of the record's own current
+    // custody/redaction state. Stripped here unconditionally, for every
+    // action, not just the one this was caught on.
+    const safeRequests = requests.map(({ payloadFingerprint, ...safe }) => safe);
+    return { statusCode: 200, body: { requests: safeRequests } };
   }
 
   // GET /records/:recordId?purpose=...&audience=...
