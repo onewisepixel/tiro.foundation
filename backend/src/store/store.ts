@@ -212,6 +212,21 @@ export interface RestrictionRegisterStore {
   // on mismatch.
   setCurrent(entry: RestrictionRegisterEntry, expectedVersion: number | undefined): Promise<void>;
   listAll(): Promise<RestrictionRegisterEntry[]>;
+  // A genuinely bounded scan, unlike listAll() above — services/publicView.ts's
+  // public listing needs "bounded, paginated reads" (never a full-table
+  // scan), which listAll()'s own doc comment already admits it isn't.
+  // `cursor` is a plain, unencrypted resume key (this table's own
+  // `recordId`) — NOT the confidential, encrypted cursor the public HTTP
+  // API hands back to callers (services/cursorCodec.ts applies that layer
+  // at the public-facing seam, deliberately above this store interface, so
+  // the store itself stays simple and policy-free). `cursor` may name ANY
+  // row's recordId, not only a value this method itself previously
+  // returned as `nextCursor` — DynamoDB Scan's ExclusiveStartKey can resume
+  // after an arbitrary item's key, which is what lets a caller resume
+  // after the exact last row it actually examined, even mid-page.
+  // `nextCursor` is null once the scan is exhausted (no more rows after
+  // this page), otherwise the key to resume from.
+  listPage(query: { limit: number; cursor: string | null }): Promise<{ entries: RestrictionRegisterEntry[]; nextCursor: string | null }>;
 }
 
 // A narrow, explicit interface for the ONE operation in this system that

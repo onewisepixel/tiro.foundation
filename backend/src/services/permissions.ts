@@ -97,11 +97,15 @@ export async function evaluatePermission(
   // piece of evidence is read FIRST, and the register — authoritative over
   // whether any of it may be used, and the exact snapshot returned as
   // decision.control for every caller that masks or reports against it —
-  // is read LAST, immediately before use, so it is at least as fresh as
-  // everything else this function combines with it. A transition landing
-  // in the (now unavoidable, but harmless) gap between these evidence
-  // reads and the control read is read by neither — evaluated evidence
-  // and control from the same side of the transition, never a mix.
+  // is read LAST, immediately before use. This is NOT an atomic, all-
+  // entities-together snapshot — record/claims/rights/grants are still
+  // four separate reads, and a transition can still land between any two
+  // of them. What this ordering actually guarantees is narrower, and it's
+  // enough: the register is never OLDER than the evidence it's combined
+  // with. decision.control reflects, at minimum, every transition that had
+  // already committed by the time the (necessarily somewhat stale)
+  // evidence was read — the final authoritative control applied is always
+  // at least as current as what it's judging, never a step behind it.
   const record = await fixtureStore.getRecord(recordId);
   const authorityClaims = await fixtureStore.listAuthorityClaims(recordId);
   const legalRights = await fixtureStore.listLegalRights(recordId);

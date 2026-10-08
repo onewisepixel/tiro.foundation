@@ -288,6 +288,35 @@ export class FixtureBackendStack extends Stack {
       integration: apiIntegration,
     });
 
+    // Public Memory-site connection — read-only, anonymous, purpose
+    // "publication" / audience "public" enforced entirely server-side
+    // inside services/publicView.ts (never from a caller-supplied query
+    // param). Same Lambda, same integration, no new IAM grants — the
+    // handler already has read access to both tables and the bucket.
+    // HttpNoneAuthorizer overrides the HttpApi's own defaultAuthorizer
+    // (the Cognito pool authorizer above) on exactly these three routes;
+    // api/handler.ts's own isPublicGetRoutePath allowlist (exact route
+    // shapes, not a path-prefix check) is the matching application-level
+    // gate that skips extractCallerIdentity for these same three requests.
+    httpApi.addRoutes({
+      path: "/public/records",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: apiIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    });
+    httpApi.addRoutes({
+      path: "/public/records/{recordId}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: apiIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    });
+    httpApi.addRoutes({
+      path: "/public/records/{recordId}/media/{mediaId}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: apiIntegration,
+      authorizer: new apigwv2.HttpNoneAuthorizer(),
+    });
+
     new CfnOutput(this, "StaffApiUrl", { value: httpApi.apiEndpoint });
     new CfnOutput(this, "MediaBucketName", { value: this.mediaBucket.bucketName });
     new CfnOutput(this, "StaffUserPoolId", { value: this.staffUserPool.userPoolId });

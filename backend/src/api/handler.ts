@@ -7,7 +7,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoFixtureStore, DynamoIntakeRegisterCommitter, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { S3MediaStore } from "../store/s3MediaStore";
-import { routeRequest, type ApiRequest } from "./router";
+import { isPublicGetRoutePath, routeRequest, type ApiRequest } from "./router";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
@@ -85,12 +85,20 @@ export function parseBody(event: HttpApiEvent): unknown {
 export async function handler(event: HttpApiEvent): Promise<HttpApiResponse> {
   const headers = { "content-type": "application/json" };
   try {
-    const callerIdentity = extractCallerIdentity(event);
     const method = event.requestContext.http.method;
+    const pathSegments = event.rawPath.split("/").filter((segment) => segment.length > 0);
+    // The ONLY place an authenticated caller identity is skipped — gated by
+    // the exact three public GET route shapes (router.ts's
+    // isPublicGetRoutePath), never a loose path-prefix check, so a future
+    // MUTATING addition under /public/* doesn't silently inherit this
+    // exemption. Every new public route is read-only and never reads
+    // callerIdentity at all, so "public:anonymous" is a true placeholder,
+    // never attributed anywhere.
+    const isPublicRoute = method === "GET" && isPublicGetRoutePath(pathSegments);
+    const callerIdentity = isPublicRoute ? "public:anonymous" : extractCallerIdentity(event);
     if (method !== "GET" && method !== "POST") {
       return { statusCode: 405, headers, body: JSON.stringify({ error: `Method ${method} not allowed.` }) };
     }
-    const pathSegments = event.rawPath.split("/").filter((segment) => segment.length > 0);
     const request: ApiRequest = {
       method,
       pathSegments,
@@ -110,7 +118,16 @@ export async function handler(event: HttpApiEvent): Promise<HttpApiResponse> {
         isBase64Encoded: true,
       };
     }
-    return { statusCode: response.statusCode, headers, body: JSON.stringify(response.body) };
+    // Confirmed gap: before this, only the binary branch above set any
+    // cache-control at all — a JSON public response (GET /public/records,
+    // GET /public/records/:recordId) could be retained by a browser or
+    // intermediary with no explicit instruction not to, exactly the
+    // staleness vector this milestone is meant to close.
+    return {
+      statusCode: response.statusCode,
+      headers: isPublicRoute ? { ...headers, "cache-control": "no-store" } : headers,
+      body: JSON.stringify(response.body),
+    };
   } catch (error) {
     // Deliberately minimal — never echo internal error details (table
     // names, stack traces) back to a caller, even an authenticated one.

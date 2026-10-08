@@ -674,10 +674,11 @@ and documented rather than chased further; revisit when either upstream ships a 
   version 7. Fixed with the same "content first, authoritative-register last" ordering already
   applied to `services/intakeViews.ts`'s own reads: `evaluatePermission` now reads
   `record`/`authorityClaims`/`legalRights`/`consentGrants` FIRST and `registerStore.getCurrent`
-  LAST, immediately before computing and returning the decision — so `decision.control` is
-  always at least as fresh as the evidence it was evaluated against; a transition landing in the
-  (now harmless) gap between the evidence reads and the control read is observed by neither,
-  never a mix of the two. New regression test (`permissions.test.ts`) wraps `FixtureStore` so
+  LAST, immediately before computing and returning the decision. This is not an atomic,
+  all-entities-together snapshot — the four evidence reads are still separate calls, and a
+  transition can land between any two of them — but the guarantee it does provide is the one
+  that matters: `decision.control` is never OLDER than the evidence it was evaluated against,
+  only ever as fresh or fresher. New regression test (`permissions.test.ts`) wraps `FixtureStore` so
   its first `getRecord` call for the target record triggers a REAL `redactText` +
   `approvePublication` (verifying the grant, publishing) as a side effect before returning the
   pre-transition record — directly modeling "the evaluator reads control, then a transition

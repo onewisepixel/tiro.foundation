@@ -7,7 +7,9 @@ import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
 import { VersionConflictError, type RestrictionRegisterStore } from "../store/store";
 import type { RestrictionRegisterEntry } from "../domain/types";
-import { routeRequest, type ApiRequest } from "./router";
+import { isPublicGetRoutePath, routeRequest, type ApiRequest } from "./router";
+import { redactMedia, restrict } from "../services/lifecycle";
+import { uuidv7 } from "../domain/id";
 
 const STAFF_IDENTITY = "staff:test@example.invalid";
 
@@ -427,6 +429,9 @@ class AlwaysConflictingRegisterStore implements RestrictionRegisterStore {
   }
   listAll(): Promise<RestrictionRegisterEntry[]> {
     return this.inner.listAll();
+  }
+  listPage(query: { limit: number; cursor: string | null }) {
+    return this.inner.listPage(query);
   }
 }
 
@@ -955,4 +960,120 @@ test("POST /records/:id/approve-publication is denied with no publication-purpos
   }));
   assert.equal(publishAttempt.statusCode, 200);
   assert.equal((publishAttempt.body as { status: string }).status, "denied");
+});
+
+// ---------------------------------------------------------------------------
+// Public, unauthenticated Memory-site routes
+// ---------------------------------------------------------------------------
+
+test("isPublicGetRoutePath matches exactly the three public GET shapes, never a bare /public prefix", () => {
+  assert.equal(isPublicGetRoutePath(["public", "records"]), true);
+  assert.equal(isPublicGetRoutePath(["public", "records", "abc"]), true);
+  assert.equal(isPublicGetRoutePath(["public", "records", "abc", "media", "def"]), true);
+
+  // Not the three exact shapes — a HYPOTHETICAL future mutating addition
+  // under /public/* must never silently inherit the anonymous exemption
+  // just because it shares the prefix.
+  assert.equal(isPublicGetRoutePath(["public", "records", "abc", "something-else", "def"]), false);
+  assert.equal(isPublicGetRoutePath(["public", "something-else"]), false);
+  assert.equal(isPublicGetRoutePath(["public"]), false);
+  assert.equal(isPublicGetRoutePath(["public", "records", "abc", "media"]), false);
+  assert.equal(isPublicGetRoutePath([]), false);
+  assert.equal(isPublicGetRoutePath(["records"]), false);
+});
+
+test("GET /public/records rejects a malformed limit", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter } = await setup();
+  const negative = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records"],
+    queryParams: { limit: "-1" },
+  }));
+  assert.equal(negative.statusCode, 400);
+
+  const nonNumeric = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records"],
+    queryParams: { limit: "not-a-number" },
+  }));
+  assert.equal(nonNumeric.statusCode, 400);
+});
+
+test("GET /public/records rejects a malformed cursor with 400, never silently restarting at page one", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records"],
+    queryParams: { cursor: "not-a-real-cursor" },
+  }));
+  assert.equal(response.statusCode, 400);
+});
+
+test("GET /public/records returns only the publicly eligible fixture, with the public-safe shape", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records"],
+  }));
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { items: { recordId: string }[]; nextCursor: string | null };
+  assert.equal(body.items.length, 1);
+  assert.equal(body.items[0].recordId, active.record.recordId);
+});
+
+test("GET /public/records/:recordId returns a flat 404 — never the staff limited-metadata shape — for a denied record", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+  await restrict(fixtureStore, registerStore, { requestId: uuidv7(), recordId: active.record.recordId, requesterCapacity: STAFF_IDENTITY, reason: "[SYNTHETIC] test" }, ["publication"]);
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId],
+  }));
+  assert.equal(response.statusCode, 404);
+  const body = response.body as Record<string, unknown>;
+  assert.equal("access" in body, false, "the public route must never return the staff route's access/control shape");
+  assert.equal("control" in body, false);
+});
+
+test("GET /public/records/:recordId returns a flat 404 for a nonexistent record", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", "does-not-exist"],
+  }));
+  assert.equal(response.statusCode, 404);
+});
+
+test("GET /public/records/:recordId returns the public-safe view for an eligible record, ignoring any purpose/audience query params", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+  const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId],
+    // Even if a caller supplies these, they must be ignored — purpose/
+    // audience are hardcoded server-side for every /public/* route.
+    queryParams: { purpose: "research", audience: "research-partner" },
+  }));
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { recordId: string; recordKind: string };
+  assert.equal(body.recordId, active.record.recordId);
+  assert.equal(body.recordKind, "demo");
+});
+
+test("GET /public/records/:recordId/media/:mediaId serves bytes for an eligible record, and 404s (never 403) once redacted", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+  const mediaId = active.record.mediaRefs[0].mediaId;
+
+  const ok = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId, "media", mediaId],
+  }));
+  assert.equal(ok.statusCode, 200);
+  assert.ok(ok.binary);
+
+  await redactMedia(fixtureStore, registerStore, { requestId: uuidv7(), recordId: active.record.recordId, requesterCapacity: STAFF_IDENTITY, reason: "[SYNTHETIC] test", mediaId });
+
+  const denied = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId, "media", mediaId],
+  }));
+  assert.equal(denied.statusCode, 404);
 });

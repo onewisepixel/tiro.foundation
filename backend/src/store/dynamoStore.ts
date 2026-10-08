@@ -671,6 +671,23 @@ export class DynamoRestrictionRegisterStore implements RestrictionRegisterStore 
     const result = await this.doc.send(new ScanCommand({ TableName: this.config.tableName }));
     return (result.Items ?? []) as RestrictionRegisterEntry[];
   }
+
+  async listPage(query: { limit: number; cursor: string | null }): Promise<{ entries: RestrictionRegisterEntry[]; nextCursor: string | null }> {
+    const result = await this.doc.send(
+      new ScanCommand({
+        TableName: this.config.tableName,
+        Limit: query.limit,
+        ExclusiveStartKey: query.cursor ? { recordId: query.cursor } : undefined,
+      }),
+    );
+    const entries = (result.Items ?? []) as RestrictionRegisterEntry[];
+    // LastEvaluatedKey's shape always matches this table's own key schema
+    // (recordId alone, no sort key — see getCurrent/setCurrent above), so
+    // its recordId is exactly the plain resume key this method's own
+    // ExclusiveStartKey expects on the next call.
+    const nextCursor = result.LastEvaluatedKey ? (result.LastEvaluatedKey.recordId as string) : null;
+    return { entries, nextCursor };
+  }
 }
 
 export type CustodyCopyCommitterConfig = {

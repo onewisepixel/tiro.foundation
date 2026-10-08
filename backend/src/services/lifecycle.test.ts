@@ -53,6 +53,9 @@ class AlwaysFailingRegisterStore implements RestrictionRegisterStore {
   async listAll(): Promise<RestrictionRegisterEntry[]> {
     return [];
   }
+  async listPage() {
+    return { entries: [], nextCursor: null };
+  }
 }
 
 // Delegates to a real InMemoryFixtureStore for everything except
@@ -862,6 +865,9 @@ class InterleavingRegisterStore implements RestrictionRegisterStore {
   }
   listAll() {
     return this.inner.listAll();
+  }
+  listPage(query: { limit: number; cursor: string | null }) {
+    return this.inner.listPage(query);
   }
 }
 

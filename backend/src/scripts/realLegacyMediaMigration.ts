@@ -233,6 +233,9 @@ class ThrottledRegisterStore implements RestrictionRegisterStore {
   listAll() {
     return this.inner.listAll();
   }
+  listPage(query: { limit: number; cursor: string | null }) {
+    return this.inner.listPage(query);
+  }
 }
 
 // Same throttle-pacing rationale again, for the atomic cross-table commit

@@ -621,6 +621,9 @@ async function main() {
       listAll() {
         return this.inner.listAll();
       }
+      listPage(query: { limit: number; cursor: string | null }) {
+        return this.inner.listPage(query);
+      }
     }
 
     const [interleaveFixture] = buildSeedFixtures();

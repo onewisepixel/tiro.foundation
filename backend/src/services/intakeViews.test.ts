@@ -217,6 +217,7 @@ class StepRegisterStore implements RestrictionRegisterStore {
 
   setCurrent(...a: Parameters<RestrictionRegisterStore["setCurrent"]>) { return this.inner.setCurrent(...a); }
   listAll(...a: Parameters<RestrictionRegisterStore["listAll"]>) { return this.inner.listAll(...a); }
+  listPage(...a: Parameters<RestrictionRegisterStore["listPage"]>) { return this.inner.listPage(...a); }
 }
 
 test("readIntakeQueue's pendingPublication entry uses ONE register snapshot for eligibility, masking, and the allow decision", async () => {

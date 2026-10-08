@@ -2,6 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { memories, type MemoryRecord } from "@/data/memories";
 import { getRecordKindNotice } from "@/data/recordNotices";
+import { fetchPublicMemoryListing } from "@/lib/publicMemoryApi";
+import PublicMemoryCard from "@/components/PublicMemoryCard";
+
+// The live section below reads from the backend on every request — no
+// Partial Prerendering is available here (cacheComponents isn't enabled),
+// so a page mixing static and always-fresh content must pick one. The 3
+// static cards' OUTPUT is identical either way (hardcoded data); only
+// their render timing (build vs. request) changes.
+export const dynamic = "force-dynamic";
 
 function getIndexCopy(records: MemoryRecord[]) {
   const total = records.length;
@@ -55,7 +64,16 @@ export const metadata: Metadata = {
   description: indexCopy.metaDescription,
 };
 
-export default function MemoriesIndexPage() {
+type MemoriesIndexPageProps = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexPageProps) {
+  const resolvedSearchParams = await searchParams;
+  const cursorParam = resolvedSearchParams.cursor;
+  const cursor = typeof cursorParam === "string" ? cursorParam : null;
+  const listingResult = await fetchPublicMemoryListing({ cursor });
+
   return (
     <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
       <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
@@ -122,6 +140,40 @@ export default function MemoriesIndexPage() {
               </article>
             );
           })}
+        </div>
+      </section>
+
+      <section className="px-6 pb-28 md:pb-36">
+        <div className="mx-auto max-w-5xl">
+          <p className="tiro-eyebrow mb-5">Live Records</p>
+          <p className="mb-8 max-w-3xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+            Backend-sourced demonstration records approved for public display through the staff review
+            workflow. Kept separate from the archive index above, which describes only the static
+            records listed there.
+          </p>
+
+          {!listingResult.ok ? (
+            <p className="text-sm text-[var(--tiro-text-muted)]">
+              Live records are temporarily unavailable. Please try again shortly.
+            </p>
+          ) : listingResult.listing.items.length === 0 ? (
+            <p className="text-sm text-[var(--tiro-text-muted)]">No live records are currently published.</p>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {listingResult.listing.items.map((record) => (
+                <PublicMemoryCard key={record.recordId} record={record} />
+              ))}
+            </div>
+          )}
+
+          {listingResult.ok && listingResult.listing.nextCursor ? (
+            <Link
+              href={`/memories?cursor=${encodeURIComponent(listingResult.listing.nextCursor)}`}
+              className="tiro-link mt-8 inline-block text-sm"
+            >
+              Load more
+            </Link>
+          ) : null}
         </div>
       </section>
     </main>

@@ -1638,10 +1638,15 @@ Fixed with the same ordering principle already applied to `services/intakeViews.
 `record`, `authorityClaims`, `legalRights`, and `consentGrants` FIRST, and calls
 `registerStore.getCurrent` LAST, immediately before computing and returning the decision — the
 check ORDER (which denial fires first) is unchanged, only the READ order changed. `decision.control`
-is now guaranteed to be at least as fresh as every piece of evidence it was evaluated alongside;
-a transition landing in the gap between the evidence reads and the control read is observed by
-neither read, so evidence and control are always from the same side of any such transition,
-never a mix.
+is now guaranteed to be at least as fresh as every piece of evidence it was evaluated alongside.
+
+**Reviewer correction (independent verification of this same commit):** reading control last
+does not create an atomic snapshot across all entities — record/authorityClaims/legalRights/
+consentGrants are still four separate reads, and a transition can still land between any two of
+them. The actual guarantee is narrower than "evidence and control are always from the same side
+of any such transition, never a mix": evidence is read first, and the final, authoritative
+control applied afterward is never older than that evidence — only ever as fresh or fresher,
+never a step behind it.
 
 New regression test (`permissions.test.ts`, "evaluatePermission never combines a stale control
 snapshot with evidence resolved during its own reads") wraps `FixtureStore` so its first

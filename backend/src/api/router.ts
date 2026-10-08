@@ -33,6 +33,8 @@ import { evaluatePermission } from "../services/permissions";
 import { applyTextRedactions, maskCorrectionsForRedactedFields, redactionsSafeView } from "../services/redactionView";
 import { exportFixtureSet, LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES } from "../services/export";
 import { fetchAuthorizedMedia, fetchIntakeMedia } from "../services/media";
+import { fetchPublicMedia, readPublicListing, readPublicRecord } from "../services/publicView";
+import { InvalidCursorError } from "../services/cursorCodec";
 import {
   addAuthorityClaim,
   addConsentGrant,
@@ -99,6 +101,42 @@ function notFound(message: string): ApiResponse {
 }
 function badRequest(message: string): ApiResponse {
   return { statusCode: 400, body: { error: message } };
+}
+
+// The exact three public, unauthenticated route shapes — used by
+// handler.ts to decide whether to bypass extractCallerIdentity for a
+// request. Deliberately an exact-shape allowlist, not a `pathSegments[0]
+// === "public"` prefix check: a future MUTATING addition under /public/*
+// must not silently inherit the anonymous-caller exemption just because it
+// shares that prefix. One definition, used by both the gate (handler.ts)
+// and this file's own route table below, so the two can never drift apart.
+export function isPublicGetRoutePath(pathSegments: string[]): boolean {
+  if (pathSegments[0] !== "public" || pathSegments[1] !== "records") {
+    return false;
+  }
+  if (pathSegments.length === 2) {
+    return true; // /public/records
+  }
+  if (pathSegments.length === 3) {
+    return true; // /public/records/:recordId
+  }
+  if (pathSegments.length === 5 && pathSegments[3] === "media") {
+    return true; // /public/records/:recordId/media/:mediaId
+  }
+  return false;
+}
+
+// Same final-response-size guard api/router.ts's POST /export branch
+// already uses (see services/export.ts's LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES
+// comment) — replicates EXACTLY what handler.ts's real Lambda response
+// wrapping produces, so it's the true byte count, not an estimate. A
+// `limit` of 50 records does not, by itself, bound the sum of their
+// summaries below Lambda's synchronous response limit.
+function wrappedResponseBytes(body: unknown): number {
+  return Buffer.byteLength(
+    JSON.stringify({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+    "utf8",
+  );
 }
 
 async function withConflictHandling(work: () => Promise<ApiResponse>): Promise<ApiResponse> {
@@ -182,6 +220,85 @@ export async function routeRequest(
       });
       return { statusCode: 200, body: result };
     });
+  }
+
+  // GET /public/records?limit=&cursor= — the anonymous Memory-site listing.
+  // purpose/audience are NEVER accepted as query params on any /public/*
+  // route — they are hardcoded to "publication"/"public" inside
+  // readPublicListing/readPublicRecord/fetchPublicMedia, which is the
+  // actual server-side enforcement this milestone requires. See
+  // services/publicView.ts.
+  if (method === "GET" && pathSegments.length === 2 && pathSegments[0] === "public" && pathSegments[1] === "records") {
+    const limitParam = queryParams.limit;
+    let limit = 20;
+    if (limitParam !== undefined) {
+      const parsed = Number(limitParam);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return badRequest('"limit" query parameter, if present, must be a positive integer.');
+      }
+      limit = Math.min(parsed, 50);
+    }
+    const cursor = queryParams.cursor ?? null;
+    let listing;
+    try {
+      listing = await readPublicListing(fixtureStore, registerStore, { limit, cursor });
+    } catch (error) {
+      if (error instanceof InvalidCursorError) {
+        return badRequest(error.message);
+      }
+      throw error;
+    }
+    const wrappedBytes = wrappedResponseBytes(listing);
+    if (wrappedBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES) {
+      return {
+        statusCode: 413,
+        body: {
+          error: `This listing's response (${wrappedBytes} bytes) would exceed Lambda's ${LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES}-byte synchronous response limit. Request a smaller "limit" and retry.`,
+        },
+      };
+    }
+    return { statusCode: 200, body: listing };
+  }
+
+  // GET /public/records/:recordId — flat 404 for both nonexistent AND
+  // denied, uniformly (never the staff route's limited-metadata-view
+  // shape below): an anonymous caller has no legitimate reason to learn
+  // "this exists but was denied."
+  if (method === "GET" && pathSegments.length === 3 && pathSegments[0] === "public" && pathSegments[1] === "records") {
+    const view = await readPublicRecord(fixtureStore, registerStore, pathSegments[2]);
+    if (!view) {
+      return notFound(`No record with id "${pathSegments[2]}".`);
+    }
+    const wrappedBytes = wrappedResponseBytes(view);
+    if (wrappedBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES) {
+      return {
+        statusCode: 413,
+        body: {
+          error: `This record's response (${wrappedBytes} bytes) would exceed Lambda's ${LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES}-byte synchronous response limit.`,
+        },
+      };
+    }
+    return { statusCode: 200, body: view };
+  }
+
+  // GET /public/records/:recordId/media/:mediaId — fetchPublicMedia
+  // already normalizes denied/not-found to a flat 404 (services/publicView.ts);
+  // its statusCode is used directly, with no further translation needed here.
+  if (
+    method === "GET" &&
+    pathSegments.length === 5 &&
+    pathSegments[0] === "public" &&
+    pathSegments[1] === "records" &&
+    pathSegments[3] === "media"
+  ) {
+    const result = await fetchPublicMedia(fixtureStore, registerStore, mediaStore, {
+      recordId: pathSegments[2],
+      mediaId: pathSegments[4],
+    });
+    if (!result.ok) {
+      return { statusCode: result.statusCode, body: { error: result.reason } };
+    }
+    return { statusCode: 200, body: null, binary: { contentType: result.contentType, base64Body: result.body.toString("base64") } };
   }
 
   // GET /records/:recordId/media/:mediaId?purpose=...&audience=...

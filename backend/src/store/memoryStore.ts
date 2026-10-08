@@ -369,6 +369,19 @@ export class InMemoryRestrictionRegisterStore implements RestrictionRegisterStor
     return [...this.entries.values()];
   }
 
+  // Stable slice over the Map's own insertion order — the same order
+  // listAll() already returns, so a cursor derived from one entry's
+  // recordId resumes deterministically right after it, mirroring the real
+  // adapter's Scan+ExclusiveStartKey behavior (dynamoStore.ts) closely
+  // enough to exercise the same resumption contract against this fake.
+  async listPage(query: { limit: number; cursor: string | null }): Promise<{ entries: RestrictionRegisterEntry[]; nextCursor: string | null }> {
+    const all = [...this.entries.values()];
+    const startIndex = query.cursor === null ? 0 : all.findIndex((e) => e.recordId === query.cursor) + 1;
+    const page = all.slice(startIndex, startIndex + query.limit);
+    const nextCursor = startIndex + query.limit < all.length ? page[page.length - 1]?.recordId ?? null : null;
+    return { entries: page, nextCursor };
+  }
+
   // Synchronous peek — no Promise/microtask boundary at all. Used ONLY by
   // InMemoryCustodyCopyCommitter below to perform a genuinely atomic (not
   // merely fast) check-then-write: calling this immediately before
