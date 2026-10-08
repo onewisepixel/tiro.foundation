@@ -1432,6 +1432,107 @@ on or after that date to see the real result — checking earlier is harmless an
 than fabricating a pass. Per this project's standing rule, a time-dependent result is never recorded
 here until it is actually observed.
 
+## Staff intake and review — what actually happened
+
+Dated 2026-10-08. A staff member can now originate a brand-new synthetic record through the
+browser — metadata, structured authority/legal-rights/consent-grant evidence, a small media
+file — starting `custodyStatus: "quarantined"`/`publicationStatus: "not-published"`, until a
+reviewer's decision promotes it into the exact same permission/export/redaction/deletion
+machinery every other record in this system is already subject to. Per `docs/ethos.txt`
+§§3.2-3.3.
+
+**Five review rounds before any production code was written**, each finding a real,
+load-bearing design gap, all closed before implementation began:
+
+1. **The quarantine-read gap.** A reviewer's approval writes evidence verification (claims →
+   `"identified"`, grants → `signerCapacityVerified: true`) and the final custody transition as
+   separate steps — without an explicit check, the record would become genuinely readable
+   mid-approval, before it was actually approved. Fixed: `evaluatePermission`
+   (`services/permissions.ts`) now denies `currentCustodyStatus === "quarantined"`
+   unconditionally, the same shape as its existing `"deleted"`/`"deletion-pending"` checks. This
+   also meant reviewers could no longer read a quarantined submission through the normal route —
+   closed by a new `GET /intake/:recordId` (and `GET /intake/:recordId/media/:mediaId` for
+   preview), authorized by nothing more than being signed-in staff — explicitly never a verified
+   grant, since none can exist yet.
+2. **Commit atomicity.** A separate read-then-write for every intake mutation left a real TOCTOU
+   gap — `addMedia`'s S3 upload alone takes real wall-clock time a rejection or deletion can land
+   inside. Fixed with a new cross-table `IntakeRegisterCommitter` (`store.ts`) — every intake
+   write asserts the register's exact state and version atomically, in one DynamoDB transaction,
+   alongside whatever primary-table content it's writing.
+3. **Revision binding.** Evidence ids alone don't pin what a reviewer actually reviewed — the
+   existing, unmodified `correctRecord` can change the record's title/summary/provenanceRef
+   without ever touching the register. Fixed: `approvePreservation`/`approvePublication` pin
+   BOTH the register's `controlVersion` and the record's own `version`, atomically, in the same
+   commit. A durable receipt (`IntakeRegisterCommitter.hasReceipt`) makes retrying a
+   successful-but-unacknowledged approval safe — these two actions create no new row of their
+   own, so (unlike every other intake action) a by-id lookup can't serve as their idempotency
+   check.
+4. **Evidence completeness and real grant validation.** Approving only some of a record's claims
+   left any other claim still `"unknown"` — `evaluatePermission`'s blocking check scans every
+   claim on the record, not just named ones, which could leave a "preserved" record permanently
+   unreadable with no quarantine-only correction path left to fix it (supersession requires
+   quarantine). Fixed: the named ids must be the complete currently-unresolved set, or approval
+   denies outright; the real `findApprovableGrant` predicate (purpose/audience/revocation/expiry,
+   extracted from `evaluatePermission` itself, shared, not reimplemented) validates named consent
+   grants instead of a hand-rolled, looser check.
+5. **The actual correction path, and the record-creation race.** Adding more evidence doesn't fix
+   a wrong claim — the old one stays `"unknown"` forever, permanently blocking. Fixed with
+   `supersedeAuthorityClaim`/`supersedeLegalRight` (a new `"superseded"` status, preserving
+   history, never silently overwritten). Separately: `createSubmission`'s own two-step
+   register-then-record write had the identical TOCTOU gap as finding 2 — `startDeletion`+
+   `completeDeletion` could run to completion entirely between them, leaving real content behind
+   an already-"deleted" tombstone. Fixed by making creation one atomic commit too
+   (`IntakeRegisterCommitter.commitCreateSubmission`).
+
+**Two more real bugs found during implementation, by the new tests themselves, not by further
+review:** `commitApproval`'s register assertion originally pinned `controlVersion` only, reasoned
+to be transitively sufficient since every register write bumps it — reproduced directly as false:
+a reviewer who does a FRESH read of an already-rejected record supplies a perfectly current,
+non-stale `controlVersion`, so a bare version match alone approved a withdrawn submission. Fixed
+by asserting `currentPublicationStatus <> "withdrawn"` explicitly, every time, in the same
+transaction — never inferred from staleness, which only ever catches a change since the
+caller's last read, not a bad state that read already reflected. Separately, the grant-qualifying
+check for `approvePreservation` initially matched a named grant against ITS OWN `audience` field
+— tautological, since a grant's audience always equals itself; fixed by fixing the audience to
+check to `"staff"` explicitly (preservation is an internal/custodial purpose) while
+`approvePublication`'s check correctly keeps using each grant's own audience (publication can
+legitimately target any of them).
+
+206 backend tests pass (up from 188), including deterministic repros of the race between
+`rejectSubmission` and `addMedia`'s commit, the receipt-based resume after a simulated
+successful-but-unacknowledged approval, denial on a wrong-scope (right purpose, wrong audience)
+grant, and the conditional-create store methods rejecting a duplicate id with `AlreadyAppliedError`.
+
+**`realIntakeAcceptanceDrill.ts` — the reviewer's own stated completion test, run for real against
+the deployed stack: 22/22 checks passed.** Create via the real API; add one real authority claim,
+one legal right, one preservation/staff consent grant, one small real media file; confirm
+quarantine denies staff/preservation access even with that evidence attached; confirm `GET
+/intake/:recordId` reads the full submission and `GET /intake/:recordId/media/:mediaId` previews
+the upload while the normal media route denies it (403); a real `correctRecord` mid-review bumps
+the record's version, and approving with the now-stale version is rejected by a real DynamoDB
+transaction conflict (409) — re-reading and re-approving with the fresh version succeeds;
+staff/preservation access is now allowed and public/publication access stays denied with the real
+reason; `approve-publication` is itself denied — no publication-purpose grant was ever
+submitted, the exact "publication remains denied without its own grant" guarantee; both export
+scopes succeed through the real API and restoring the complete-preservation export into an
+isolated target reproduces the real evidence and media; `withdraw`, `start-deletion`, and
+`complete-deletion` all succeed, and the record is genuinely gone (404) afterward. One drill-script
+bug (not a production bug) was caught and fixed along the way: the script's own approval calls
+initially omitted the added legal right's id, and `approvePreservation` correctly refused —
+exactly the evidence-completeness guarantee finding 4 above describes, demonstrated by the
+drill's own first, honest failure before the fix.
+
+`infra/lib/fixture-backend-stack.ts` grew four new routes (`POST /intake`, `GET /intake/queue`,
+`GET /intake/{recordId}`, `GET /intake/{recordId}/media/{mediaId}`) behind the same Cognito JWT
+authorizer as every other route, and a narrowly scoped `mediaBucket.grantPut(apiHandler,
+"fixtures/*")` — the first time this Lambda has ever uploaded media itself; every prior write to
+this bucket came from a separately-credentialed script. DynamoDB capacity unchanged throughout.
+
+**Still open:** a literal human browser click-through of the new staff-ui sections (create
+submission, review queue, intake submission detail with evidence/media-upload/supersede/approval
+forms) — prepared, not yet run by a human, the same honestly-named gap this project has named for
+every other control until a human actually clicked through it.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |

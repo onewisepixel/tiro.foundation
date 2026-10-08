@@ -28,6 +28,38 @@ export type PermissionQuery = {
   mediaId?: string;
 };
 
+// The one real grant-matching predicate, extracted so services/intake.ts's
+// approvePreservation/approvePublication can validate a consent grant
+// against the EXACT same rule evaluatePermission itself enforces (purpose,
+// audience, revocation — both the grant's own revokedAt and the register's
+// revokedConsentIds, so a stale grant row can never bypass a
+// register-level revocation — and expiry) rather than a second,
+// hand-rolled check that could quietly drift from the real one over time.
+// requireVerified defaults to true (evaluatePermission's own use); intake
+// approval calls this with requireVerified: false, since verifying is
+// exactly what approving is about to do.
+export function findApprovableGrant(
+  grants: ConsentGrant[],
+  query: {
+    purpose: Purpose;
+    audience: ConsentGrant["audience"];
+    now: Date;
+    revokedConsentIds: string[];
+    requireVerified?: boolean;
+  },
+): ConsentGrant | undefined {
+  const requireVerified = query.requireVerified ?? true;
+  return grants.find(
+    (grant) =>
+      grant.purposes.includes(query.purpose) &&
+      grant.audience === query.audience &&
+      (!requireVerified || grant.signerCapacityVerified) &&
+      grant.revokedAt === null &&
+      !query.revokedConsentIds.includes(grant.consentId) &&
+      (grant.expiresAt === null || new Date(grant.expiresAt) > query.now),
+  );
+}
+
 export async function evaluatePermission(
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
@@ -49,6 +81,19 @@ export async function evaluatePermission(
   }
   if (control.currentCustodyStatus === "deleted" || control.currentCustodyStatus === "deletion-pending") {
     return { allowed: false, reason: `Custody status is "${control.currentCustodyStatus}".` };
+  }
+  // Staff intake and review (services/intake.ts): a freshly created
+  // submission's evidence starts "unknown"/unverified, which already
+  // denies on its own further down — but a reviewer's approval writes
+  // that verification in steps before the final custody transition
+  // commits (services/intake.ts's IntakeRegisterCommitter.commitApproval),
+  // so without this explicit, unconditional check, the record would
+  // become genuinely readable mid-approval, before it's actually approved.
+  // Quarantine denies everyone, unconditionally, the same way deleted/
+  // deletion-pending already do — never "until the evidence happens to
+  // look right."
+  if (control.currentCustodyStatus === "quarantined") {
+    return { allowed: false, reason: "Custody status is \"quarantined\" — pending review." };
   }
   if (control.restrictedPurposes.includes(purpose)) {
     return { allowed: false, reason: `Purpose "${purpose}" is currently restricted for this record.` };
@@ -104,15 +149,7 @@ export async function evaluatePermission(
   // cannot resurrect a revocation, so it is always consulted here too, never
   // trusted-away because the grant row itself looks unrevoked.
   const grants = await fixtureStore.listConsentGrants(recordId);
-  const matching = grants.find(
-    (grant) =>
-      grant.purposes.includes(purpose) &&
-      grant.audience === audience &&
-      grant.signerCapacityVerified &&
-      grant.revokedAt === null &&
-      !control.revokedConsentIds.includes(grant.consentId) &&
-      (grant.expiresAt === null || new Date(grant.expiresAt) > now),
-  );
+  const matching = findApprovableGrant(grants, { purpose, audience, now, revokedConsentIds: control.revokedConsentIds, requireVerified: true });
   if (!matching) {
     const unverifiedOnly = grants.some(
       (grant) =>

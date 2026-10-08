@@ -110,11 +110,18 @@ export interface FixtureStore {
 
   listAuthorityClaims(recordId: string): Promise<AuthorityClaim[]>;
   putAuthorityClaim(claim: AuthorityClaim): Promise<void>;
+  // Strongly consistent, by-exact-id — same contract as getCorrection/
+  // getRedaction. Used ONLY as the retry-safety guard in
+  // services/intake.ts's add/supersede functions, which must never treat a
+  // claim their own earlier attempt already committed as "not yet applied".
+  getAuthorityClaim(recordId: string, claimId: string): Promise<AuthorityClaim | null>;
 
   listLegalRights(recordId: string): Promise<LegalRight[]>;
   putLegalRight(right: LegalRight): Promise<void>;
+  getLegalRight(recordId: string, rightId: string): Promise<LegalRight | null>;
 
   listConsentGrants(recordId: string): Promise<ConsentGrant[]>;
+  getConsentGrant(recordId: string, consentId: string): Promise<ConsentGrant | null>;
   // Same store-owns-the-version-counter contract as putRecord, and for the
   // same reason: revokeConsentGrant() (services/lifecycle.ts) had the exact
   // same never-advances bug.
@@ -229,4 +236,103 @@ export interface CustodyCopyCommitter {
     expectedVersion: number | undefined,
     copy: CustodyCopy,
   ): Promise<void>;
+}
+
+// One named entry in an approval's EvidenceFlip list (services/intake.ts's
+// approvePreservation/approvePublication). Each is asserted as a condition
+// directly inside the SAME transaction commitApproval writes — never
+// pre-fetched and filtered beforehand, which would make that assertion
+// vacuous (a round of review caught exactly this contradiction in an
+// earlier draft). A mismatch on ANY named item fails the WHOLE commit.
+export type EvidenceFlip =
+  | { kind: "authority"; claimId: string; reviewerDecision: string }
+  | { kind: "legalRight"; rightId: string; reviewerDecision: string }
+  | { kind: "consent"; consentId: string };
+
+// A second narrow, cross-table interface alongside CustodyCopyCommitter —
+// deliberately not merged into it (its "not deleting" condition is weaker
+// than what intake needs: a staff-rejected-but-not-deleted submission must
+// also be refused, which "not deleting" alone never catches) and
+// deliberately not folded into either single-table store, for the same
+// reason CustodyCopyCommitter isn't: the register must stay reachable
+// outside whatever's being rolled back on the primary table. Backs
+// services/intake.ts end to end — see its module comment for the full
+// reasoning behind each method.
+export interface IntakeRegisterCommitter {
+  // createSubmission: the register entry (quarantined, not-published,
+  // controlVersion 1) and the record are created together, or neither is —
+  // closing the gap where startDeletion+completeDeletion could otherwise
+  // run to completion entirely between two separate writes, leaving real
+  // content behind an already-"deleted" tombstone. Throws
+  // VersionConflictError if either already exists.
+  commitCreateSubmission(record: FixtureRecord): Promise<void>;
+
+  // addAuthorityClaim/addLegalRight/addConsentGrant: creates ONE new
+  // evidence row (conditioned on its own id not already existing) together
+  // with asserting the register is still quarantined and not withdrawn at
+  // EXACTLY expectedControlVersion — then bumps controlVersion as part of
+  // the same transaction, so every intake mutation advances the one number
+  // approval later pins against. Throws VersionConflictError if the
+  // register doesn't match (including: rejected, or raced by deletion) or
+  // the evidence id already exists.
+  commitEvidenceCreate(
+    recordId: string,
+    expectedControlVersion: number,
+    newItem: AuthorityClaim | LegalRight | ConsentGrant,
+  ): Promise<void>;
+
+  // addMedia: the record's rewritten mediaRefs (conditioned on
+  // expectedRecordVersion) plus a new CustodyCopy, together with the same
+  // register assertion/bump as commitEvidenceCreate — replacing a bare
+  // CustodyCopyCommitter.commitIfNotDeleting call, which only excludes
+  // deletion states and would still let media land on an already-rejected
+  // submission.
+  commitMediaAdd(
+    recordId: string,
+    expectedControlVersion: number,
+    updatedRecord: FixtureRecord,
+    expectedRecordVersion: number,
+    copy: CustodyCopy,
+  ): Promise<void>;
+
+  // supersedeAuthorityClaim/supersedeLegalRight: the OLD item's status flip
+  // (conditioned on it still being "unknown" — a genuine, terminal
+  // precondition, not a retry signal) together with the NEW item's
+  // conditional create, plus the same register assertion/bump.
+  commitEvidenceSupersede(
+    recordId: string,
+    expectedControlVersion: number,
+    oldItem: { kind: "authority" | "legalRight"; id: string },
+    newItem: AuthorityClaim | LegalRight,
+  ): Promise<void>;
+
+  // approvePreservation/approvePublication: the register's patch
+  // (custody -> "preserved", or publication -> "published") together with
+  // EVERY named evidence item's conditional flip (status must still be
+  // exactly what the reviewer saw) and a durable receipt row keyed by
+  // requestId — all atomically, asserting expectedControlVersion AND the
+  // record's own expectedRecordVersion. Both numbers, not just the
+  // register's: correctRecord() (services/lifecycle.ts, unmodified) can
+  // change the record's title/summary/provenanceRef without ever touching
+  // the register, so approval must pin whichever of the two a reviewer's
+  // last read actually reflected. Throws VersionConflictError on ANY
+  // mismatch — register state/version, record version, or any named
+  // evidence item's expected status — with nothing partial ever landing.
+  commitApproval(
+    recordId: string,
+    requestId: string,
+    expectedControlVersion: number,
+    expectedRecordVersion: number,
+    registerPatch: Partial<Pick<RestrictionRegisterEntry, "currentCustodyStatus" | "currentPublicationStatus">>,
+    evidenceFlips: EvidenceFlip[],
+  ): Promise<void>;
+
+  // Strongly consistent. approvePreservation/approvePublication create no
+  // new row of their own, so — unlike every other intake action, which can
+  // use a by-id lookup on its own new content as the "already applied"
+  // check — a successful commitApproval whose response the caller never
+  // received needs this instead: checked before attempting commitApproval
+  // (the fast path) and again if it fails (the real guard, since the first
+  // check and the attempt are two separate reads).
+  hasReceipt(recordId: string, requestId: string): Promise<boolean>;
 }

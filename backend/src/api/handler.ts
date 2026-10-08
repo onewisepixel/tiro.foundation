@@ -5,7 +5,7 @@
 // router.ts, and format the response. No logic lives here.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
-import { DynamoFixtureStore, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
+import { DynamoFixtureStore, DynamoIntakeRegisterCommitter, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { S3MediaStore } from "../store/s3MediaStore";
 import { routeRequest, type ApiRequest } from "./router";
 
@@ -29,6 +29,7 @@ function requireEnv(name: string): string {
 const client = new DynamoDBClient({ region: REGION });
 const fixtureStore = new DynamoFixtureStore({ client, primaryTableName: PRIMARY_TABLE, statusIndexName: STATUS_INDEX });
 const registerStore = new DynamoRestrictionRegisterStore({ client, tableName: REGISTER_TABLE });
+const intakeCommitter = new DynamoIntakeRegisterCommitter({ client, primaryTableName: PRIMARY_TABLE, registerTableName: REGISTER_TABLE });
 const s3Client = new S3Client({ region: REGION });
 const mediaStore = new S3MediaStore({ client: s3Client, bucketName: MEDIA_BUCKET });
 
@@ -96,7 +97,7 @@ export async function handler(event: HttpApiEvent): Promise<HttpApiResponse> {
       queryParams: event.queryStringParameters ?? {},
       body: parseBody(event),
     };
-    const response = await routeRequest(fixtureStore, registerStore, mediaStore, callerIdentity, request);
+    const response = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, callerIdentity, request);
     if (response.binary) {
       // Media bytes: private/no-store so neither a browser nor any
       // intermediary caches a response whose authorization could change on

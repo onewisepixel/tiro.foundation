@@ -53,7 +53,7 @@ function fingerprintFor(
   });
 }
 
-async function getOrCreateRequest(
+export async function getOrCreateRequest(
   store: FixtureStore,
   action: LifecycleAction,
   input: LifecycleActionInput,
@@ -91,7 +91,7 @@ async function getOrCreateRequest(
   return request;
 }
 
-async function completeRequest(
+export async function completeRequest(
   store: FixtureStore,
   request: LifecycleRequest,
   safeNote: string,
@@ -114,7 +114,7 @@ async function completeRequest(
   return completed;
 }
 
-async function recordFailure(
+export async function recordFailure(
   store: FixtureStore,
   request: LifecycleRequest,
   safeNote: string,
@@ -135,7 +135,7 @@ async function recordFailure(
 // happen under its current preconditions — e.g. completeDeletion() called
 // without a valid prior deletion request. Terminal, like completeRequest,
 // but with outcome "failed" rather than "completed".
-async function denyRequest(
+export async function denyRequest(
   store: FixtureStore,
   request: LifecycleRequest,
   safeNote: string,
@@ -180,7 +180,7 @@ type ControlPatch = Partial<
 // silently undo each other (deletion racing a restriction, for example).
 // setCurrent's exact-version-match requirement (store/store.ts) is what turns
 // a lost race into a visible VersionConflictError instead of a silent clobber.
-async function transitionControl(
+export async function transitionControl(
   registerStore: RestrictionRegisterStore,
   recordId: string,
   computePatch: (current: RestrictionRegisterEntry | null) => ControlPatch,
@@ -218,7 +218,7 @@ async function transitionControl(
 // having its request silently dropped.
 export class MediaPurgeInProgressError extends Error {}
 
-async function runGuarded(
+export async function runGuarded(
   fixtureStore: FixtureStore,
   request: LifecycleRequest,
   work: () => Promise<string>,
@@ -412,7 +412,7 @@ export type CompleteDeletionInput = LifecycleActionInput & {
 // register write succeeded but the record removal below failed — see the
 // outstanding-copies-style retry note in completeDeletion) at the moment of
 // the write, this throws before anything is written.
-class StaleCustodyStatusError extends Error {}
+export class StaleCustodyStatusError extends Error {}
 
 // Shared by the pre-purge guard below and the final write's computePatch —
 // "deletion-pending" (the normal case) or "deleted" (resuming after a

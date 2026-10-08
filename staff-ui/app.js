@@ -81,7 +81,7 @@ function logAction(recordId, action, responseBody) {
 
 function actionForm(recordId, action, extraFields, onDone) {
   const fieldsHtml = extraFields
-    .map((f) => `<label>${escapeHtml(f.label)}<input name="${f.name}" ${f.required ? "required" : ""} /></label>`)
+    .map((f) => `<label>${escapeHtml(f.label)}<input name="${f.name}" value="${escapeHtml(f.value ?? "")}" ${f.required ? "required" : ""} /></label>`)
     .join("");
   const container = document.createElement("div");
   container.innerHTML = `
@@ -99,7 +99,9 @@ function actionForm(recordId, action, extraFields, onDone) {
     const body = { reason: data.get("reason") };
     for (const f of extraFields) {
       const value = data.get(f.name);
-      body[f.name] = f.array ? value.split(",").map((s) => s.trim()).filter(Boolean) : value;
+      // numeric: for expectedControlVersion/expectedRecordVersion (approve-*)
+      // — the API requires real numbers, not numeric strings.
+      body[f.name] = f.array ? value.split(",").map((s) => s.trim()).filter(Boolean) : f.numeric ? Number(value) : value;
     }
     const resultEl = form.querySelector(".result");
     resultEl.textContent = "Submitting…";
@@ -263,6 +265,244 @@ consentGrantCount: ${body.consentGrantCount}</pre>`;
   actions.append(checkForm);
 }
 
+// --- Staff intake and review -----------------------------------------------
+// GET /intake/:recordId is a DIFFERENT route from GET /records/:recordId —
+// it only ever returns a submission still "quarantined", and it is
+// authorized by nothing more than "signed in staff" (there's no verified
+// grant to check yet; that's the whole point of review). Once approved,
+// the normal "Look up a record" section above is the right place to view
+// it — see services/intakeViews.ts.
+
+async function createSubmission(event) {
+  event.preventDefault();
+  const data = new FormData(event.target);
+  const output = document.getElementById("create-submission-output");
+  output.textContent = "Submitting…";
+  const { status, body } = await apiFetch("/intake", {
+    method: "POST",
+    body: JSON.stringify({
+      reason: data.get("reason"),
+      fixtureSetId: data.get("fixtureSetId"),
+      title: data.get("title"),
+      summary: data.get("summary"),
+      provenanceRef: data.get("provenanceRef"),
+    }),
+  });
+  if (status !== 200) {
+    output.innerHTML = `<p class="error">${escapeHtml(body?.error ?? `HTTP ${status}`)}</p>`;
+    return;
+  }
+  output.innerHTML = `
+    <p class="muted">Created <code>${escapeHtml(body.recordId)}</code>.</p>
+    <pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre>
+    <button id="open-new-submission">Open in intake review below</button>`;
+  document.getElementById("open-new-submission").addEventListener("click", () => {
+    document.getElementById("intake-id-input").value = body.recordId;
+    loadIntakeSubmission(body.recordId);
+  });
+}
+
+// The one other genuinely new UI pattern (besides create-submission's
+// non-/records/:id/:action shape above) — there is no existing file-input
+// precedent anywhere else in this file. Reads the file as a small
+// in-memory buffer and base64-encodes it client-side, since apiFetch
+// always JSON-stringifies its body; the API enforces the real size cap
+// server-side regardless (services/intake.ts's addMedia, MAX_MEDIA_BYTES).
+function mediaUploadForm(recordId, onDone) {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <form class="inline">
+      <strong>add-media</strong>
+      <label>Reason<input name="reason" required /></label>
+      <label>File<input type="file" name="file" required /></label>
+      <div><button type="submit">Upload</button></div>
+      <div class="result"></div>
+    </form>`;
+  const form = container.querySelector("form");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fileInput = form.querySelector('input[type="file"]');
+    const file = fileInput.files[0];
+    const resultEl = form.querySelector(".result");
+    if (!file) return;
+    resultEl.textContent = "Uploading…";
+    const buffer = await file.arrayBuffer();
+    const base64 = btoa(Array.from(new Uint8Array(buffer), (b) => String.fromCharCode(b)).join(""));
+    const reason = new FormData(form).get("reason");
+    const { status, body } = await apiFetch(`/records/${encodeURIComponent(recordId)}/add-media`, {
+      method: "POST",
+      body: JSON.stringify({ reason, contentType: file.type || "application/octet-stream", base64 }),
+    });
+    resultEl.innerHTML = `<pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre>`;
+    logAction(recordId, "add-media", body);
+    if (status === 200 && onDone) onDone();
+  });
+  return container;
+}
+
+async function loadIntakeSubmission(recordId) {
+  const output = document.getElementById("intake-output");
+  output.textContent = "Loading…";
+  const { status, body } = await apiFetch(`/intake/${encodeURIComponent(recordId)}`);
+  if (status !== 200) {
+    output.innerHTML = `<p class="error">${escapeHtml(body?.error ?? `HTTP ${status}`)} — if this was just approved, use "Look up a record" above instead.</p>`;
+    return;
+  }
+  const claimRows = body.authorityClaims
+    .map((c) => `<tr><td><code>${escapeHtml(c.claimId)}</code></td><td>${escapeHtml(c.status)}</td><td>${escapeHtml(c.claimant)}</td></tr>`)
+    .join("");
+  const rightRows = body.legalRights
+    .map((r) => `<tr><td><code>${escapeHtml(r.rightId)}</code></td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.holder)}</td></tr>`)
+    .join("");
+  const grantRows = body.consentGrants
+    .map(
+      (g) =>
+        `<tr><td><code>${escapeHtml(g.consentId)}</code></td><td>${escapeHtml(g.signerCapacityVerified ? "verified" : "unverified")}</td><td>${escapeHtml(g.purposes.join(", "))}</td><td>${escapeHtml(g.audience)}</td></tr>`,
+    )
+    .join("");
+  const mediaRows = body.record.mediaRefs
+    .map(
+      (m) => `<tr><td><code>${escapeHtml(m.mediaId)}</code></td><td>${escapeHtml(m.contentType ?? "")}</td>
+        <td><button data-preview-intake-media="${escapeHtml(m.mediaId)}">Preview</button></td></tr>`,
+    )
+    .join("");
+
+  output.innerHTML = `
+    <p class="muted">controlVersion <code>${body.controlVersion}</code>, recordVersion <code>${body.recordVersion}</code> — needed for approve-preservation/approve-publication below, pre-filled.</p>
+    <h3>Record</h3>
+    <pre>${escapeHtml(JSON.stringify(body.record, null, 2))}</pre>
+    <h3>Authority claims</h3>
+    <table><thead><tr><th>claimId</th><th>status</th><th>claimant</th></tr></thead><tbody>${claimRows}</tbody></table>
+    <h3>Legal rights</h3>
+    <table><thead><tr><th>rightId</th><th>status</th><th>holder</th></tr></thead><tbody>${rightRows}</tbody></table>
+    <h3>Consent grants</h3>
+    <table><thead><tr><th>consentId</th><th>status</th><th>purposes</th><th>audience</th></tr></thead><tbody>${grantRows}</tbody></table>
+    <h3>Media</h3>
+    <table><thead><tr><th>mediaId</th><th>contentType</th><th></th></tr></thead><tbody>${mediaRows}</tbody></table>
+    <div id="intake-media-preview"></div>
+    <h3>Add/correct evidence</h3>
+    <div class="actions" id="intake-evidence-actions"></div>
+    <h3>Review decision</h3>
+    <div class="actions" id="intake-review-actions"></div>
+  `;
+  output.querySelectorAll("[data-preview-intake-media]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const mediaId = button.dataset.previewIntakeMedia;
+      const previewEl = document.getElementById("intake-media-preview");
+      previewEl.textContent = "Loading preview…";
+      const result = await apiFetchBinary(`/intake/${encodeURIComponent(recordId)}/media/${encodeURIComponent(mediaId)}`);
+      if (!result.ok) {
+        previewEl.innerHTML = `<p class="error">${escapeHtml(result.body?.error ?? `HTTP ${result.status}`)}</p>`;
+        return;
+      }
+      const url = URL.createObjectURL(result.blob);
+      previewEl.innerHTML = `<p class="muted">${escapeHtml(String(result.blob.size))} bytes.</p>`;
+      const link = document.createElement("a");
+      link.href = url;
+      link.textContent = "Open preview in a new tab";
+      link.target = "_blank";
+      previewEl.appendChild(link);
+    });
+  });
+
+  const reload = () => loadIntakeSubmission(recordId);
+  const evidenceActions = document.getElementById("intake-evidence-actions");
+  evidenceActions.append(actionForm(recordId, "add-authority-claim", [
+    { name: "claimant", label: "Claimant", required: true },
+    { name: "scope", label: "Scope", required: true },
+    { name: "evidenceRef", label: "Evidence ref", required: true },
+  ], reload));
+  evidenceActions.append(actionForm(recordId, "add-legal-right", [
+    { name: "holder", label: "Holder", required: true },
+    { name: "rightType", label: "Right type", required: true },
+    { name: "jurisdiction", label: "Jurisdiction (optional)" },
+    { name: "evidenceRef", label: "Evidence ref", required: true },
+  ], reload));
+  evidenceActions.append(actionForm(recordId, "add-consent-grant", [
+    { name: "signerCapacitySummary", label: "Signer capacity summary", required: true },
+    { name: "purposes", label: "Purposes (comma-separated)", required: true, array: true },
+    { name: "audience", label: "Audience (public/staff/research-partner)", required: true },
+    { name: "mandateRef", label: "Mandate ref (optional)" },
+    { name: "expiresAt", label: "Expires at (ISO, optional)" },
+    { name: "retentionTermsRef", label: "Retention terms ref", required: true },
+    { name: "withdrawalContact", label: "Withdrawal contact", required: true },
+  ], reload));
+  evidenceActions.append(mediaUploadForm(recordId, reload));
+  evidenceActions.append(actionForm(recordId, "supersede-authority-claim", [
+    { name: "supersededClaimId", label: "Superseded claim id", required: true },
+    { name: "claimant", label: "Corrected claimant", required: true },
+    { name: "scope", label: "Scope", required: true },
+    { name: "evidenceRef", label: "Evidence ref", required: true },
+  ], reload));
+  evidenceActions.append(actionForm(recordId, "supersede-legal-right", [
+    { name: "supersededRightId", label: "Superseded right id", required: true },
+    { name: "holder", label: "Corrected holder", required: true },
+    { name: "rightType", label: "Right type", required: true },
+    { name: "jurisdiction", label: "Jurisdiction (optional)" },
+    { name: "evidenceRef", label: "Evidence ref", required: true },
+  ], reload));
+  evidenceActions.append(actionForm(recordId, "correct", [
+    { name: "field", label: "Field (title, summary, or provenanceRef)", required: true },
+    { name: "correctedValue", label: "Corrected value", required: true },
+  ], reload));
+
+  const reviewActions = document.getElementById("intake-review-actions");
+  reviewActions.append(actionForm(recordId, "approve-preservation", [
+    { name: "expectedControlVersion", label: "Expected control version", required: true, numeric: true, value: body.controlVersion },
+    { name: "expectedRecordVersion", label: "Expected record version", required: true, numeric: true, value: body.recordVersion },
+    { name: "authorityClaimIds", label: "Authority claim ids to approve (comma-separated)", required: true, array: true },
+    { name: "legalRightIds", label: "Legal right ids to approve (comma-separated, may be empty)", array: true },
+    { name: "consentGrantIds", label: "Consent grant ids to verify (comma-separated)", required: true, array: true },
+  ], reload));
+  reviewActions.append(actionForm(recordId, "approve-publication", [
+    { name: "expectedControlVersion", label: "Expected control version", required: true, numeric: true, value: body.controlVersion },
+    { name: "expectedRecordVersion", label: "Expected record version", required: true, numeric: true, value: body.recordVersion },
+    { name: "consentGrantIds", label: "Consent grant ids to verify (comma-separated)", required: true, array: true },
+  ], reload));
+  reviewActions.append(actionForm(recordId, "request-changes", [], reload));
+  reviewActions.append(actionForm(recordId, "reject-submission", [], reload));
+}
+
+async function loadIntakeQueue() {
+  const output = document.getElementById("intake-queue-output");
+  output.textContent = "Loading…";
+  const { status, body } = await apiFetch("/intake/queue");
+  if (status !== 200) {
+    output.innerHTML = `<p class="error">${escapeHtml(body?.error ?? `HTTP ${status}`)}</p>`;
+    return;
+  }
+  const row = (e, openLabel) => `<tr>
+    <td><code>${escapeHtml(e.recordId)}</code></td>
+    <td>${escapeHtml(e.title)}</td>
+    <td>${escapeHtml(e.fixtureSetId)}</td>
+    <td>${escapeHtml(e.createdAt)}</td>
+    <td><button data-open-${openLabel}="${escapeHtml(e.recordId)}">Open</button></td>
+  </tr>`;
+  output.innerHTML = `
+    <h3>Pending preservation review</h3>
+    <table><thead><tr><th>recordId</th><th>title</th><th>fixtureSetId</th><th>createdAt</th><th></th></tr></thead>
+      <tbody>${body.pendingPreservation.map((e) => row(e, "preservation")).join("")}</tbody></table>
+    <h3>Pending publication review</h3>
+    <p class="muted">Preserved already — opens in "Look up a record" above with purpose=preservation, audience=staff.</p>
+    <table><thead><tr><th>recordId</th><th>title</th><th>fixtureSetId</th><th>createdAt</th><th></th></tr></thead>
+      <tbody>${body.pendingPublication.map((e) => row(e, "publication")).join("")}</tbody></table>
+  `;
+  output.querySelectorAll("[data-open-preservation]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.getElementById("intake-id-input").value = button.dataset.openPreservation;
+      loadIntakeSubmission(button.dataset.openPreservation);
+    });
+  });
+  output.querySelectorAll("[data-open-publication]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.getElementById("record-id-input").value = button.dataset.openPublication;
+      document.getElementById("record-purpose").value = "preservation";
+      document.getElementById("record-audience").value = "staff";
+      loadRecord(button.dataset.openPublication);
+    });
+  });
+}
+
 async function runExport(event) {
   event.preventDefault();
   const data = new FormData(event.target);
@@ -292,6 +532,12 @@ document.getElementById("load-record").addEventListener("click", () => {
   if (id) loadRecord(id);
 });
 document.getElementById("export-form").addEventListener("submit", runExport);
+document.getElementById("create-submission-form").addEventListener("submit", createSubmission);
+document.getElementById("load-intake").addEventListener("click", () => {
+  const id = document.getElementById("intake-id-input").value.trim();
+  if (id) loadIntakeSubmission(id);
+});
+document.getElementById("refresh-intake-queue").addEventListener("click", loadIntakeQueue);
 if (currentIdToken()) {
   loadRequests();
 }

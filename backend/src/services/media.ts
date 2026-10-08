@@ -34,39 +34,17 @@ export function findMediaRef(record: FixtureRecord, mediaId: string) {
   return record.mediaRefs.find((m) => m.mediaId === mediaId) ?? null;
 }
 
-export async function fetchAuthorizedMedia(
-  fixtureStore: FixtureStore,
-  registerStore: RestrictionRegisterStore,
+// The real byte-serving logic — bounded HEAD-before-GET size check,
+// fetch, checksum verification — extracted so it has exactly one
+// implementation shared by both authorization gates below: the normal,
+// evaluatePermission-gated fetchAuthorizedMedia, and the intake-review-
+// scoped fetchIntakeMedia (needed once quarantine became an unconditional
+// deny in evaluatePermission — see permissions.ts — which otherwise left
+// a reviewer with no way to ever preview an upload before approving it).
+async function fetchMediaBytes(
   mediaStore: MediaStore,
-  query: MediaFetchQuery,
+  media: FixtureRecord["mediaRefs"][number],
 ): Promise<MediaFetchResult> {
-  const now = query.now ?? new Date();
-
-  // The scoped permission check runs FIRST, exactly as it does for a record
-  // detail read — a denial here means no bytes, no reason to even look at
-  // the media store. Passing mediaId here also enforces redactMedia()'s
-  // hard override (services/lifecycle.ts) — a redacted object denies even
-  // when the record's own purpose/audience would otherwise fully allow it.
-  const decision = await evaluatePermission(fixtureStore, registerStore, {
-    recordId: query.recordId,
-    purpose: query.purpose,
-    audience: query.audience,
-    now,
-    mediaId: query.mediaId,
-  });
-  if (!decision.allowed) {
-    return { ok: false, statusCode: 403, reason: decision.reason };
-  }
-
-  const record = await fixtureStore.getRecord(query.recordId);
-  if (!record) {
-    return { ok: false, statusCode: 404, reason: "Record not found." };
-  }
-  const media = findMediaRef(record, query.mediaId);
-  if (!media) {
-    return { ok: false, statusCode: 404, reason: `No media "${query.mediaId}" on this record.` };
-  }
-
   // Fail closed for anything not bound to a real, pinned S3 version — never
   // guess "latest", never serve a legacy reference that predates version
   // binding. See domain/types.ts's MediaRef.versionId comment.
@@ -130,4 +108,79 @@ export async function fetchAuthorizedMedia(
   }
 
   return { ok: true, body: object.body, contentType: object.contentType, bytes: object.bytes };
+}
+
+export async function fetchAuthorizedMedia(
+  fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
+  mediaStore: MediaStore,
+  query: MediaFetchQuery,
+): Promise<MediaFetchResult> {
+  const now = query.now ?? new Date();
+
+  // The scoped permission check runs FIRST, exactly as it does for a record
+  // detail read — a denial here means no bytes, no reason to even look at
+  // the media store. Passing mediaId here also enforces redactMedia()'s
+  // hard override (services/lifecycle.ts) — a redacted object denies even
+  // when the record's own purpose/audience would otherwise fully allow it.
+  const decision = await evaluatePermission(fixtureStore, registerStore, {
+    recordId: query.recordId,
+    purpose: query.purpose,
+    audience: query.audience,
+    now,
+    mediaId: query.mediaId,
+  });
+  if (!decision.allowed) {
+    return { ok: false, statusCode: 403, reason: decision.reason };
+  }
+
+  const record = await fixtureStore.getRecord(query.recordId);
+  if (!record) {
+    return { ok: false, statusCode: 404, reason: "Record not found." };
+  }
+  const media = findMediaRef(record, query.mediaId);
+  if (!media) {
+    return { ok: false, statusCode: 404, reason: `No media "${query.mediaId}" on this record.` };
+  }
+
+  return fetchMediaBytes(mediaStore, media);
+}
+
+export type IntakeMediaFetchQuery = { recordId: string; mediaId: string };
+
+// Authorized by nothing more than "authenticated staff" (API Gateway's
+// Cognito authorizer, checked before this ever runs) — explicitly NOT by
+// evaluatePermission, and explicitly NOT because a consent grant exists:
+// there can't be a VERIFIED one yet, verifying is the point of review. The
+// three things actually enforced here are the same three
+// `GET /intake/:recordId` enforces (router.ts): the record must be
+// isSynthetic, must still be exactly "quarantined" (404 for anything else
+// — once approved, the normal evaluatePermission-gated route is the right
+// one), and must not be "withdrawn" (rejection is terminal). Redaction
+// still applies even here — redactedMediaIds is a hard override
+// independent of every other consideration (permissions.ts's own
+// docstring), and this bypass-adjacent route is not an exception to that.
+export async function fetchIntakeMedia(
+  fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
+  mediaStore: MediaStore,
+  query: IntakeMediaFetchQuery,
+): Promise<MediaFetchResult> {
+  const control = await registerStore.getCurrent(query.recordId);
+  if (!control || control.currentCustodyStatus !== "quarantined" || control.currentPublicationStatus === "withdrawn") {
+    return { ok: false, statusCode: 404, reason: `No quarantined submission with id "${query.recordId}".` };
+  }
+  const record = await fixtureStore.getRecord(query.recordId);
+  if (!record || !record.isSynthetic) {
+    return { ok: false, statusCode: 404, reason: `No quarantined submission with id "${query.recordId}".` };
+  }
+  if (control.redactedMediaIds?.includes(query.mediaId)) {
+    return { ok: false, statusCode: 403, reason: `Media ${query.mediaId} has been redacted.` };
+  }
+  const media = findMediaRef(record, query.mediaId);
+  if (!media) {
+    return { ok: false, statusCode: 404, reason: `No media "${query.mediaId}" on this record.` };
+  }
+
+  return fetchMediaBytes(mediaStore, media);
 }

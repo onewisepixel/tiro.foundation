@@ -272,6 +272,37 @@ explicit instruction this shared table's capacity stays unchanged for now (see t
 matrix's seventh-review-round note); that exact scale stays proven by `export.test.ts` locally
 instead.
 
+## Staff intake and review acceptance drill against real AWS
+
+Same env vars as the drills above:
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_PRIMARY_TABLE=tiro-fixture-primary-drill-20261002 \
+  TIRO_REGISTER_TABLE=tiro-restriction-register-drill-20261002 \
+  TIRO_MEDIA_BUCKET=<MediaBucketName output from cdk deploy> \
+  TIRO_STAFF_API_URL=<StaffApiUrl output> \
+  TIRO_STAFF_USER_POOL_ID=<StaffUserPoolId output> \
+  TIRO_STAFF_USER_POOL_CLIENT_ID=<StaffUserPoolClientId output> \
+  npx tsx backend/src/scripts/realIntakeAcceptanceDrill.ts
+```
+
+The reviewer's own stated completion test for the staff-intake milestone, run against the real
+deployed API: create a submission, add real evidence and a real media file, confirm quarantine
+denies access even with that evidence attached, preview the upload via the intake-scoped media
+route, confirm a real metadata correction mid-review forces a real DynamoDB version conflict on a
+stale approval attempt, approve preservation for real, confirm staff/preservation access is now
+allowed and public/publication access stays denied, confirm `approve-publication` is itself
+denied with no publication grant ever submitted, export both scopes, restore into an isolated
+target, withdraw, and delete — confirming the record is genuinely gone afterward. Creates its own
+disposable Cognito test user (deleted at the end); the deletion step removes the submission it
+seeds, so (unlike most other drills here) this one leaves nothing behind. Exits non-zero if any
+of its 22 checks fail. Note that `infra/lib/fixture-backend-stack.ts` must be deployed with the
+`/intake/*` routes and the scoped `grantPut` first — if deploying to a specific namespace (not
+the default `dev`), pass `TIRO_FIXTURE_NAMESPACE=<namespace>` to `cdk deploy` too, e.g.
+`TIRO_FIXTURE_NAMESPACE=drill-20261002` for this stack — omitting it creates a SEPARATE stack
+under the default namespace instead of updating the existing one.
+
 ## Staff API smoke test against real AWS
 
 Scripts the manual "Real staff API smoke test" steps from

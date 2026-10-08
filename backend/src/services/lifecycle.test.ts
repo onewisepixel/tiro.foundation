@@ -83,14 +83,23 @@ class FailOnceOnDeleteFixtureStore implements FixtureStore {
   putAuthorityClaim(claim: AuthorityClaim) {
     return this.inner.putAuthorityClaim(claim);
   }
+  getAuthorityClaim(recordId: string, claimId: string) {
+    return this.inner.getAuthorityClaim(recordId, claimId);
+  }
   listLegalRights(recordId: string) {
     return this.inner.listLegalRights(recordId);
   }
   putLegalRight(right: LegalRight) {
     return this.inner.putLegalRight(right);
   }
+  getLegalRight(recordId: string, rightId: string) {
+    return this.inner.getLegalRight(recordId, rightId);
+  }
   listConsentGrants(recordId: string) {
     return this.inner.listConsentGrants(recordId);
+  }
+  getConsentGrant(recordId: string, consentId: string) {
+    return this.inner.getConsentGrant(recordId, consentId);
   }
   putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
     return this.inner.putConsentGrant(grant, expectedVersion);
@@ -175,14 +184,23 @@ class FailOnceOnHistoryWriteFixtureStore implements FixtureStore {
   putAuthorityClaim(claim: AuthorityClaim) {
     return this.inner.putAuthorityClaim(claim);
   }
+  getAuthorityClaim(recordId: string, claimId: string) {
+    return this.inner.getAuthorityClaim(recordId, claimId);
+  }
   listLegalRights(recordId: string) {
     return this.inner.listLegalRights(recordId);
   }
   putLegalRight(right: LegalRight) {
     return this.inner.putLegalRight(right);
   }
+  getLegalRight(recordId: string, rightId: string) {
+    return this.inner.getLegalRight(recordId, rightId);
+  }
   listConsentGrants(recordId: string) {
     return this.inner.listConsentGrants(recordId);
+  }
+  getConsentGrant(recordId: string, consentId: string) {
+    return this.inner.getConsentGrant(recordId, consentId);
   }
   putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
     return this.inner.putConsentGrant(grant, expectedVersion);
@@ -1300,14 +1318,23 @@ class InterleavingFixtureStore implements FixtureStore {
   putAuthorityClaim(claim: AuthorityClaim) {
     return this.inner.putAuthorityClaim(claim);
   }
+  getAuthorityClaim(recordId: string, claimId: string) {
+    return this.inner.getAuthorityClaim(recordId, claimId);
+  }
   listLegalRights(recordId: string) {
     return this.inner.listLegalRights(recordId);
   }
   putLegalRight(right: LegalRight) {
     return this.inner.putLegalRight(right);
   }
+  getLegalRight(recordId: string, rightId: string) {
+    return this.inner.getLegalRight(recordId, rightId);
+  }
   listConsentGrants(recordId: string) {
     return this.inner.listConsentGrants(recordId);
+  }
+  getConsentGrant(recordId: string, consentId: string) {
+    return this.inner.getConsentGrant(recordId, consentId);
   }
   putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
     return this.inner.putConsentGrant(grant, expectedVersion);
@@ -1461,14 +1488,23 @@ class LyingAboutExistingHistoryFixtureStore implements FixtureStore {
   putAuthorityClaim(claim: AuthorityClaim) {
     return this.inner.putAuthorityClaim(claim);
   }
+  getAuthorityClaim(recordId: string, claimId: string) {
+    return this.inner.getAuthorityClaim(recordId, claimId);
+  }
   listLegalRights(recordId: string) {
     return this.inner.listLegalRights(recordId);
   }
   putLegalRight(right: LegalRight) {
     return this.inner.putLegalRight(right);
   }
+  getLegalRight(recordId: string, rightId: string) {
+    return this.inner.getLegalRight(recordId, rightId);
+  }
   listConsentGrants(recordId: string) {
     return this.inner.listConsentGrants(recordId);
+  }
+  getConsentGrant(recordId: string, consentId: string) {
+    return this.inner.getConsentGrant(recordId, consentId);
   }
   putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined) {
     return this.inner.putConsentGrant(grant, expectedVersion);

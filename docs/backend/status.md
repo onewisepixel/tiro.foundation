@@ -522,10 +522,53 @@ and documented rather than chased further; revisit when either upstream ships a 
   verification" section for the full result and the two specific prior-review-round cases (step 11's
   correction-history masking, steps 13-14's export-scope difference) this run directly confirmed live.
 
+- 2026-10-08, staff intake and review (docs/ethos.txt §§3.2-3.3): a staff member can now originate
+  a brand-new synthetic record through the browser — metadata, structured authority/legal-rights/
+  consent-grant evidence, a small media file — starting quarantined and unpublished, until a
+  reviewer's decision (`approve-preservation`/`approve-publication`/`request-changes`/
+  `reject-submission`) promotes it into the exact same permission/export/redaction/deletion
+  machinery every other record is already subject to. Five review rounds before a line of
+  production code was written found real design gaps, each closed: `evaluatePermission` now
+  explicitly denies `"quarantined"` custody unconditionally (closing a window where an approval's
+  own multi-step evidence verification could make a record readable before it was actually
+  approved); every cross-table intake write (`IntakeRegisterCommitter`, `store.ts`) atomically
+  asserts the register's exact state and version, closing races against rejection and deletion a
+  separate read-then-write could not; approval is pinned to the exact record AND register
+  revision the reviewer actually saw (a metadata correction via the existing `correctRecord`
+  bumps the record's own version, never the register's — both are now asserted together);
+  approval requires the complete set of a record's unresolved evidence to be named, not a subset,
+  and validates named consent grants against the same real `findApprovableGrant` predicate
+  `evaluatePermission` itself uses (purpose, audience, revocation — including the register's
+  `revokedConsentIds`, not just a grant's own `revokedAt` — and expiry); a wrong claim is
+  corrected via a new `supersedeAuthorityClaim`/`supersedeLegalRight` (preserving history, never
+  silently overwriting) rather than left as a permanently-blocking stale `"unknown"` row; a new
+  `GET /intake/:recordId` (and `/intake/:recordId/media/:mediaId`) read path, authorized by
+  nothing but being signed-in staff — never a grant, since none can be verified yet — lets a
+  reviewer actually see what they're approving and preview an upload the normal, now-quarantine-
+  denying media route can't serve; and the review queue's two stages (`GET /intake/queue`) never
+  show a raw title the viewer wouldn't actually be authorized to see. 206 backend tests pass (up
+  from 188). `backend/src/scripts/realIntakeAcceptanceDrill.ts` — the reviewer's own stated
+  completion test, run for real against the deployed stack — **22/22 checks passed**: create
+  through the live API, add real evidence and a real media file, confirm quarantine denies
+  staff/preservation access even with that evidence attached, confirm a real metadata correction
+  mid-review makes a stale approval attempt fail with a real DynamoDB version conflict (not a
+  silent bad approval), approve preservation for real, confirm staff/preservation access is now
+  allowed and public/publication access stays denied, confirm `approve-publication` is itself
+  denied with no publication grant ever submitted — the exact "publication remains denied without
+  its own grant" guarantee — export both scopes, restore into an isolated target, withdraw, and
+  delete. `infra/lib/fixture-backend-stack.ts` grew four new routes (`POST /intake`, `GET
+  /intake/queue`, `GET /intake/{recordId}`, `GET /intake/{recordId}/media/{mediaId}`) and a
+  narrowly scoped `s3:PutObject`-family grant limited to the `fixtures/*` prefix every media
+  object in this system already uses — the first thing this Lambda has ever uploaded itself.
+  DynamoDB capacity unchanged throughout.
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**
-Actual image/audio/video redaction (blur/bleep/crop) — this
+A literal human browser click-through of the staff-intake flow (create → evidence → review →
+lifecycle) in `staff-ui/`, the same literal-human bar `browser-acceptance-checklist.md` already
+established for every other control — prepared (both new UI sections, the file-upload form, the
+review queue) but not yet run by a human. Actual image/audio/video redaction (blur/bleep/crop) — this
 backend's redaction is text-masking and a hard media-access override only, honestly short of real
 media-content processing, which needs infrastructure this project doesn't have. Forcing the export
 response budget's real whole-record TEXT exclusion live, as opposed to proving the field merely

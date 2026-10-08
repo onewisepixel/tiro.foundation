@@ -335,6 +335,39 @@ capacity was confirmed unchanged throughout. This closes the legacy-media migrat
 the one piece of this engagement's real, hard-to-reverse live-data mutation, now done and verified.
 See the evidence matrix's "`--apply` executed" entry for the full detail.
 
+**Update, the literal human browser click-through (2026-10-07):** `docs/backend/browser-acceptance-checklist.md`
+was run for real, interactively, against the deployed stack — **16/16 steps passed**, staff
+identity `cero@tiro.foundation`. One real setup-time bug was caught and fixed along the way:
+`staff-ui/serve.json`'s `cleanUrls: false` (needed to stop `callback.html`'s query string from
+being dropped on redirect) also silently disabled `index.html` auto-serving at the root path,
+since both behaviors share one internal gate in `serve-handler` — `http://localhost:4300/` had
+been serving a raw directory listing instead of the staff page the entire time that file has
+existed. Fixed with a targeted `/` → `/index.html` rewrite that doesn't touch the callback fix.
+See the evidence matrix's "The literal human click-through, done" entry.
+
+**Update, staff intake and review (2026-10-08):** a staff member can now originate a brand-new
+synthetic record through the browser — metadata, structured authority/legal-rights/consent-grant
+evidence, a small media file — starting quarantined and unpublished, until a reviewer's decision
+promotes it into the exact same permission/export/redaction/deletion machinery every other record
+is already subject to, per `docs/ethos.txt` §§3.2-3.3. Five review rounds found real design gaps
+BEFORE any production code was written — the quarantine-read window, cross-table commit
+atomicity, revision binding, evidence completeness and real grant validation, and the actual
+evidence-correction path — all closed in the design before implementation began; two more real
+bugs (a controlVersion-only pin that didn't actually catch an already-rejected record, and a
+tautological grant-audience check) were caught by the new tests themselves during implementation
+and fixed immediately. 206 backend tests pass (up from 188).
+`backend/src/scripts/realIntakeAcceptanceDrill.ts` — the reviewer's own stated completion test —
+passed **22/22** against the real deployed stack: create, add real evidence and media, confirm
+quarantine denies access even with evidence attached, a real metadata correction mid-review forces
+a real DynamoDB version conflict on a stale approval, approve preservation for real, confirm
+staff/preservation access now works and public/publication stays denied, confirm
+`approve-publication` is itself denied with no publication grant ever submitted, export both
+scopes, restore into an isolated target, withdraw, and delete. `infra/lib/fixture-backend-stack.ts`
+grew four new routes and a narrowly scoped `s3:PutObject` grant (the first time this Lambda has
+ever uploaded media itself) — DynamoDB capacity unchanged. Still open: a literal human
+click-through of the new staff-ui sections, prepared but not yet run. See the evidence matrix's
+"Staff intake and review" entry for the full detail.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.

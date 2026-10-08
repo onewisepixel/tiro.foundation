@@ -152,6 +152,7 @@ test("disputed legal right denies, mirroring disputed authority (Finding 4)", as
         rightType: "publication",
         jurisdiction: null,
         evidenceRef: "fixture://invented-legal-evidence-001",
+        reviewerDecision: null,
         createdAt: new Date().toISOString(),
       },
     ],

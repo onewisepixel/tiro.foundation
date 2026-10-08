@@ -29,8 +29,15 @@ export type Purpose =
   | "synthetic-reproduction"
   | "commercial-use";
 
-export type AuthorityStatus = "identified" | "shared" | "disputed" | "unknown";
-export type LegalRightStatus = "identified" | "disputed" | "unknown";
+// "superseded" marks a claim/right a staff member has explicitly corrected
+// (services/intake.ts's supersedeAuthorityClaim/supersedeLegalRight) — the
+// OLD row stays on record (nothing here is ever silently overwritten) but
+// no longer counts as a live, unresolved claim. evaluatePermission's
+// blocking check (permissions.ts) only ever flags "disputed"/"unknown", so
+// a superseded claim needs no special-casing there: it simply isn't either
+// of those any more.
+export type AuthorityStatus = "identified" | "shared" | "disputed" | "unknown" | "superseded";
+export type LegalRightStatus = "identified" | "disputed" | "unknown" | "superseded";
 
 export type FixtureRecord = {
   // UUIDv7 — see backend/src/domain/id.ts. PK in the primary table.
@@ -84,13 +91,16 @@ export type AuthorityClaim = {
 };
 
 export type LegalRight = {
-  recordId: string; 
+  recordId: string;
   rightId: string;
   status: LegalRightStatus;
   holder: string;
   rightType: string;
   jurisdiction: string | null;
   evidenceRef: string;
+  // Added for services/intake.ts's approvePreservation — same role as
+  // AuthorityClaim's own reviewerDecision field above, kept symmetric.
+  reviewerDecision: string | null;
   createdAt: string;
 };
 
@@ -125,7 +135,22 @@ export type LifecycleAction =
   | "redact-media"
   | "retain"
   | "delete"
-  | "complete-deletion";
+  | "complete-deletion"
+  // Staff intake and review (services/intake.ts) — a staff member
+  // originates a brand-new synthetic record through the browser, pending
+  // reviewer promotion into the same permission/lifecycle machinery every
+  // other record is already subject to.
+  | "create-submission"
+  | "add-authority-claim"
+  | "add-legal-right"
+  | "add-consent-grant"
+  | "add-media"
+  | "supersede-authority-claim"
+  | "supersede-legal-right"
+  | "approve-preservation"
+  | "approve-publication"
+  | "request-changes"
+  | "reject-submission";
 
 // Fields a correction or text redaction may target — deliberately limited
 // to the record's own safe, already-public-facing text fields (per

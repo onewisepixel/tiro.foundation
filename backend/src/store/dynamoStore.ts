@@ -38,7 +38,9 @@ import {
   DeletionInProgressError,
   VersionConflictError,
   type CustodyCopyCommitter,
+  type EvidenceFlip,
   type FixtureStore,
+  type IntakeRegisterCommitter,
   type RestrictionRegisterStore,
 } from "./store";
 
@@ -82,6 +84,7 @@ const auditSk = (receiptId: string) => `AUDIT#${receiptId}`;
 const correctionSk = (correctionId: string) => `CORRECTION#${correctionId}`;
 const redactionSk = (redactionId: string) => `REDACTION#${redactionId}`;
 const lifecyclePk = (requestId: string) => `LIFECYCLE#${requestId}`;
+const intakeReceiptSk = (requestId: string) => `INTAKE-RECEIPT#${requestId}`;
 
 export class DynamoFixtureStore implements FixtureStore {
   private readonly doc: DynamoDBDocumentClient;
@@ -168,6 +171,19 @@ export class DynamoFixtureStore implements FixtureStore {
     );
   }
 
+  async getAuthorityClaim(recordId: string, claimId: string): Promise<AuthorityClaim | null> {
+    // Strongly consistent, by-exact-key — same contract as getCorrection/
+    // getRedaction. Used only as services/intake.ts's retry-safety guard.
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: authoritySk(claimId) },
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as AuthorityClaim | undefined) ?? null;
+  }
+
   listLegalRights(recordId: string): Promise<LegalRight[]> {
     return this.queryByPrefix<LegalRight>(recordId, "LEGALRIGHT#");
   }
@@ -181,8 +197,30 @@ export class DynamoFixtureStore implements FixtureStore {
     );
   }
 
+  async getLegalRight(recordId: string, rightId: string): Promise<LegalRight | null> {
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: legalRightSk(rightId) },
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as LegalRight | undefined) ?? null;
+  }
+
   listConsentGrants(recordId: string): Promise<ConsentGrant[]> {
     return this.queryByPrefix<ConsentGrant>(recordId, "CONSENT#");
+  }
+
+  async getConsentGrant(recordId: string, consentId: string): Promise<ConsentGrant | null> {
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: consentSk(consentId) },
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as ConsentGrant | undefined) ?? null;
   }
 
   async putConsentGrant(grant: ConsentGrant, expectedVersion: number | undefined): Promise<void> {
@@ -686,5 +724,347 @@ export class DynamoCustodyCopyCommitter implements CustodyCopyCommitter {
       }
       throw error;
     }
+  }
+}
+
+export type IntakeRegisterCommitterConfig = {
+  client: DynamoDBClient;
+  primaryTableName: string;
+  registerTableName: string;
+};
+
+// Real AWS implementation of IntakeRegisterCommitter (store.ts). Each
+// method below is one TransactWriteItems call spanning both tables, same
+// established technique as DynamoCustodyCopyCommitter above — see that
+// class's comment for why a single transaction can and should span both.
+export class DynamoIntakeRegisterCommitter implements IntakeRegisterCommitter {
+  private readonly doc: DynamoDBDocumentClient;
+  constructor(private readonly config: IntakeRegisterCommitterConfig) {
+    this.doc = DynamoDBDocumentClient.from(config.client, {
+      marshallOptions: { removeUndefinedValues: true },
+    });
+  }
+
+  async commitCreateSubmission(record: FixtureRecord): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.config.registerTableName,
+                Item: {
+                  recordId: record.recordId,
+                  controlVersion: 1,
+                  currentPublicationStatus: "not-published",
+                  currentCustodyStatus: "quarantined",
+                  restrictedPurposes: [],
+                  revokedConsentIds: [],
+                  mediaPurgeClaim: null,
+                  redactedMediaIds: [],
+                  redactedTextFields: [],
+                  updatedAt: now,
+                },
+                ConditionExpression: "attribute_not_exists(recordId)",
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: 1 },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("RestrictionRegisterEntry", record.recordId);
+      }
+      throw error;
+    }
+  }
+
+  // The shared register-side condition/update every write below needs,
+  // besides commitApproval (see its own comment for why that one asserts
+  // only controlVersion, not custody/publication state separately).
+  private registerOpenIntakeTransactItem(recordId: string, expectedControlVersion: number) {
+    return {
+      Update: {
+        TableName: this.config.registerTableName,
+        Key: { recordId },
+        UpdateExpression: "SET controlVersion = :next, updatedAt = :now",
+        ConditionExpression:
+          "controlVersion = :expected AND currentCustodyStatus = :quarantined AND currentPublicationStatus <> :withdrawn",
+        ExpressionAttributeValues: {
+          ":next": expectedControlVersion + 1,
+          ":now": new Date().toISOString(),
+          ":expected": expectedControlVersion,
+          ":quarantined": "quarantined",
+          ":withdrawn": "withdrawn",
+        },
+      },
+    };
+  }
+
+  async commitEvidenceCreate(
+    recordId: string,
+    expectedControlVersion: number,
+    newItem: AuthorityClaim | LegalRight | ConsentGrant,
+  ): Promise<void> {
+    const isAuthority = "claimId" in newItem;
+    const isLegalRight = !isAuthority && "rightId" in newItem;
+    const itemSk = isAuthority
+      ? authoritySk((newItem as AuthorityClaim).claimId)
+      : isLegalRight
+        ? legalRightSk((newItem as LegalRight).rightId)
+        : consentSk((newItem as ConsentGrant).consentId);
+    const item = isAuthority || isLegalRight ? newItem : { ...(newItem as ConsentGrant), version: 1 };
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            this.registerOpenIntakeTransactItem(recordId, expectedControlVersion),
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(recordId), SK: itemSk, ...item },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (error instanceof TransactionCanceledException) {
+        const reasons = error.CancellationReasons ?? [];
+        if (reasons[1]?.Code === "ConditionalCheckFailed") {
+          throw new AlreadyAppliedError("IntakeEvidence", itemSk);
+        }
+      }
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("RestrictionRegisterEntry", recordId);
+      }
+      throw error;
+    }
+  }
+
+  async commitMediaAdd(
+    recordId: string,
+    expectedControlVersion: number,
+    updatedRecord: FixtureRecord,
+    expectedRecordVersion: number,
+    copy: CustodyCopy,
+  ): Promise<void> {
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            this.registerOpenIntakeTransactItem(recordId, expectedControlVersion),
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(recordId), SK: recordSk(), ...updatedRecord, version: expectedRecordVersion + 1 },
+                ConditionExpression: "version = :expectedVersion",
+                ExpressionAttributeValues: { ":expectedVersion": expectedRecordVersion },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(copy.recordId), SK: copySk(copy.copyId), ...copy },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("RestrictionRegisterEntry", recordId);
+      }
+      throw error;
+    }
+  }
+
+  async commitEvidenceSupersede(
+    recordId: string,
+    expectedControlVersion: number,
+    oldItem: { kind: "authority" | "legalRight"; id: string },
+    newItem: AuthorityClaim | LegalRight,
+  ): Promise<void> {
+    const oldSk = oldItem.kind === "authority" ? authoritySk(oldItem.id) : legalRightSk(oldItem.id);
+    const newSk =
+      oldItem.kind === "authority" ? authoritySk((newItem as AuthorityClaim).claimId) : legalRightSk((newItem as LegalRight).rightId);
+    try {
+      await this.doc.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            this.registerOpenIntakeTransactItem(recordId, expectedControlVersion),
+            {
+              Update: {
+                TableName: this.config.primaryTableName,
+                Key: { PK: pk(recordId), SK: oldSk },
+                UpdateExpression: "SET #status = :superseded",
+                ConditionExpression: "#status = :unknown",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: { ":superseded": "superseded", ":unknown": "unknown" },
+              },
+            },
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                Item: { PK: pk(recordId), SK: newSk, ...newItem },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (error instanceof TransactionCanceledException) {
+        const reasons = error.CancellationReasons ?? [];
+        if (reasons[2]?.Code === "ConditionalCheckFailed") {
+          throw new AlreadyAppliedError("IntakeEvidence", newSk);
+        }
+      }
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("RestrictionRegisterEntry", recordId);
+      }
+      throw error;
+    }
+  }
+
+  async commitApproval(
+    recordId: string,
+    requestId: string,
+    expectedControlVersion: number,
+    expectedRecordVersion: number,
+    registerPatch: Partial<Pick<RestrictionRegisterEntry, "currentCustodyStatus" | "currentPublicationStatus">>,
+    evidenceFlips: EvidenceFlip[],
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const setClauses = ["controlVersion = :nextControlVersion", "updatedAt = :now"];
+    const values: Record<string, unknown> = {
+      ":nextControlVersion": expectedControlVersion + 1,
+      ":now": now,
+      ":expectedControlVersion": expectedControlVersion,
+    };
+    if (registerPatch.currentCustodyStatus) {
+      setClauses.push("currentCustodyStatus = :nextCustody");
+      values[":nextCustody"] = registerPatch.currentCustodyStatus;
+    }
+    if (registerPatch.currentPublicationStatus) {
+      setClauses.push("currentPublicationStatus = :nextPublication");
+      values[":nextPublication"] = registerPatch.currentPublicationStatus;
+    }
+    // controlVersion-only pinning is NOT transitively sufficient on its
+    // own — reproduced directly: a reviewer who does a FRESH read of an
+    // ALREADY-rejected record and submits approval anyway supplies a
+    // perfectly current, non-stale expectedControlVersion, so a bare
+    // version match alone would happily approve a withdrawn submission.
+    // "Not withdrawn" is asserted explicitly here, every time, atomically
+    // with the version check — not inferred from version-staleness, which
+    // only ever catches a CHANGE since the caller's last read, never a bad
+    // state the caller's own read already reflected. The specific starting
+    // custody value (quarantined vs. preserved) is still each caller's own
+    // job (approvePreservation/approvePublication, services/intake.ts)
+    // since it legitimately differs between them.
+    values[":withdrawn"] = "withdrawn";
+    const transactItems: NonNullable<ConstructorParameters<typeof TransactWriteCommand>[0]>["TransactItems"] = [
+      {
+        Update: {
+          TableName: this.config.registerTableName,
+          Key: { recordId },
+          UpdateExpression: `SET ${setClauses.join(", ")}`,
+          ConditionExpression: "controlVersion = :expectedControlVersion AND currentPublicationStatus <> :withdrawn",
+          ExpressionAttributeValues: values,
+        },
+      },
+      {
+        ConditionCheck: {
+          TableName: this.config.primaryTableName,
+          Key: { PK: pk(recordId), SK: recordSk() },
+          ConditionExpression: "version = :expectedRecordVersion",
+          ExpressionAttributeValues: { ":expectedRecordVersion": expectedRecordVersion },
+        },
+      },
+    ];
+    for (const flip of evidenceFlips) {
+      if (flip.kind === "authority") {
+        transactItems.push({
+          Update: {
+            TableName: this.config.primaryTableName,
+            Key: { PK: pk(recordId), SK: authoritySk(flip.claimId) },
+            UpdateExpression: "SET #status = :identified, reviewerDecision = :reviewerDecision",
+            ConditionExpression: "#status = :unknown",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":identified": "identified",
+              ":unknown": "unknown",
+              ":reviewerDecision": flip.reviewerDecision,
+            },
+          },
+        });
+      } else if (flip.kind === "legalRight") {
+        transactItems.push({
+          Update: {
+            TableName: this.config.primaryTableName,
+            Key: { PK: pk(recordId), SK: legalRightSk(flip.rightId) },
+            UpdateExpression: "SET #status = :identified, reviewerDecision = :reviewerDecision",
+            ConditionExpression: "#status = :unknown",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":identified": "identified",
+              ":unknown": "unknown",
+              ":reviewerDecision": flip.reviewerDecision,
+            },
+          },
+        });
+      } else {
+        transactItems.push({
+          Update: {
+            TableName: this.config.primaryTableName,
+            Key: { PK: pk(recordId), SK: consentSk(flip.consentId) },
+            UpdateExpression: "SET signerCapacityVerified = :verified",
+            ConditionExpression: "signerCapacityVerified = :unverified",
+            ExpressionAttributeValues: { ":verified": true, ":unverified": false },
+          },
+        });
+      }
+    }
+    transactItems.push({
+      Put: {
+        TableName: this.config.primaryTableName,
+        Item: { PK: pk(recordId), SK: intakeReceiptSk(requestId), recordId, requestId, createdAt: now },
+        ConditionExpression: "attribute_not_exists(PK)",
+      },
+    });
+    try {
+      await this.doc.send(new TransactWriteCommand({ TransactItems: transactItems }));
+    } catch (error) {
+      // Every failure here means the same thing to every caller
+      // (approvePreservation/approvePublication, services/intake.ts):
+      // re-check hasReceipt — either a concurrent attempt already
+      // succeeded (receipt now exists), or this is a genuine conflict
+      // (register, record, or evidence state moved) requiring real
+      // re-review. No need to distinguish which item failed.
+      if (isConditionalFailure(error)) {
+        throw new VersionConflictError("RestrictionRegisterEntry", recordId);
+      }
+      throw error;
+    }
+  }
+
+  async hasReceipt(recordId: string, requestId: string): Promise<boolean> {
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: intakeReceiptSk(requestId) },
+        ConsistentRead: true,
+      }),
+    );
+    return result.Item !== undefined;
   }
 }

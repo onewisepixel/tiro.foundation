@@ -13,7 +13,7 @@
 // and whose identity lands in the audit trail for it.
 import type { LifecycleRequestStatus } from "../domain/types";
 import { uuidv7 } from "../domain/id";
-import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import type { FixtureStore, IntakeRegisterCommitter, RestrictionRegisterStore } from "../store/store";
 import { IdempotencyKeyConflictError, VersionConflictError } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import {
@@ -32,7 +32,21 @@ import {
 import { evaluatePermission } from "../services/permissions";
 import { applyTextRedactions, maskCorrectionsForRedactedFields, redactionsSafeView } from "../services/redactionView";
 import { exportFixtureSet, LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES } from "../services/export";
-import { fetchAuthorizedMedia } from "../services/media";
+import { fetchAuthorizedMedia, fetchIntakeMedia } from "../services/media";
+import {
+  addAuthorityClaim,
+  addConsentGrant,
+  addLegalRight,
+  addMedia,
+  approvePreservation,
+  approvePublication,
+  createSubmission,
+  rejectSubmission,
+  requestChanges,
+  supersedeAuthorityClaim,
+  supersedeLegalRight,
+} from "../services/intake";
+import { readIntakeQueue, readIntakeSubmission } from "../services/intakeViews";
 import {
   validateLifecycleActionBody,
   validateRestrictActionBody,
@@ -44,6 +58,15 @@ import {
   validateDisputeCorrectionActionBody,
   validateRedactTextActionBody,
   validateRedactMediaActionBody,
+  validateCreateSubmissionBody,
+  validateAddAuthorityClaimActionBody,
+  validateAddLegalRightActionBody,
+  validateAddConsentGrantActionBody,
+  validateAddMediaActionBody,
+  validateSupersedeAuthorityClaimActionBody,
+  validateSupersedeLegalRightActionBody,
+  validateApprovePreservationActionBody,
+  validateApprovePublicationActionBody,
   isPurpose,
   isAudience,
 } from "./validation";
@@ -97,10 +120,69 @@ export async function routeRequest(
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
   mediaStore: MediaStore,
+  intakeCommitter: IntakeRegisterCommitter,
   callerIdentity: string,
   request: ApiRequest,
 ): Promise<ApiResponse> {
   const { method, pathSegments, queryParams, body } = request;
+
+  // GET /intake/:recordId/media/:mediaId — the one place a quarantined
+  // submission's upload can be previewed. The normal media route below
+  // permanently 403s these now that evaluatePermission denies
+  // "quarantined" outright (permissions.ts) — this exists specifically so
+  // a reviewer isn't left with no way to ever see the file before
+  // approving it. See services/media.ts's fetchIntakeMedia.
+  if (method === "GET" && pathSegments.length === 4 && pathSegments[0] === "intake" && pathSegments[2] === "media") {
+    const result = await fetchIntakeMedia(fixtureStore, registerStore, mediaStore, { recordId: pathSegments[1], mediaId: pathSegments[3] });
+    if (!result.ok) {
+      return { statusCode: result.statusCode, body: { error: result.reason } };
+    }
+    return { statusCode: 200, body: null, binary: { contentType: result.contentType, base64Body: result.body.toString("base64") } };
+  }
+
+  // GET /intake/queue — the review queue's two halves. See
+  // services/intakeViews.ts's readIntakeQueue for exactly what gates each.
+  if (method === "GET" && pathSegments.length === 1 && pathSegments[0] === "intake") {
+    return notFound('GET /intake needs a sub-path: "/intake/queue" or "/intake/:recordId".');
+  }
+  if (method === "GET" && pathSegments.length === 2 && pathSegments[0] === "intake" && pathSegments[1] === "queue") {
+    return { statusCode: 200, body: await readIntakeQueue(fixtureStore, registerStore) };
+  }
+
+  // GET /intake/:recordId — the intake-review detail read. Returns 404 for
+  // anything not currently "quarantined" (and not "withdrawn") — once
+  // preserved, GET /records/:recordId is the right route; see
+  // services/intakeViews.ts's readIntakeSubmission for the full reasoning.
+  if (method === "GET" && pathSegments.length === 2 && pathSegments[0] === "intake") {
+    const view = await readIntakeSubmission(fixtureStore, registerStore, pathSegments[1]);
+    if (!view) {
+      return notFound(`No quarantined submission with id "${pathSegments[1]}".`);
+    }
+    return { statusCode: 200, body: view };
+  }
+
+  // POST /intake — create a brand-new synthetic record, quarantined and
+  // unpublished, pending review. See services/intake.ts's createSubmission
+  // for why this route alone doesn't fit the /records/:id/:action shape
+  // (there is no :id yet — minting one is what this call does).
+  if (method === "POST" && pathSegments.length === 1 && pathSegments[0] === "intake") {
+    const validated = validateCreateSubmissionBody(body);
+    if (!validated.ok) {
+      return badRequest(validated.error);
+    }
+    return withConflictHandling(async () => {
+      const result = await createSubmission(fixtureStore, intakeCommitter, {
+        requestId: validated.value.requestId ?? uuidv7(),
+        requesterCapacity: callerIdentity,
+        reason: validated.value.reason,
+        fixtureSetId: validated.value.fixtureSetId,
+        title: validated.value.title,
+        summary: validated.value.summary,
+        provenanceRef: validated.value.provenanceRef,
+      });
+      return { statusCode: 200, body: result };
+    });
+  }
 
   // GET /records/:recordId/media/:mediaId?purpose=...&audience=...
   //
@@ -415,6 +497,169 @@ export async function routeRequest(
           reason: validated.value.reason,
           mediaId: validated.value.mediaId,
         });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "add-authority-claim") {
+      const validated = validateAddAuthorityClaimActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await addAuthorityClaim(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          claimant: validated.value.claimant,
+          scope: validated.value.scope,
+          evidenceRef: validated.value.evidenceRef,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "add-legal-right") {
+      const validated = validateAddLegalRightActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await addLegalRight(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          holder: validated.value.holder,
+          rightType: validated.value.rightType,
+          jurisdiction: validated.value.jurisdiction,
+          evidenceRef: validated.value.evidenceRef,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "add-consent-grant") {
+      const validated = validateAddConsentGrantActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await addConsentGrant(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          signerCapacitySummary: validated.value.signerCapacitySummary,
+          purposes: validated.value.purposes,
+          audience: validated.value.audience,
+          mandateRef: validated.value.mandateRef,
+          expiresAt: validated.value.expiresAt,
+          retentionTermsRef: validated.value.retentionTermsRef,
+          withdrawalContact: validated.value.withdrawalContact,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "add-media") {
+      const validated = validateAddMediaActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await addMedia(fixtureStore, registerStore, mediaStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          contentType: validated.value.contentType,
+          base64: validated.value.base64,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "supersede-authority-claim") {
+      const validated = validateSupersedeAuthorityClaimActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await supersedeAuthorityClaim(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          supersededClaimId: validated.value.supersededClaimId,
+          claimant: validated.value.claimant,
+          scope: validated.value.scope,
+          evidenceRef: validated.value.evidenceRef,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "supersede-legal-right") {
+      const validated = validateSupersedeLegalRightActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await supersedeLegalRight(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          supersededRightId: validated.value.supersededRightId,
+          holder: validated.value.holder,
+          rightType: validated.value.rightType,
+          jurisdiction: validated.value.jurisdiction,
+          evidenceRef: validated.value.evidenceRef,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "approve-preservation") {
+      const validated = validateApprovePreservationActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await approvePreservation(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          expectedControlVersion: validated.value.expectedControlVersion,
+          expectedRecordVersion: validated.value.expectedRecordVersion,
+          authorityClaimIds: validated.value.authorityClaimIds,
+          legalRightIds: validated.value.legalRightIds,
+          consentGrantIds: validated.value.consentGrantIds,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "approve-publication") {
+      const validated = validateApprovePublicationActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      return withConflictHandling(async () => {
+        const result = await approvePublication(fixtureStore, registerStore, intakeCommitter, {
+          requestId: validated.value.requestId ?? uuidv7(),
+          recordId,
+          requesterCapacity: callerIdentity,
+          reason: validated.value.reason,
+          expectedControlVersion: validated.value.expectedControlVersion,
+          expectedRecordVersion: validated.value.expectedRecordVersion,
+          consentGrantIds: validated.value.consentGrantIds,
+        });
+        return { statusCode: 200, body: result };
+      });
+    }
+
+    if (action === "request-changes" || action === "reject-submission") {
+      const validated = validateLifecycleActionBody(body);
+      if (!validated.ok) return badRequest(validated.error);
+      const input = {
+        requestId: validated.value.requestId ?? uuidv7(),
+        recordId,
+        requesterCapacity: callerIdentity,
+        reason: validated.value.reason,
+      };
+      return withConflictHandling(async () => {
+        const result =
+          action === "request-changes"
+            ? await requestChanges(fixtureStore, registerStore, input)
+            : await rejectSubmission(fixtureStore, registerStore, input);
         return { statusCode: 200, body: result };
       });
     }

@@ -50,6 +50,47 @@
     </section>
 
     <section>
+      <h2>Create submission</h2>
+      <p class="muted">
+        Originates a brand-new synthetic record, quarantined and unpublished, pending review —
+        see <code>services/intake.ts</code>'s createSubmission. Not a <code>/records/:id/:action</code>
+        call, since there's no id yet; this is its own route, <code>POST /intake</code>.
+      </p>
+      <form id="create-submission-form" class="inline" style="display:block; max-width: 480px;">
+        <label>Fixture set id<input name="fixtureSetId" required value="fixture-set-staff-intake" /></label>
+        <label>Title<input name="title" required /></label>
+        <label>Summary<input name="summary" required /></label>
+        <label>Provenance ref<input name="provenanceRef" required /></label>
+        <label>Reason<input name="reason" required /></label>
+        <button type="submit" style="margin-top: 0.6rem;">Create</button>
+      </form>
+      <div id="create-submission-output"></div>
+    </section>
+
+    <section>
+      <h2>Review queue</h2>
+      <div class="row">
+        <button id="refresh-intake-queue">Refresh</button>
+      </div>
+      <div id="intake-queue-output"></div>
+    </section>
+
+    <section>
+      <h2>Intake submission (quarantined, pending review)</h2>
+      <p class="muted">
+        A DIFFERENT read path from "Look up a record" below — <code>GET /intake/:recordId</code>
+        only ever returns a submission still "quarantined", authorized by nothing more than
+        being signed in as staff (there's no verified grant yet to check against; that's the
+        point of review). Once approved, use "Look up a record" instead.
+      </p>
+      <div class="row">
+        <input id="intake-id-input" placeholder="recordId (UUIDv7)" size="40" />
+        <button id="load-intake">Load</button>
+      </div>
+      <div id="intake-output"></div>
+    </section>
+
+    <section>
       <h2>Look up a record</h2>
       <p class="muted">
         Content and consent/authority evidence are only returned if the record is currently

@@ -211,11 +211,16 @@ export class FixtureBackendStack extends Stack {
     // s3:GetObject* and s3:List*) — scoped version reads (services/media.ts)
     // and version/delete-marker inventory (lifecycle.ts's purge step) both
     // need this. grantDelete covers DeleteObject/DeleteObjectVersion — the
-    // actual permanent-removal half of that same purge step. No write grant:
-    // this Lambda never uploads media itself (fixtures/media.ts's seeding
-    // and the restore drills use their own separate credentials).
+    // actual permanent-removal half of that same purge step.
     this.mediaBucket.grantRead(apiHandler);
     this.mediaBucket.grantDelete(apiHandler);
+    // Staff intake (services/intake.ts's addMedia) is the first thing this
+    // Lambda ever uploads itself — every prior write to this bucket came
+    // from a separately-credentialed script (fixtures/media.ts's seeding,
+    // the restore drills). Scoped to the exact prefix every media object in
+    // this system already uses (fixtures/{fixtureSetId}/{recordId}/...),
+    // not general bucket write access.
+    this.mediaBucket.grantPut(apiHandler, "fixtures/*");
 
     const httpApi = new apigwv2.HttpApi(this, "StaffApi", {
       apiName: `tiro-fixture-staff-api-${namespace}`,
@@ -256,6 +261,30 @@ export class FixtureBackendStack extends Stack {
     httpApi.addRoutes({
       path: "/export",
       methods: [apigwv2.HttpMethod.POST],
+      integration: apiIntegration,
+    });
+    // Staff intake and review (services/intake.ts) — confirmed against the
+    // existing route table above: API Gateway here has no catch-all proxy
+    // integration, so every new path needs its own explicit registration,
+    // same as every route above it.
+    httpApi.addRoutes({
+      path: "/intake",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: apiIntegration,
+    });
+    httpApi.addRoutes({
+      path: "/intake/queue",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: apiIntegration,
+    });
+    httpApi.addRoutes({
+      path: "/intake/{recordId}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: apiIntegration,
+    });
+    httpApi.addRoutes({
+      path: "/intake/{recordId}/media/{mediaId}",
+      methods: [apigwv2.HttpMethod.GET],
       integration: apiIntegration,
     });
 
