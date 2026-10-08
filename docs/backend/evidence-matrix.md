@@ -1575,6 +1575,46 @@ per-form-instance id, regenerated only after success.
 publication's SUCCESS path (a real, separate publication-purpose grant, verified for real) rather
 than only its denial — **25/25 checks pass live**, against the stack redeployed with these fixes.
 
+### A fourth review round (2026-10-08, commit `f335ea3`) found one residual P1 — a shared-snapshot
+gap between the queue and `evaluatePermission` — now closed
+
+`readIntakeQueue`'s `pendingPublication` loop had already been fixed (the round above) to read
+the record before the register, and (an earlier same-day round, see `status.md`) to read the
+register LAST relative to content reads. Both were real fixes, but neither addressed a third
+read this loop also depended on: it called `evaluatePermission`, which does its OWN,
+independently-timed internal register read — never told about the snapshot the loop had just
+fetched for itself. The loop's own read (used for eligibility and title masking) and
+`evaluatePermission`'s internal read (used for the allowed/reason decision) could therefore
+observe two different moments of register state. The reviewer reproduced this directly: a
+redaction landing between the two reads left the queue showing the original title while `GET
+/intake/:recordId` correctly showed `"[REDACTED]"` for the same record; a stronger repro —
+expired preservation consent combined with a concurrent redaction/publication approval — showed
+access denied before the transition and the title still exposed after it.
+
+Fixed exactly as specified, with no new read introduced anywhere: `PermissionDecision`
+(`services/permissions.ts`) now carries the exact `control: RestrictionRegisterEntry | null`
+snapshot `evaluatePermission` used — every one of its 11 return paths returns it (`null` only in
+the single branch that runs before any register read happens). `readIntakeQueue`'s publication
+loop no longer takes its own register read at all; it calls `evaluatePermission` once per
+candidate and uses `decision.control` for the eligibility recheck, the title masking, AND the
+reported `controlVersion` — structurally one register read per candidate, never two.
+
+Verification, in order: (1) grepped every `evaluatePermission(` call site (~14 files) and
+confirmed each only destructures `.allowed`/`.reason`, so widening the return type is additive
+and safe; confirmed `PermissionDecision` the type is referenced nowhere outside `permissions.ts`
+itself. (2) Added a new regression test (`intakeViews.test.ts`) that wraps
+`RestrictionRegisterStore` to return a healthy snapshot on the FIRST call for the target record
+and a snapshot with that record's preservation consent revoked on every call after — directly
+modeling "the loop's own read" versus "evaluatePermission's own, later read" a regression would
+reintroduce. The test asserts both the resulting title and `callCountForTarget === 1`. (3)
+Confirmed the test is a real regression guard, not a tautology: temporarily reverted
+`intakeViews.ts` to the two-read shape, re-ran the suite, watched this exact test fail
+(`"[title unavailable]"` instead of the expected raw title — the inconsistency the reviewer
+described, manifesting as over-hiding rather than under-hiding in this particular
+configuration), then restored the fix and confirmed it passes again. (4) Full suite: 220 backend
+tests pass (up from 219). (5) Redeployed to `TiroFixtureBackend-drill-20261002`;
+`realIntakeAcceptanceDrill.ts` re-run end to end — **25/25 checks pass live.**
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |

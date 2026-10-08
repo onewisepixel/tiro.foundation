@@ -635,6 +635,30 @@ and documented rather than chased further; revisit when either upstream ships a 
   and through a real human click-through, the same bar every other control in this system has
   met.
 
+- 2026-10-08, a review of commit `f335ea3` (which had already merged to main, CI green at
+  219/219) found one more real P1, now closed: `readIntakeQueue`'s `pendingPublication` loop
+  still took its OWN separate register read — correct relative to the record read before it
+  (the prior round's ordering fix), but WRONG relative to `evaluatePermission`, which does its
+  own, independently-timed register read internally and was never told about the caller's
+  already-fetched snapshot. The reviewer reproduced a redaction landing between the two reads:
+  the queue returned the original title while `GET /intake/:recordId` correctly returned
+  "[REDACTED]" for the same record; a stronger repro combining an expired preservation grant
+  with concurrent redaction/publication-approval showed access denied before the transition and
+  the title still exposed after it. Fixed exactly as specified: `PermissionDecision`
+  (`services/permissions.ts`) now carries the exact `control` snapshot `evaluatePermission`
+  used internally — every one of its 11 return paths returns it (`null` only in the one branch
+  that runs before any register read happens at all). `readIntakeQueue`'s publication loop no
+  longer reads the register itself; it calls `evaluatePermission` once and uses
+  `decision.control` for the eligibility recheck, the title masking, AND the reported
+  `controlVersion` — one register read per candidate, not two. A new regression test
+  (`intakeViews.test.ts`) wraps `RestrictionRegisterStore` to return a healthy snapshot on the
+  first call and a revoked one on any second call for the target record; confirmed it actually
+  fails against the pre-fix code (temporarily reverted to verify, then restored) before trusting
+  it as a real regression guard. 220 backend tests pass (up from 219). Redeployed to
+  `TiroFixtureBackend-drill-20261002`; `realIntakeAcceptanceDrill.ts` re-run — **25/25 checks
+  pass live.** This closes the shared-snapshot gap the reviewer held sign-off on; the staff
+  intake and review milestone is now complete.
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**

@@ -152,24 +152,31 @@ export async function readIntakeQueue(fixtureStore: FixtureStore, registerStore:
     if (!record) continue;
     const grants = await fixtureStore.listConsentGrants(scanned.recordId);
     if (!grants.some((g) => g.purposes.includes("publication"))) continue;
-    const control = await registerStore.getCurrent(scanned.recordId);
-    if (!control || control.currentCustodyStatus !== "preserved" || control.currentPublicationStatus !== "not-published") continue;
-    // These are "preserved" records with real evaluatePermission
-    // semantics already in effect — authentication is never a substitute
-    // for it, on this surface either. Title is only shown if staff would
-    // actually be allowed to see it; otherwise a visible placeholder,
-    // never raw content, defense in depth alongside the preservation-
-    // adequacy requirement (which should already guarantee this passes).
-    // evaluatePermission does its own internal register read — called
-    // immediately adjacent to `control` above (no further content reads
-    // in between), the smallest practical window without changing its
-    // signature to accept a pre-fetched snapshot.
+    // Reviewer-caught finding, round four: this used to take its OWN
+    // separate register read here, THEN call evaluatePermission below,
+    // which does its OWN independent register read internally — two
+    // different reads of the same thing, open to exactly the
+    // inconsistency a single shared snapshot exists to prevent.
+    // Reproduced: a redaction landing between the two reads left the
+    // title masked (or not) against the OLDER snapshot while allowed/
+    // reason reflected the NEWER one — the stronger repro (expired
+    // preservation consent plus concurrent redaction/publication
+    // approval) showed access denied before the transition and the
+    // title still exposed after it. Fixed: evaluatePermission now
+    // returns the exact register snapshot it used (permissions.ts) —
+    // ONE register read total, used consistently below for eligibility,
+    // masking, AND controlVersion. These are "preserved" records with
+    // real evaluatePermission semantics already in effect — title is
+    // only shown if staff would actually be allowed to see it;
+    // otherwise a visible placeholder, never raw content.
     const decision = await evaluatePermission(fixtureStore, registerStore, {
       recordId: scanned.recordId,
       purpose: "preservation",
       audience: "staff",
       now,
     });
+    const control = decision.control;
+    if (!control || control.currentCustodyStatus !== "preserved" || control.currentPublicationStatus !== "not-published") continue;
     const title = decision.allowed ? applyTextRedactions(record, control).title : TITLE_UNAVAILABLE;
     pendingPublication.push({
       recordId: scanned.recordId,

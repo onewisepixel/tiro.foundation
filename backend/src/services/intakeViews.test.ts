@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { FixtureRecord } from "../domain/types";
+import type { FixtureRecord, RestrictionRegisterEntry } from "../domain/types";
 import { InMemoryFixtureStore, InMemoryIntakeRegisterCommitter, InMemoryRestrictionRegisterStore } from "../store/memoryStore";
-import type { FixtureStore } from "../store/store";
+import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import { createSubmission } from "./intake";
 import { correctRecord, redactText } from "./lifecycle";
 import { readIntakeQueue, readIntakeSubmission } from "./intakeViews";
@@ -181,6 +181,145 @@ class CountingFixtureStore implements FixtureStore {
   putRecordWithRedaction(...a: Parameters<FixtureStore["putRecordWithRedaction"]>) { return this.inner.putRecordWithRedaction(...a); }
   putRecordWithCustodyCopy(...a: Parameters<FixtureStore["putRecordWithCustodyCopy"]>) { return this.inner.putRecordWithCustodyCopy(...a); }
 }
+
+// Reviewer-caught finding, round four: readIntakeQueue's pendingPublication
+// loop used to take its OWN separate register read, THEN call
+// evaluatePermission — which does its own, independently-timed register
+// read internally — using the EARLIER snapshot for eligibility/masking/
+// controlVersion while the LATER one decided allowed/reason. Reproduced:
+// a redaction landing between the two reads left the queue showing the
+// original title while record detail correctly showed "[REDACTED]"; a
+// stronger repro (expired preservation consent plus concurrent redaction/
+// publication approval) showed access denied before the transition and
+// the title still exposed after it. This wrapper returns a DIFFERENT
+// snapshot on the first call than on every later call for the target
+// record, so a regression back to two separate reads would reproduce the
+// exact leak (eligibility/masking against the unredacted first snapshot,
+// allowed/reason against the redacted later one) while the fix — a single
+// evaluatePermission call whose returned `control` is used for
+// everything — cannot ever observe more than one of them.
+class StepRegisterStore implements RestrictionRegisterStore {
+  callCountForTarget = 0;
+  constructor(
+    private readonly inner: RestrictionRegisterStore,
+    private readonly targetRecordId: string,
+    private readonly snapshotsForTarget: RestrictionRegisterEntry[],
+  ) {}
+
+  async getCurrent(recordId: string): Promise<RestrictionRegisterEntry | null> {
+    if (recordId !== this.targetRecordId) {
+      return this.inner.getCurrent(recordId);
+    }
+    const index = Math.min(this.callCountForTarget, this.snapshotsForTarget.length - 1);
+    this.callCountForTarget++;
+    return this.snapshotsForTarget[index];
+  }
+
+  setCurrent(...a: Parameters<RestrictionRegisterStore["setCurrent"]>) { return this.inner.setCurrent(...a); }
+  listAll(...a: Parameters<RestrictionRegisterStore["listAll"]>) { return this.inner.listAll(...a); }
+}
+
+test("readIntakeQueue's pendingPublication entry uses ONE register snapshot for eligibility, masking, and the allow decision", async () => {
+  const deps = setup();
+  const recordId = await createBasicSubmission(deps);
+
+  // Resolve evidence and grants directly, bypassing the full approval
+  // flow — the same shortcut the pre-filter test below takes — so
+  // evaluatePermission's allow decision actually succeeds on its own
+  // merits and isn't itself what's under test here.
+  await deps.fixtureStore.putAuthorityClaim({
+    recordId,
+    claimId: "claim-1",
+    status: "identified",
+    claimant: "[SYNTHETIC] claimant",
+    scope: "[SYNTHETIC] scope",
+    evidenceRef: "fixture://evidence",
+    reviewerDecision: "[SYNTHETIC] approved",
+    createdAt: new Date().toISOString(),
+  });
+  await deps.fixtureStore.putConsentGrant(
+    {
+      recordId,
+      consentId: "consent-preservation",
+      version: 1,
+      signerCapacitySummary: "[SYNTHETIC] signer",
+      signerCapacityVerified: true,
+      mandateRef: null,
+      purposes: ["preservation"],
+      audience: "staff",
+      grantedAt: new Date().toISOString(),
+      expiresAt: null,
+      revokedAt: null,
+      retentionTermsRef: "fixture://retention",
+      withdrawalContact: "[SYNTHETIC] contact",
+    },
+    undefined,
+  );
+  await deps.fixtureStore.putConsentGrant(
+    {
+      recordId,
+      consentId: "consent-publication",
+      version: 1,
+      signerCapacitySummary: "[SYNTHETIC] signer",
+      signerCapacityVerified: true,
+      mandateRef: null,
+      purposes: ["publication"],
+      audience: "staff",
+      grantedAt: new Date().toISOString(),
+      expiresAt: null,
+      revokedAt: null,
+      retentionTermsRef: "fixture://retention",
+      withdrawalContact: "[SYNTHETIC] contact",
+    },
+    undefined,
+  );
+
+  const base = await deps.registerStore.getCurrent(recordId);
+  const healthy: RestrictionRegisterEntry = {
+    ...base!,
+    currentCustodyStatus: "preserved",
+    currentPublicationStatus: "not-published",
+    controlVersion: base!.controlVersion + 1,
+  };
+  await deps.registerStore.setCurrent(healthy, base!.controlVersion);
+
+  // What a LATER, independently-timed read (the kind evaluatePermission
+  // used to do on its own, separate from the queue's earlier read) would
+  // see once the preservation consent this record depends on was revoked
+  // at the register level in the gap between the two reads — the
+  // reviewer's "expired preservation consent... concurrent... approval"
+  // repro, modeled with a revocation instead of an expiry for a
+  // deterministic, clock-independent test.
+  const revokedLater: RestrictionRegisterEntry = {
+    ...healthy,
+    revokedConsentIds: ["consent-preservation"],
+    controlVersion: healthy.controlVersion + 1,
+  };
+
+  // Call 1 (the ONLY call the fix ever makes) sees the healthy snapshot.
+  // A regression reintroducing a second, separate read before calling
+  // evaluatePermission would see this healthy snapshot on ITS first call
+  // (used for eligibility/masking — raw title, nothing wrong), then the
+  // revoked one on evaluatePermission's own internal second call (used
+  // for allowed/reason — now denied) — masking and the allow decision
+  // would disagree about which snapshot is current, exactly the
+  // inconsistency the reviewer reproduced.
+  const stepStore = new StepRegisterStore(deps.registerStore, recordId, [healthy, revokedLater]);
+
+  const view = await readIntakeQueue(deps.fixtureStore, stepStore);
+  const entry = view.pendingPublication.find((e) => e.recordId === recordId);
+  assert.ok(entry, "expected the record in pendingPublication");
+  assert.equal(
+    entry!.title,
+    "[SYNTHETIC] original title",
+    "eligibility, masking, and the allow decision must all be computed from the SAME (first and only) snapshot",
+  );
+  assert.equal(
+    stepStore.callCountForTarget,
+    1,
+    "readIntakeQueue must read the register exactly once per publication candidate, not once directly plus again inside evaluatePermission",
+  );
+});
 
 test("readIntakeQueue's cheap pre-filter skips expensive per-entry reads for ineligible entries — the real throttling fix", async () => {
   const deps = setup();
