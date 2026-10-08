@@ -103,14 +103,32 @@ export async function readIntakeQueue(fixtureStore: FixtureStore, registerStore:
   // flags — only a fresh register read re-masks it), produced a real,
   // reproduced leak — the register snapshot taken here was already stale
   // by the time the newly-corrected raw title was read and masked against
-  // it. Fixed for real this time: content (record, grants) is read FIRST
-  // for every candidate, and the register is read LAST, immediately
-  // before use, so it is always at least as fresh as what it's about to
-  // decide and mask — the same ordering fix applied to readIntakeSubmission
-  // above.
+  // it. Fixed: content (record, grants) is read FIRST for every
+  // candidate, and the register is read LAST, immediately before use —
+  // the same ordering fix applied to readIntakeSubmission above.
+  //
+  // Reviewer-caught finding, round three: doing that content-then-register
+  // dance for EVERY entry this function's own listAll() scan returns
+  // throttled this stack's deliberately tiny provisioned RCU once real
+  // usage accumulated enough history (240+ register rows from this
+  // engagement's own live drills) — two extra GetItems per entry,
+  // regardless of whether most of them obviously don't qualify at all.
+  // Fixed by using the scan's OWN already-free data as a cheap first-pass
+  // filter (the custody/publication status it already returned) to narrow
+  // to PLAUSIBLE candidates before reading anything else for any of them —
+  // the expensive, race-safe dance below still runs for every candidate
+  // that passes this filter, so the actual security guarantee (never show
+  // stale/un-redacted content) is unchanged; this only skips re-reading
+  // entries the scan itself already shows are nowhere close to eligible.
+  const preservationCandidates = entries.filter(
+    (e) => e.currentCustodyStatus === "quarantined" && e.currentPublicationStatus !== "withdrawn",
+  );
+  const publicationCandidates = entries.filter(
+    (e) => e.currentCustodyStatus === "preserved" && e.currentPublicationStatus === "not-published",
+  );
 
   const pendingPreservation: IntakeQueueEntry[] = [];
-  for (const scanned of entries) {
+  for (const scanned of preservationCandidates) {
     const record = await fixtureStore.getRecord(scanned.recordId);
     if (!record) continue;
     const control = await registerStore.getCurrent(scanned.recordId);
@@ -129,7 +147,7 @@ export async function readIntakeQueue(fixtureStore: FixtureStore, registerStore:
   }
 
   const pendingPublication: IntakeQueueEntry[] = [];
-  for (const scanned of entries) {
+  for (const scanned of publicationCandidates) {
     const record = await fixtureStore.getRecord(scanned.recordId);
     if (!record) continue;
     const grants = await fixtureStore.listConsentGrants(scanned.recordId);
