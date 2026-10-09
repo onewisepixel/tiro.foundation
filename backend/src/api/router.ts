@@ -262,6 +262,19 @@ export async function routeRequest(
       }
       throw error;
     }
+    // Reviewer-caught finding: an empty page caused by candidates that
+    // THREW (not candidates that were genuinely ineligible) must never be
+    // reported as a confident, successful "nothing is published" — that's
+    // the exact false-empty-directory problem readPublicListing's own
+    // `hadFailures` flag exists to catch. A 503 here is the SAME signal
+    // `fetchPublicMemoryListing` (frontend) already treats any non-2xx
+    // as — the existing "Live records are temporarily unavailable" state
+    // on the index page, not a new code path to build. Never names which
+    // record(s) failed — only this aggregate boolean ever leaves this
+    // function.
+    if (listing.hadFailures && listing.items.length === 0) {
+      return { statusCode: 503, body: { error: "Unable to check any candidate records right now. Please try again shortly." } };
+    }
     const wrappedBytes = wrappedResponseBytes(listing, PUBLIC_JSON_RESPONSE_HEADERS);
     if (wrappedBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES) {
       return {

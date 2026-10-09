@@ -191,13 +191,15 @@ a.tiro-chip:hover {
   border-color: var(--tiro-accent);
 }
 
-/* Set on <html> by BfcacheRevalidator.tsx's `pagehide` handler, just
-   before the browser may freeze this page into its back/forward cache —
-   so the FROZEN SNAPSHOT already has content hidden. On restore, the
-   cached (hidden) snapshot paints first (browsers do this before any JS
-   runs), then `pageshow` reloads the page for fresh, current-permission
-   content — the user never sees the stale, pre-protective-action content,
-   not even for one frame. */
+/* Set on <html> by BfcacheRevalidator.tsx, for either of two distinct
+   back/forward mechanisms it defeats: (1) `pagehide`, just before the
+   browser may freeze this page into its native back/forward cache — so
+   the FROZEN SNAPSHOT already has content hidden, and a `pageshow`
+   restore reloads for fresh content before anything stale is ever
+   painted; (2) `popstate`, for Next.js's OWN client-side Router Cache
+   reusing a page on back/forward (a separate mechanism `pagehide`/
+   `pageshow` never see) — hidden immediately, revealed only once
+   `router.refresh()` has actually committed fresh content. */
 html[data-bfcache-pending="true"] body {
   visibility: hidden;
 }

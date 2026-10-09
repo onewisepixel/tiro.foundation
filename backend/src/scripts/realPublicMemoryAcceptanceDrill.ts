@@ -108,22 +108,27 @@ async function main() {
   // stays there, this drill adapts instead), a burst like that WILL
   // occasionally throttle for real. The Lambda's own
   // ProvisionedThroughputExceededException isn't visible to an HTTP
-  // client — it surfaces here only as a generic 500 — so a transient
-  // throttle and a genuine server bug are indistinguishable from the
-  // client alone. Retrying with backoff (same shape as
-  // realLegacyMediaMigration.ts's withThrottleRetry, which retries the
-  // SAME exception server-side, in-process) resolves the transient case;
-  // a genuine bug fails the SAME way on every retry and still surfaces —
-  // this never masks a real defect, it only stops a known capacity limit
-  // from aborting the whole run.
+  // client — it surfaces here as either a generic 500 (an unhandled
+  // exception) or, for GET /public/records specifically, a 503 (every
+  // candidate on the page failed to evaluate — services/publicView.ts's
+  // `hadFailures` signal, router.ts's deliberate response for exactly
+  // this case, confirmed live: reproduced here on the very first live run
+  // after that fix shipped) — either way, a transient throttle and a
+  // genuine server bug are indistinguishable from the client alone.
+  // Retrying with backoff (same shape as realLegacyMediaMigration.ts's
+  // withThrottleRetry, which retries the SAME exception server-side,
+  // in-process) resolves the transient case; a genuine bug fails the SAME
+  // way on every retry and still surfaces — this never masks a real
+  // defect, it only stops a known capacity limit from aborting the whole
+  // run.
   async function withHttpThrottleRetry<T extends { status: number }>(fn: () => Promise<T>, label: string): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       const result = await fn();
-      if (result.status !== 500 || attempt > 30) {
+      if ((result.status !== 500 && result.status !== 503) || attempt > 30) {
         return result;
       }
       const delayMs = Math.min(1000 * attempt, 8000);
-      log("THROTTLE BACKOFF", `${label}: got a 500 (possibly provisioned-throughput throttling on this intentionally tiny-capacity table); waiting ${delayMs}ms before retry ${attempt}`);
+      log("THROTTLE BACKOFF", `${label}: got a ${result.status} (possibly provisioned-throughput throttling on this intentionally tiny-capacity table); waiting ${delayMs}ms before retry ${attempt}`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }

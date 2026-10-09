@@ -5,7 +5,7 @@ import { InMemoryMediaStore } from "../store/mediaStore";
 import { seedStore } from "../fixtures/load";
 import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
-import { VersionConflictError, type RestrictionRegisterStore } from "../store/store";
+import { VersionConflictError, type FixtureStore, type RestrictionRegisterStore } from "../store/store";
 import type { RestrictionRegisterEntry } from "../domain/types";
 import { isPublicGetRoutePath, PUBLIC_JSON_RESPONSE_HEADERS, routeRequest, wrappedResponseBytes, type ApiRequest } from "./router";
 import { correctRecord, redactMedia, restrict } from "../services/lifecycle";
@@ -1027,6 +1027,63 @@ test("GET /public/records returns only the publicly eligible fixture, with the p
   const body = response.body as { items: { recordId: string }[]; nextCursor: string | null };
   assert.equal(body.items.length, 1);
   assert.equal(body.items[0].recordId, active.record.recordId);
+});
+
+// Reviewer-caught finding: when every candidate on a page fails to
+// evaluate, the listing must never come back as a confident 200 with an
+// empty array — that reads identically to "nothing is published," which
+// it is NOT provably true. 503 is the same signal
+// fetchPublicMemoryListing (frontend) already treats any non-2xx as; no
+// new frontend state needed.
+test("GET /public/records returns 503, not a confident empty 200, when every candidate fails to evaluate", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+
+  class AlwaysThrowsFixtureStore implements FixtureStore {
+    constructor(private readonly inner: FixtureStore) {}
+    getRecord(recordId: string) {
+      if (recordId === active.record.recordId) {
+        throw new Error("simulated ProvisionedThroughputExceededException");
+      }
+      return this.inner.getRecord(recordId);
+    }
+    listAuthorityClaims(...a: Parameters<FixtureStore["listAuthorityClaims"]>) { return this.inner.listAuthorityClaims(...a); }
+    putRecord(...a: Parameters<FixtureStore["putRecord"]>) { return this.inner.putRecord(...a); }
+    deleteRecord(...a: Parameters<FixtureStore["deleteRecord"]>) { return this.inner.deleteRecord(...a); }
+    putAuthorityClaim(...a: Parameters<FixtureStore["putAuthorityClaim"]>) { return this.inner.putAuthorityClaim(...a); }
+    getAuthorityClaim(...a: Parameters<FixtureStore["getAuthorityClaim"]>) { return this.inner.getAuthorityClaim(...a); }
+    listLegalRights(...a: Parameters<FixtureStore["listLegalRights"]>) { return this.inner.listLegalRights(...a); }
+    putLegalRight(...a: Parameters<FixtureStore["putLegalRight"]>) { return this.inner.putLegalRight(...a); }
+    getLegalRight(...a: Parameters<FixtureStore["getLegalRight"]>) { return this.inner.getLegalRight(...a); }
+    listConsentGrants(...a: Parameters<FixtureStore["listConsentGrants"]>) { return this.inner.listConsentGrants(...a); }
+    getConsentGrant(...a: Parameters<FixtureStore["getConsentGrant"]>) { return this.inner.getConsentGrant(...a); }
+    putConsentGrant(...a: Parameters<FixtureStore["putConsentGrant"]>) { return this.inner.putConsentGrant(...a); }
+    listCustodyCopies(...a: Parameters<FixtureStore["listCustodyCopies"]>) { return this.inner.listCustodyCopies(...a); }
+    putCustodyCopy(...a: Parameters<FixtureStore["putCustodyCopy"]>) { return this.inner.putCustodyCopy(...a); }
+    createLifecycleRequest(...a: Parameters<FixtureStore["createLifecycleRequest"]>) { return this.inner.createLifecycleRequest(...a); }
+    getLifecycleRequest(...a: Parameters<FixtureStore["getLifecycleRequest"]>) { return this.inner.getLifecycleRequest(...a); }
+    updateLifecycleRequest(...a: Parameters<FixtureStore["updateLifecycleRequest"]>) { return this.inner.updateLifecycleRequest(...a); }
+    listLifecycleRequestsByStatus(...a: Parameters<FixtureStore["listLifecycleRequestsByStatus"]>) { return this.inner.listLifecycleRequestsByStatus(...a); }
+    putAuditReceipt(...a: Parameters<FixtureStore["putAuditReceipt"]>) { return this.inner.putAuditReceipt(...a); }
+    listAuditReceipts(...a: Parameters<FixtureStore["listAuditReceipts"]>) { return this.inner.listAuditReceipts(...a); }
+    listCorrections(...a: Parameters<FixtureStore["listCorrections"]>) { return this.inner.listCorrections(...a); }
+    putCorrection(...a: Parameters<FixtureStore["putCorrection"]>) { return this.inner.putCorrection(...a); }
+    getCorrection(...a: Parameters<FixtureStore["getCorrection"]>) { return this.inner.getCorrection(...a); }
+    listRedactions(...a: Parameters<FixtureStore["listRedactions"]>) { return this.inner.listRedactions(...a); }
+    putRedaction(...a: Parameters<FixtureStore["putRedaction"]>) { return this.inner.putRedaction(...a); }
+    getRedaction(...a: Parameters<FixtureStore["getRedaction"]>) { return this.inner.getRedaction(...a); }
+    putRecordWithCorrection(...a: Parameters<FixtureStore["putRecordWithCorrection"]>) { return this.inner.putRecordWithCorrection(...a); }
+    putRecordWithRedaction(...a: Parameters<FixtureStore["putRecordWithRedaction"]>) { return this.inner.putRecordWithRedaction(...a); }
+    putRecordWithCustodyCopy(...a: Parameters<FixtureStore["putRecordWithCustodyCopy"]>) { return this.inner.putRecordWithCustodyCopy(...a); }
+  }
+
+  const response = await routeRequest(new AlwaysThrowsFixtureStore(fixtureStore), registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records"],
+  }));
+  assert.equal(response.statusCode, 503);
+  const body = response.body as { error: string };
+  assert.equal(typeof body.error, "string");
+  assert.equal(body.error.includes(active.record.recordId), false, "the failed recordId must never appear in the response");
 });
 
 test("GET /public/records/:recordId returns a flat 404 — never the staff limited-metadata shape — for a denied record", async () => {

@@ -12,8 +12,11 @@ import { restrict, revokeConsentGrant, withdraw, startDeletion, completeDeletion
 import { decodePublicCursor, setCursorSecretKey } from "./cursorCodec";
 import {
   fetchPublicMedia,
+  PUBLIC_LISTING_EVALUATION_PACING_MS,
   PUBLIC_LISTING_MAX_EVALUATIONS,
   PUBLIC_LISTING_MAX_RAW_ROWS,
+  PUBLIC_LISTING_RAW_PAGE_PACING_MS,
+  PUBLIC_LISTING_TIME_BUDGET_MS,
   readPublicListing,
   readPublicRecord,
 } from "./publicView";
@@ -423,6 +426,82 @@ test("readPublicListing stops once the wall-clock time budget is exceeded, retur
   }
 });
 
+// Reviewer-caught finding, deterministic reproduction: the budget was
+// checked BEFORE each pacing sleep, never after — so a check that passed
+// just before sleeping could still be stale by the time the sleep
+// resolved, letting real work start past the deadline. The reviewer's own
+// repro started a second evaluation at 9,400ms against an 8,000ms budget.
+// This test reproduces the SAME shape: a real timer fires partway through
+// the pacing sleep (before the FIXED code's post-sleep recheck would run)
+// and pushes the clock past the budget — proving the second candidate's
+// evaluation never starts, and that the unattempted row stays reachable
+// via the continuation cursor rather than being silently skipped.
+test("readPublicListing never starts an evaluation once the deadline has passed mid-sleep, and preserves the unattempted row for retry", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  await putEligible(fixtureStore, registerStore, "row-0");
+  await putEligible(fixtureStore, registerStore, "row-1");
+
+  const realDateNow = Date.now;
+  const fakeNow = { value: realDateNow() };
+  Date.now = () => fakeNow.value;
+
+  const timer = setTimeout(
+    () => {
+      fakeNow.value += PUBLIC_LISTING_TIME_BUDGET_MS + 1000;
+    },
+    Math.max(PUBLIC_LISTING_EVALUATION_PACING_MS - 200, 0),
+  );
+
+  try {
+    const page = await readPublicListing(fixtureStore, registerStore, { limit: 10, cursor: null });
+    assert.deepEqual(
+      page.items.map((i) => i.recordId),
+      ["row-0"],
+      "only the first candidate must be evaluated — the second must never start once the deadline has passed mid-sleep",
+    );
+    assert.equal(page.hadFailures, false, "stopping for budget reasons is not a failure");
+    assert.notEqual(page.nextCursor, null, "the unattempted second row must remain reachable via the continuation cursor, not silently skipped");
+  } finally {
+    clearTimeout(timer);
+    Date.now = realDateNow;
+  }
+});
+
+// Same fix, same technique, applied to the OTHER sleep call site: pacing
+// between raw register-scan pages.
+test("readPublicListing never fetches a new raw page once the deadline has passed mid-sleep", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  // 30 filler rows: page 1 (size 25) fully consumed with nothing eligible
+  // and no evaluation pacing at all, leaving page 2 (the remaining 5 rows)
+  // reachable only through the RAW-PAGE pacing sleep this test targets.
+  for (let i = 0; i < 30; i++) {
+    await putFiller(registerStore, `filler-${String(i).padStart(2, "0")}`);
+  }
+
+  const realDateNow = Date.now;
+  const fakeNow = { value: realDateNow() };
+  Date.now = () => fakeNow.value;
+
+  const timer = setTimeout(
+    () => {
+      fakeNow.value += PUBLIC_LISTING_TIME_BUDGET_MS + 1000;
+    },
+    Math.max(PUBLIC_LISTING_RAW_PAGE_PACING_MS - 100, 0),
+  );
+
+  try {
+    const page = await readPublicListing(fixtureStore, registerStore, { limit: 50, cursor: null });
+    assert.equal(page.items.length, 0);
+    assert.notEqual(page.nextCursor, null, "the second raw page must remain reachable via the continuation cursor, never dropped");
+    assert.equal(decodePublicCursor(page.nextCursor!), "filler-24", "must resume exactly after the last row of page 1 — page 2 was never fetched");
+  } finally {
+    clearTimeout(timer);
+    Date.now = realDateNow;
+  }
+});
+
 test("readPublicListing rejects a tampered/malformed cursor rather than silently restarting at page one", async () => {
   const { fixtureStore, registerStore } = await setup();
   await assert.rejects(() => readPublicListing(fixtureStore, registerStore, { limit: 10, cursor: "not-a-real-cursor" }));
@@ -489,4 +568,65 @@ test("readPublicListing skips a candidate whose evaluation throws, rather than f
   const returnedIds = page.items.map((i) => i.recordId).sort();
   assert.deepEqual(returnedIds, [...goodIds].sort(), "both good candidates must still be returned");
   assert.equal(returnedIds.includes(badId), false, "the throwing candidate must be skipped, not included");
+  assert.equal(page.hadFailures, true, "a partial failure must still be flagged, even though real items were also returned");
+});
+
+// Reviewer-caught finding: the previous round's resilience fix (above)
+// silently advanced past every failed candidate with no record of it —
+// reproduced with TWO previously-public records whose reads both throw:
+// the response looked identical to a confident, fully-checked "nothing is
+// currently published" (items: [], nextCursor: null), driving exactly the
+// same false-empty-directory message Finding 5 of the prior round already
+// fixed once, through a different path. `hadFailures` must be true
+// whenever a failure contributed to an empty result, so router.ts can
+// tell the two apart.
+test("readPublicListing flags hadFailures when every candidate on the page throws, leaving items empty", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const badIds = ["bad-0", "bad-1"];
+  for (const id of badIds) {
+    await putEligible(fixtureStore, registerStore, id);
+  }
+
+  class AlwaysThrowsFixtureStore implements FixtureStore {
+    constructor(private readonly inner: FixtureStore) {}
+    getRecord(recordId: string) {
+      if (badIds.includes(recordId)) {
+        throw new Error("simulated ProvisionedThroughputExceededException");
+      }
+      return this.inner.getRecord(recordId);
+    }
+    listAuthorityClaims(...a: Parameters<FixtureStore["listAuthorityClaims"]>) { return this.inner.listAuthorityClaims(...a); }
+    putRecord(...a: Parameters<FixtureStore["putRecord"]>) { return this.inner.putRecord(...a); }
+    deleteRecord(...a: Parameters<FixtureStore["deleteRecord"]>) { return this.inner.deleteRecord(...a); }
+    putAuthorityClaim(...a: Parameters<FixtureStore["putAuthorityClaim"]>) { return this.inner.putAuthorityClaim(...a); }
+    getAuthorityClaim(...a: Parameters<FixtureStore["getAuthorityClaim"]>) { return this.inner.getAuthorityClaim(...a); }
+    listLegalRights(...a: Parameters<FixtureStore["listLegalRights"]>) { return this.inner.listLegalRights(...a); }
+    putLegalRight(...a: Parameters<FixtureStore["putLegalRight"]>) { return this.inner.putLegalRight(...a); }
+    getLegalRight(...a: Parameters<FixtureStore["getLegalRight"]>) { return this.inner.getLegalRight(...a); }
+    listConsentGrants(...a: Parameters<FixtureStore["listConsentGrants"]>) { return this.inner.listConsentGrants(...a); }
+    getConsentGrant(...a: Parameters<FixtureStore["getConsentGrant"]>) { return this.inner.getConsentGrant(...a); }
+    putConsentGrant(...a: Parameters<FixtureStore["putConsentGrant"]>) { return this.inner.putConsentGrant(...a); }
+    listCustodyCopies(...a: Parameters<FixtureStore["listCustodyCopies"]>) { return this.inner.listCustodyCopies(...a); }
+    putCustodyCopy(...a: Parameters<FixtureStore["putCustodyCopy"]>) { return this.inner.putCustodyCopy(...a); }
+    createLifecycleRequest(...a: Parameters<FixtureStore["createLifecycleRequest"]>) { return this.inner.createLifecycleRequest(...a); }
+    getLifecycleRequest(...a: Parameters<FixtureStore["getLifecycleRequest"]>) { return this.inner.getLifecycleRequest(...a); }
+    updateLifecycleRequest(...a: Parameters<FixtureStore["updateLifecycleRequest"]>) { return this.inner.updateLifecycleRequest(...a); }
+    listLifecycleRequestsByStatus(...a: Parameters<FixtureStore["listLifecycleRequestsByStatus"]>) { return this.inner.listLifecycleRequestsByStatus(...a); }
+    putAuditReceipt(...a: Parameters<FixtureStore["putAuditReceipt"]>) { return this.inner.putAuditReceipt(...a); }
+    listAuditReceipts(...a: Parameters<FixtureStore["listAuditReceipts"]>) { return this.inner.listAuditReceipts(...a); }
+    listCorrections(...a: Parameters<FixtureStore["listCorrections"]>) { return this.inner.listCorrections(...a); }
+    putCorrection(...a: Parameters<FixtureStore["putCorrection"]>) { return this.inner.putCorrection(...a); }
+    getCorrection(...a: Parameters<FixtureStore["getCorrection"]>) { return this.inner.getCorrection(...a); }
+    listRedactions(...a: Parameters<FixtureStore["listRedactions"]>) { return this.inner.listRedactions(...a); }
+    putRedaction(...a: Parameters<FixtureStore["putRedaction"]>) { return this.inner.putRedaction(...a); }
+    getRedaction(...a: Parameters<FixtureStore["getRedaction"]>) { return this.inner.getRedaction(...a); }
+    putRecordWithCorrection(...a: Parameters<FixtureStore["putRecordWithCorrection"]>) { return this.inner.putRecordWithCorrection(...a); }
+    putRecordWithRedaction(...a: Parameters<FixtureStore["putRecordWithRedaction"]>) { return this.inner.putRecordWithRedaction(...a); }
+    putRecordWithCustodyCopy(...a: Parameters<FixtureStore["putRecordWithCustodyCopy"]>) { return this.inner.putRecordWithCustodyCopy(...a); }
+  }
+
+  const page = await readPublicListing(new AlwaysThrowsFixtureStore(fixtureStore), registerStore, { limit: 10, cursor: null });
+  assert.equal(page.items.length, 0);
+  assert.equal(page.hadFailures, true, "an all-failed page must be distinguishable from a genuinely, confidently empty one");
 });

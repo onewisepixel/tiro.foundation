@@ -139,7 +139,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export type PublicListingResult = { items: PublicMemoryView[]; nextCursor: string | null };
+// `hadFailures: true` means at least one candidate on this page threw
+// while being evaluated (see the catch block below) — the caller (router.ts)
+// must NEVER report `items: []` alongside this as a confident "nothing is
+// currently published": that collapses "we don't actually know" into the
+// same shape as "we checked and there's genuinely nothing there," exactly
+// the false-empty-directory problem this field exists to prevent.
+export type PublicListingResult = { items: PublicMemoryView[]; nextCursor: string | null; hadFailures: boolean };
 
 export async function readPublicListing(
   fixtureStore: FixtureStore,
@@ -157,6 +163,7 @@ export async function readPublicListing(
   let evaluations = 0;
   let rawPagesFetched = 0;
   let exhausted = false;
+  let hadFailures = false;
 
   const budgetExceeded = () =>
     items.length >= query.limit ||
@@ -171,6 +178,17 @@ export async function readPublicListing(
     // per-candidate evaluation pacing below.
     if (rawPagesFetched > 0) {
       await sleep(PUBLIC_LISTING_RAW_PAGE_PACING_MS);
+      // Reviewer-caught finding: the budget was checked BEFORE this sleep,
+      // not after — a deterministic reproduction started real work at
+      // 9,400ms against an 8,000ms budget, because nothing re-checked the
+      // clock once the sleep itself had pushed past it. Re-checking here,
+      // before the (possibly expensive) page fetch below, closes that:
+      // resumeKey still holds whatever it was before this iteration, so
+      // bailing out now loses no progress — the next call fetches exactly
+      // this same page.
+      if (budgetExceeded()) {
+        break;
+      }
     }
     rawPagesFetched++;
     const page = await registerStore.listPage({ limit: PUBLIC_LISTING_RAW_PAGE_SIZE, cursor: resumeKey });
@@ -195,6 +213,16 @@ export async function readPublicListing(
         // PUBLIC_LISTING_EVALUATION_PACING_MS's comment above.
         if (evaluations > 0) {
           await sleep(PUBLIC_LISTING_EVALUATION_PACING_MS);
+          // Same reviewer-caught finding as the raw-page pacing above,
+          // applied here too — this is the EXACT call site the
+          // deterministic reproduction targeted. resumeKey has not been
+          // advanced past this row yet (that happens below, after a
+          // successful or failed evaluation) — breaking now means the
+          // next call re-attempts this exact row fresh, never silently
+          // skipping it.
+          if (budgetExceeded()) {
+            break;
+          }
         }
         evaluations++;
         try {
@@ -202,7 +230,7 @@ export async function readPublicListing(
           if (view) {
             items.push(view);
           }
-        } catch {
+        } catch (error) {
           // Live-drill-caught finding: a single candidate's evidence can
           // be disproportionately large (e.g. a record with an unusually
           // long accumulated history of authority claims/legal rights/
@@ -219,7 +247,13 @@ export async function readPublicListing(
           // else): one record's problem must never take down the whole
           // directory. The record simply doesn't appear on this page; a
           // later request (this one's pacing/backoff, or simply trying
-          // again) may succeed once capacity recovers.
+          // again) may succeed once capacity recovers. Logged server-side
+          // only (same as handler.ts's own top-level catch) — the
+          // recordId that failed is never part of the response, kept
+          // confidential from the anonymous caller the same way a
+          // denied-but-existing record already is.
+          hadFailures = true;
+          console.error(`readPublicListing: candidate ${entry.recordId} failed to evaluate; skipping it for this page.`, error);
         }
       }
       // Marked as fully examined only now, after the row has actually been
@@ -244,7 +278,7 @@ export async function readPublicListing(
   // even the first row of the first page was examined (resumeKey never
   // advances past its initial null), which must NOT be reported as
   // exhausted just because resumeKey happens to still be null.
-  return { items, nextCursor: exhausted ? null : encodePublicCursor(resumeKey) };
+  return { items, nextCursor: exhausted ? null : encodePublicCursor(resumeKey), hadFailures };
 }
 
 // Same eligibility gate as readPublicRecord (isSynthetic, then the
