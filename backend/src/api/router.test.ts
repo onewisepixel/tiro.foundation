@@ -7,9 +7,17 @@ import { buildSeedFixtures } from "../fixtures/seed";
 import { bindSeedMedia } from "../fixtures/media";
 import { VersionConflictError, type RestrictionRegisterStore } from "../store/store";
 import type { RestrictionRegisterEntry } from "../domain/types";
-import { isPublicGetRoutePath, routeRequest, type ApiRequest } from "./router";
-import { redactMedia, restrict } from "../services/lifecycle";
+import { isPublicGetRoutePath, PUBLIC_JSON_RESPONSE_HEADERS, routeRequest, wrappedResponseBytes, type ApiRequest } from "./router";
+import { correctRecord, redactMedia, restrict } from "../services/lifecycle";
+import { LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES } from "../services/export";
 import { uuidv7 } from "../domain/id";
+import { setCursorSecretKey } from "../services/cursorCodec";
+
+// Same fixed, clearly-local test key cursorCodec.test.ts uses — never the
+// real deployment secret, which infra generates fresh per deploy. Required
+// before any /public/records call below, which encodes/decodes a real
+// cursor.
+setCursorSecretKey("test-only-fixed-cursor-key-never-used-in-production");
 
 const STAFF_IDENTITY = "staff:test@example.invalid";
 
@@ -1076,4 +1084,84 @@ test("GET /public/records/:recordId/media/:mediaId serves bytes for an eligible 
     pathSegments: ["public", "records", active.record.recordId, "media", mediaId],
   }));
   assert.equal(denied.statusCode, 404);
+});
+
+// ---------------------------------------------------------------------------
+// Response-size guard must measure the REAL wrapped response, headers included
+// ---------------------------------------------------------------------------
+
+test(
+  "wrappedResponseBytes accounts for the full real headers object — the exact 27-byte cache-control gap a reviewer reproduced",
+  () => {
+    // A body sized so the response sits EXACTLY at Lambda's limit when
+    // measured with only {"content-type": "application/json"} — this was
+    // the OLD guard's blind spot: it would have reported this as safely
+    // at-or-under budget, when the REAL response (with cache-control
+    // actually added) was already over.
+    const overheadWithEmptyTitle = wrappedResponseBytes({ title: "" });
+    const paddingNeeded = LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES - overheadWithEmptyTitle;
+    const body = { title: "a".repeat(paddingNeeded) };
+
+    const oldStyleBytes = wrappedResponseBytes(body);
+    assert.equal(
+      oldStyleBytes,
+      LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES,
+      "sanity: this body sits exactly at the limit under the OLD, header-blind measurement",
+    );
+
+    const realBytes = wrappedResponseBytes(body, PUBLIC_JSON_RESPONSE_HEADERS);
+    assert.equal(
+      realBytes,
+      LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES + 27,
+      'the real, fully-wrapped response is exactly 27 bytes larger — ,"cache-control":"no-store"\'s own encoded size',
+    );
+    assert.ok(realBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES, "a response the old guard would have let through now correctly exceeds the real limit");
+  },
+);
+
+test("GET /public/records/:recordId 413s at the real boundary the old, header-blind guard would have missed", async () => {
+  const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
+
+  const baseline = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId],
+  }));
+  assert.equal(baseline.statusCode, 200);
+  const baselineBytes = wrappedResponseBytes(baseline.body, PUBLIC_JSON_RESPONSE_HEADERS);
+
+  // Append (never replace outright) enough plain-ASCII padding to the
+  // title to push the REAL wrapped response to exactly one byte over the
+  // limit — each appended character contributes exactly one byte to the
+  // final count (no escaping-sensitive characters involved).
+  const extraCharsNeeded = LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES + 1 - baselineBytes;
+  await correctRecord(fixtureStore, {
+    requestId: uuidv7(),
+    recordId: active.record.recordId,
+    requesterCapacity: STAFF_IDENTITY,
+    reason: "[SYNTHETIC] pad title to the exact response-size boundary for a regression test",
+    field: "title",
+    correctedValue: active.record.title + "a".repeat(extraCharsNeeded),
+  });
+
+  const overLimit = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId],
+  }));
+  assert.equal(overLimit.statusCode, 413, "one byte over the REAL limit must be rejected, not silently let through by an undercounting guard");
+
+  // Negative control: one byte less padding lands exactly AT the limit,
+  // which must still succeed — the fix must not over-reject either.
+  await correctRecord(fixtureStore, {
+    requestId: uuidv7(),
+    recordId: active.record.recordId,
+    requesterCapacity: STAFF_IDENTITY,
+    reason: "[SYNTHETIC] pad title to exactly the response-size limit for a regression test",
+    field: "title",
+    correctedValue: active.record.title + "a".repeat(extraCharsNeeded - 1),
+  });
+  const atLimit = await routeRequest(fixtureStore, registerStore, mediaStore, intakeCommitter, "public:anonymous", req({
+    method: "GET",
+    pathSegments: ["public", "records", active.record.recordId],
+  }));
+  assert.equal(atLimit.statusCode, 200, "exactly at the limit must still succeed");
 });

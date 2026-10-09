@@ -10,6 +10,7 @@
 // docs/backend/evidence-matrix.md for what's deployed versus prepared.
 import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from "aws-cdk-lib";
 import { Construct } from "constructs";
+import { randomBytes } from "crypto";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
@@ -196,6 +197,17 @@ export class FixtureBackendStack extends Stack {
         TIRO_REGISTER_TABLE: this.restrictionRegisterTable.tableName,
         TIRO_STATUS_INDEX: "GSI1-status-index",
         TIRO_MEDIA_BUCKET: this.mediaBucket.bucketName,
+        // Generated fresh every synth/deploy, never committed to source —
+        // the real key backend/src/services/cursorCodec.ts derives its
+        // AES-256 key from (handler.ts's setCursorSecretKey call). Stable
+        // across every cold AND warm invocation of THIS deployment, since
+        // every Lambda instance reads the same CloudFormation-resolved
+        // environment variable; a redeploy mints a new one, which simply
+        // invalidates any cursors still in flight — an acceptable cost for
+        // a short-lived pagination token. Reviewer-caught finding: the
+        // previous key was a constant committed to this public repo,
+        // letting anyone decrypt a real cursor or forge their own.
+        TIRO_PUBLIC_CURSOR_SECRET: randomBytes(32).toString("base64"),
       },
     });
     // Both grants are needed on the SAME Lambda because the service layer

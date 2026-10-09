@@ -126,15 +126,29 @@ export function isPublicGetRoutePath(pathSegments: string[]): boolean {
   return false;
 }
 
+// The EXACT headers api/handler.ts sets on every /public/* JSON response —
+// exported so handler.ts uses this SAME object (not a separately
+// hand-written literal that could silently drift), and so the size guard
+// below measures the real wrapped response, not an approximation of it.
+// Reviewer-caught finding: the guard used to assume only
+// {"content-type":"application/json"}, undercounting the real response by
+// exactly the ,"cache-control":"no-store" fragment handler.ts actually
+// adds for these routes — a response could pass this check while still
+// exceeding Lambda's real synchronous limit once truly wrapped.
+export const PUBLIC_JSON_RESPONSE_HEADERS = { "content-type": "application/json", "cache-control": "no-store" } as const;
+
 // Same final-response-size guard api/router.ts's POST /export branch
 // already uses (see services/export.ts's LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES
 // comment) — replicates EXACTLY what handler.ts's real Lambda response
 // wrapping produces, so it's the true byte count, not an estimate. A
 // `limit` of 50 records does not, by itself, bound the sum of their
-// summaries below Lambda's synchronous response limit.
-function wrappedResponseBytes(body: unknown): number {
+// summaries below Lambda's synchronous response limit. `headers` must be
+// the SAME object the real response will actually carry — callers for a
+// /public/* route pass PUBLIC_JSON_RESPONSE_HEADERS; every other caller
+// keeps the plain, no-cache-control default those routes actually get.
+export function wrappedResponseBytes(body: unknown, headers: Record<string, string> = { "content-type": "application/json" }): number {
   return Buffer.byteLength(
-    JSON.stringify({ statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+    JSON.stringify({ statusCode: 200, headers, body: JSON.stringify(body) }),
     "utf8",
   );
 }
@@ -248,7 +262,7 @@ export async function routeRequest(
       }
       throw error;
     }
-    const wrappedBytes = wrappedResponseBytes(listing);
+    const wrappedBytes = wrappedResponseBytes(listing, PUBLIC_JSON_RESPONSE_HEADERS);
     if (wrappedBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES) {
       return {
         statusCode: 413,
@@ -269,7 +283,7 @@ export async function routeRequest(
     if (!view) {
       return notFound(`No record with id "${pathSegments[2]}".`);
     }
-    const wrappedBytes = wrappedResponseBytes(view);
+    const wrappedBytes = wrappedResponseBytes(view, PUBLIC_JSON_RESPONSE_HEADERS);
     if (wrappedBytes > LAMBDA_SYNCHRONOUS_RESPONSE_LIMIT_BYTES) {
       return {
         statusCode: 413,

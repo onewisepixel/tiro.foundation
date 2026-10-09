@@ -690,6 +690,33 @@ and documented rather than chased further; revisit when either upstream ships a 
   `TiroFixtureBackend-drill-20261002`; `realIntakeAcceptanceDrill.ts` re-run — **25/25 checks
   pass live.**
 
+- 2026-10-08/2026-10-09, the public Memory site connection milestone. The staff intake-and-
+  review workflow works end to end, but `/memories` still read only 3 hardcoded static records —
+  this adds public, unauthenticated listing/detail/media endpoints (`purpose: "publication"` /
+  `audience: "public"` enforced entirely server-side), wired into the Memory index and detail
+  pages, with every protective action propagating with no stale cached content. A full
+  plan-review round first; then an independent review of the first implementation commit found
+  five more real gaps (public media's missing `isSynthetic` gate and a disclosure-shaped status
+  code; a pagination cursor that could skip rows, built from a key an anonymous caller could
+  read; a response-size guard that didn't measure handler.ts's real headers — reproduced exactly
+  27 bytes short of the real wrapped size; the detail page misreporting every backend failure as
+  "doesn't exist"; an empty, budget-bounded page reported as a false global claim) — all fixed
+  and regression-tested, 271 tests pass (up from 221). Deploying and actually running the live
+  drill then caught three more things no amount of in-memory testing could have: a real,
+  sustained DynamoDB throttle from `evaluatePermission`'s deliberately-strongly-consistent reads
+  issued with no pacing (fixed with real pacing, sized against the confirmed per-read cost, and
+  per-candidate resilience so one oversized record's read can never fail the whole listing —
+  DynamoDB capacity left unchanged throughout, per standing instruction); and a Next.js
+  production-build-only bug (`next build && next start`, not `next dev`) where an unknown
+  `/memories/[id]` 500'd instead of 404ing, fixed by making that route fully dynamic. Redeployed
+  to `TiroFixtureBackend-drill-20261002`; `realPublicMemoryAcceptanceDrill.ts` — **32/32 checks
+  pass live**, plus a real production-build frontend check (a fresh fixture's index listing,
+  detail page, `<title>` metadata, and media all confirmed correct, including immediately after
+  a live redaction, with no stale content). Not covered: no browser-automation tool was
+  available in this environment, so the literal back-button/bfcache click-through still needs a
+  human pass — see the evidence matrix's "Public Memory site connection" section for the full
+  detail.
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**

@@ -97,8 +97,47 @@ export async function readPublicRecord(
 // continuation cursor) — never an error, and never an unbounded scan.
 export const PUBLIC_LISTING_RAW_PAGE_SIZE = 25;
 export const PUBLIC_LISTING_MAX_RAW_ROWS = 200;
-export const PUBLIC_LISTING_MAX_EVALUATIONS = 40;
-export const PUBLIC_LISTING_TIME_BUDGET_MS = 7000;
+// Live-drill-caught finding, corrected twice: a full evaluatePermission's
+// real cost against the PRIMARY table is NOT ~1-3 RCU — it's FIVE
+// strongly-consistent reads (confirmed directly in dynamoStore.ts:
+// readPublicRecord's own getRecord, PLUS evaluatePermission's internal
+// getRecord, listAuthorityClaims, listLegalRights, and listConsentGrants
+// all pass `ConsistentRead: true`, by deliberate, load-bearing design —
+// permission decisions must never read stale evidence. Against a
+// deliberately tiny 5 RCU table, that is the ENTIRE per-second budget for
+// ONE evaluation. First attempt at this fix (40 evaluations, no pacing;
+// then 10, with 500ms pacing) both still reproduced sustained, repeated
+// ProvisionedThroughputExceededException live — 500ms spacing yields
+// ~5 RCU per 0.5s ≈ 10 RCU/sec, still double capacity. This number and
+// its pacing below are sized against the REAL, now-confirmed cost, not a
+// guess.
+export const PUBLIC_LISTING_MAX_EVALUATIONS = 4;
+export const PUBLIC_LISTING_TIME_BUDGET_MS = 8000;
+
+// Live-drill-caught finding: the budgets above bound the NUMBER of
+// DynamoDB operations a single request can issue, but not the RATE they
+// go out at — issuing full evaluations back-to-back with no pacing (or
+// insufficient pacing) reproduced real, repeated
+// ProvisionedThroughputExceededException against the live, deliberately
+// tiny (5 RCU) primary table — every single retry, since a client-side
+// retry re-issues the SAME burst and hits the same wall. 1500ms between
+// evaluations keeps the sustained rate at ~5 RCU per 1.5s ≈ 3.3 RCU/sec,
+// comfortably under the 5 RCU/sec provisioned limit with real margin —
+// PUBLIC_LISTING_MAX_EVALUATIONS evaluations' worth of pure pacing
+// (3 gaps × 1500ms = 4500ms) stays safely under
+// PUBLIC_LISTING_TIME_BUDGET_MS, leaving real headroom for the actual
+// DynamoDB round-trip latency on top; the time budget remains the
+// ultimate backstop if real latency, not just pacing, pushes a request
+// close to it. The register table's own listPage Scan (RAW_PAGE_PACING_MS)
+// is eventually consistent (dynamoStore.ts's listPage sets no
+// ConsistentRead override), so it's cheaper per page — paced more
+// lightly, against the register table's own separate 5 RCU budget.
+export const PUBLIC_LISTING_EVALUATION_PACING_MS = 1500;
+export const PUBLIC_LISTING_RAW_PAGE_PACING_MS = 400;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export type PublicListingResult = { items: PublicMemoryView[]; nextCursor: string | null };
 
@@ -116,6 +155,7 @@ export async function readPublicListing(
   const items: PublicMemoryView[] = [];
   let rowsExamined = 0;
   let evaluations = 0;
+  let rawPagesFetched = 0;
   let exhausted = false;
 
   const budgetExceeded = () =>
@@ -125,6 +165,14 @@ export async function readPublicListing(
     Date.now() - startedAt >= PUBLIC_LISTING_TIME_BUDGET_MS;
 
   while (!budgetExceeded()) {
+    // Paced from the SECOND raw page onward — each Scan page itself
+    // consumes real RCU (up to PUBLIC_LISTING_RAW_PAGE_SIZE items), so a
+    // tight loop of pages is its own overload risk, independent of
+    // per-candidate evaluation pacing below.
+    if (rawPagesFetched > 0) {
+      await sleep(PUBLIC_LISTING_RAW_PAGE_PACING_MS);
+    }
+    rawPagesFetched++;
     const page = await registerStore.listPage({ limit: PUBLIC_LISTING_RAW_PAGE_SIZE, cursor: resumeKey });
     if (page.entries.length === 0) {
       exhausted = page.nextCursor === null;
@@ -143,10 +191,35 @@ export async function readPublicListing(
       // idiom intakeViews.ts's readIntakeQueue uses) before ever calling
       // the real, authoritative, multi-read evaluatePermission.
       if (entry.currentCustodyStatus === "preserved" && entry.currentPublicationStatus === "published") {
+        // Paced from the SECOND evaluation onward — see
+        // PUBLIC_LISTING_EVALUATION_PACING_MS's comment above.
+        if (evaluations > 0) {
+          await sleep(PUBLIC_LISTING_EVALUATION_PACING_MS);
+        }
         evaluations++;
-        const view = await readPublicRecord(fixtureStore, registerStore, entry.recordId);
-        if (view) {
-          items.push(view);
+        try {
+          const view = await readPublicRecord(fixtureStore, registerStore, entry.recordId);
+          if (view) {
+            items.push(view);
+          }
+        } catch {
+          // Live-drill-caught finding: a single candidate's evidence can
+          // be disproportionately large (e.g. a record with an unusually
+          // long accumulated history of authority claims/legal rights/
+          // consent grants from this engagement's own extensive drill
+          // history) — ONE such record's read was observed consuming far
+          // more read capacity in a single call than pacing between CALLS
+          // can ever smooth over, throttling even a lone, otherwise-cheap
+          // request. No amount of inter-request pacing fixes a single
+          // oversized call. Skipping this one candidate and continuing —
+          // rather than letting its failure 500 the ENTIRE listing for
+          // every other, unrelated candidate — is the correct, safe
+          // response for a public, unauthenticated endpoint regardless of
+          // the cause (throttling, a transient network blip, anything
+          // else): one record's problem must never take down the whole
+          // directory. The record simply doesn't appear on this page; a
+          // later request (this one's pacing/backoff, or simply trying
+          // again) may succeed once capacity recovers.
         }
       }
       // Marked as fully examined only now, after the row has actually been

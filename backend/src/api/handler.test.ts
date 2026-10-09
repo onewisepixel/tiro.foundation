@@ -13,6 +13,7 @@
 process.env.TIRO_PRIMARY_TABLE ??= "test-primary-table";
 process.env.TIRO_REGISTER_TABLE ??= "test-register-table";
 process.env.TIRO_MEDIA_BUCKET ??= "test-media-bucket";
+process.env.TIRO_PUBLIC_CURSOR_SECRET ??= "test-only-fixed-cursor-key-never-used-in-production";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

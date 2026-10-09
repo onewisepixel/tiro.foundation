@@ -19,6 +19,31 @@ export function generateStaticParams() {
   return memories.map((memory) => ({ id: memory.id }));
 }
 
+// Production-build-only finding (caught exactly where the review insisted
+// on checking — `next build && next start`, not `next dev`): without this,
+// requesting an id NOT in generateStaticParams's list threw "Page changed
+// from static to dynamic at runtime" (Next's E132) and 500'd instead of
+// 404ing. Next's non-PPR model doesn't support "some renders of this
+// route are a cached static shell, others are genuinely uncached" for the
+// SAME route template — generateStaticParams marks the whole template
+// isSSG at build time, and any render whose fetch resolves to
+// revalidate:0 (exactly what {cache:"no-store"} does) contradicts that.
+// Forcing the whole route dynamic trades away true static serving for
+// the 3 known ids (now rendered per-request instead of from a prebuilt
+// HTML file) for correctness on unknown/live ids — an explicit, accepted
+// cost: these are small, cheap-to-render pages, and "never risk a 500 or
+// stale content" matters far more here than that marginal optimization.
+export const dynamic = "force-dynamic";
+
+// Reviewer-caught finding: collapsing every !ok fetchPublicMemoryRecord
+// result to a bare null meant a network error or backend 500 was
+// indistinguishable from a genuine 404 — both rendered "Memory Not Found."
+// An operational failure must say so, not claim the record doesn't exist.
+type ResolvedPublicRecord =
+  | { kind: "found"; record: PublicMemoryRecord }
+  | { kind: "not-found" }
+  | { kind: "unavailable" };
+
 // React's cache() dedupes this within a single request's render pass —
 // generateMetadata and the page component are two SEPARATE function
 // invocations, not naturally sharing anything, so without this each would
@@ -33,9 +58,18 @@ export function generateStaticParams() {
 // already renders unknown ids per-request); this uncached fetch, reached
 // only on the fallback branch, is what makes THAT specific render
 // dynamic, without touching the rest.
-const resolvePublicRecord = cache(async (id: string): Promise<PublicMemoryRecord | null> => {
+const resolvePublicRecord = cache(async (id: string): Promise<ResolvedPublicRecord> => {
   const result = await fetchPublicMemoryRecord(id);
-  return result.ok ? result.record : null;
+  if (result.ok) {
+    return { kind: "found", record: result.record };
+  }
+  // status 404 is the backend's own explicit "not found or not eligible"
+  // answer (api/router.ts's public routes return a flat 404 for both
+  // nonexistent and denied records, by design — see backend's publicView.ts).
+  // Anything else — 0 (network/unreachable), 5xx, a malformed response —
+  // is an OPERATIONAL failure this page must not misreport as "no such
+  // record."
+  return result.status === 404 ? { kind: "not-found" } : { kind: "unavailable" };
 });
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -50,12 +84,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
-  const publicRecord = await resolvePublicRecord(id);
-  if (publicRecord) {
-    const notice = getRecordKindNotice(publicRecord.recordKind);
+  const resolved = await resolvePublicRecord(id);
+  if (resolved.kind === "found") {
+    const notice = getRecordKindNotice(resolved.record.recordKind);
     return {
-      title: `Demo: ${publicRecord.title} — The Tiro Foundation`,
-      description: notice ? `${notice.short} ${publicRecord.summary}` : publicRecord.summary,
+      title: `Demo: ${resolved.record.title} — The Tiro Foundation`,
+      description: notice ? `${notice.short} ${resolved.record.summary}` : resolved.record.summary,
+    };
+  }
+  if (resolved.kind === "unavailable") {
+    return {
+      title: "Live Record Temporarily Unavailable — The Tiro Foundation",
+      description: "This record could not be checked right now. Please try again shortly.",
     };
   }
 
@@ -73,9 +113,23 @@ export default async function MemoryDetailRoute({ params }: PageProps) {
     return <MemoryDetail memory={memory} />;
   }
 
-  const publicRecord = await resolvePublicRecord(id);
-  if (publicRecord) {
-    return <PublicMemoryDetail record={publicRecord} />;
+  const resolved = await resolvePublicRecord(id);
+  if (resolved.kind === "found") {
+    return <PublicMemoryDetail record={resolved.record} />;
+  }
+  if (resolved.kind === "unavailable") {
+    return (
+      <main className="relative flex min-h-screen flex-col items-center justify-center bg-[var(--tiro-bg)] px-6 text-center text-[var(--tiro-text)]">
+        <p className="tiro-eyebrow mb-5">Temporarily Unavailable</p>
+        <h1 className="mb-4 font-[family-name:var(--font-display)] text-3xl italic tracking-tight md:text-5xl">
+          This record could not be checked right now
+        </h1>
+        <p className="max-w-xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+          The live Memory service did not respond. This is not a statement that the record does not
+          exist — please try again shortly.
+        </p>
+      </main>
+    );
   }
 
   notFound();

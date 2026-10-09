@@ -156,14 +156,31 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             <p className="text-sm text-[var(--tiro-text-muted)]">
               Live records are temporarily unavailable. Please try again shortly.
             </p>
-          ) : listingResult.listing.items.length === 0 ? (
-            <p className="text-sm text-[var(--tiro-text-muted)]">No live records are currently published.</p>
-          ) : (
+          ) : listingResult.listing.items.length > 0 ? (
             <div className="flex flex-col gap-6">
               {listingResult.listing.items.map((record) => (
                 <PublicMemoryCard key={record.recordId} record={record} />
               ))}
             </div>
+          ) : listingResult.listing.nextCursor ? (
+            // Reviewer-caught finding: an empty page does not mean nothing
+            // is published — the backend's own listing is budget-bounded
+            // and can legitimately return a sparse or empty slice while
+            // still having more to check (see services/publicView.ts's
+            // readPublicListing). Describe THIS slice only; the "Load
+            // more" link below (rendered whenever nextCursor is present,
+            // independent of this branch) keeps continuation available.
+            <p className="text-sm text-[var(--tiro-text-muted)]">
+              No live records on this page — more may be available further on.
+            </p>
+          ) : cursor === null ? (
+            // Only safe to state as a GLOBAL claim when this is the very
+            // first page (no cursor) and it's also exhausted (no
+            // nextCursor) — the only case where "empty" and "nothing
+            // published" actually coincide.
+            <p className="text-sm text-[var(--tiro-text-muted)]">No live records are currently published.</p>
+          ) : (
+            <p className="text-sm text-[var(--tiro-text-muted)]">No further live records are available.</p>
           )}
 
           {listingResult.ok && listingResult.listing.nextCursor ? (

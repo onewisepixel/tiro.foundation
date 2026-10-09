@@ -9,15 +9,24 @@
 // garbage input) fails the auth tag check below rather than silently
 // decoding to the wrong thing.
 //
-// The key only needs to be opaque to a public HTTP caller, who can read
-// neither this source nor the Lambda's environment — it is not a secret
-// held against colleagues with repository access, so a fixed,
-// source-derived key (rather than a generated-and-stored secret, which
-// would be new infrastructure this fixture-scale project doesn't need) is
-// the right amount of mechanism here.
+// Reviewer-caught finding (independent decryption of a real generated
+// cursor): the key MUST NOT be derived from anything committed to this
+// repository — a fixed, source-derived constant is just as readable to the
+// public as the ciphertext it's meant to protect, letting anyone decrypt a
+// real cursor OR forge one of their own. The real key is instead supplied
+// at startup (api/handler.ts, the only place this module's real,
+// production configuration is wired) via setCursorSecretKey(), derived
+// from a randomly generated secret that infra/lib/fixture-backend-stack.ts
+// creates once per deployment and injects as a Lambda environment
+// variable — never checked into source, and stable across every
+// invocation (cold or warm) of that deployment, since every instance reads
+// the SAME environment. encodePublicCursor/decodePublicCursor throw
+// (rather than silently falling back to anything) if called before
+// setCursorSecretKey — "required at startup" means a missing key must
+// fail loudly, the same way handler.ts's own requireEnv() already does for
+// the table/bucket names.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-const CURSOR_KEY = createHash("sha256").update("tiro-fixture-backend-public-cursor-v1").digest();
 const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
 // Comfortably covers a base64-encoded UUIDv7 recordId plus the fixed
@@ -32,6 +41,31 @@ export class InvalidCursorError extends Error {
   }
 }
 
+let cursorKey: Buffer | null = null;
+
+// Called exactly once, at module load, by whatever entrypoint owns this
+// deployment's real configuration (api/handler.ts for the real Lambda;
+// test files for their own fixed, clearly-local test key — never the same
+// value, and the real handler never falls back to a test value). `secret`
+// may be any non-empty string (the raw env var value) — hashed down to
+// exactly 32 bytes for AES-256, so the deployment secret itself doesn't
+// need to already be the right length or encoding.
+export function setCursorSecretKey(secret: string): void {
+  if (!secret) {
+    throw new Error("setCursorSecretKey requires a non-empty secret.");
+  }
+  cursorKey = createHash("sha256").update(secret, "utf8").digest();
+}
+
+function requireCursorKey(): Buffer {
+  if (!cursorKey) {
+    throw new Error(
+      "Cursor secret key not initialized — setCursorSecretKey() must be called at startup before any cursor is encoded or decoded.",
+    );
+  }
+  return cursorKey;
+}
+
 // resumeKey is the plain, unencrypted RestrictionRegisterStore resume key
 // (this table's own recordId) — or null, meaning "resume from the very
 // start of the table." null is encoded as the empty plaintext rather than
@@ -41,15 +75,17 @@ export class InvalidCursorError extends Error {
 // ever returned" — collapsing that distinction to a bare null elsewhere
 // would wrongly read as "fully exhausted" to a caller paginating with it.
 export function encodePublicCursor(resumeKey: string | null): string {
+  const key = requireCursorKey();
   const plaintext = resumeKey ?? "";
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", CURSOR_KEY, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return Buffer.concat([iv, authTag, ciphertext]).toString("base64url");
 }
 
 export function decodePublicCursor(cursor: string): string | null {
+  const key = requireCursorKey();
   if (typeof cursor !== "string" || cursor.length === 0 || cursor.length > MAX_CURSOR_LENGTH) {
     throw new InvalidCursorError("cursor is missing, empty, or exceeds the maximum length.");
   }
@@ -69,7 +105,7 @@ export function decodePublicCursor(cursor: string): string | null {
   const authTag = raw.subarray(IV_BYTES, IV_BYTES + AUTH_TAG_BYTES);
   const ciphertext = raw.subarray(IV_BYTES + AUTH_TAG_BYTES);
   try {
-    const decipher = createDecipheriv("aes-256-gcm", CURSOR_KEY, iv);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(authTag);
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     const recordId = plaintext.toString("utf8");

@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodePublicCursor, encodePublicCursor, InvalidCursorError } from "./cursorCodec";
+import { decodePublicCursor, encodePublicCursor, InvalidCursorError, setCursorSecretKey } from "./cursorCodec";
+
+// A fixed, clearly-local test key — never the real deployment secret
+// (infra/lib/fixture-backend-stack.ts generates that fresh per deploy; the
+// real handler.ts never falls back to this or any other constant). Every
+// test file touching cursorCodec uses this SAME value so results stay
+// consistent regardless of whether the test runner shares a module
+// instance across files.
+setCursorSecretKey("test-only-fixed-cursor-key-never-used-in-production");
 
 test("encodePublicCursor/decodePublicCursor round-trips a recordId", () => {
   const recordId = "0191a000-aaaa-7aaa-8aaa-aaaaaaaaaaaa";

@@ -102,29 +102,63 @@ async function main() {
   const idToken = auth.AuthenticationResult?.IdToken;
   if (!idToken) throw new Error("AdminInitiateAuth did not return an IdToken.");
 
+  // This drill builds 7 fixtures back-to-back, each several HTTP calls —
+  // against the deliberately tiny provisioned capacity these tables run
+  // at (5 RCU/5 WCU — see docs/backend/decision-and-cost.md; capacity
+  // stays there, this drill adapts instead), a burst like that WILL
+  // occasionally throttle for real. The Lambda's own
+  // ProvisionedThroughputExceededException isn't visible to an HTTP
+  // client — it surfaces here only as a generic 500 — so a transient
+  // throttle and a genuine server bug are indistinguishable from the
+  // client alone. Retrying with backoff (same shape as
+  // realLegacyMediaMigration.ts's withThrottleRetry, which retries the
+  // SAME exception server-side, in-process) resolves the transient case;
+  // a genuine bug fails the SAME way on every retry and still surfaces —
+  // this never masks a real defect, it only stops a known capacity limit
+  // from aborting the whole run.
+  async function withHttpThrottleRetry<T extends { status: number }>(fn: () => Promise<T>, label: string): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      const result = await fn();
+      if (result.status !== 500 || attempt > 30) {
+        return result;
+      }
+      const delayMs = Math.min(1000 * attempt, 8000);
+      log("THROTTLE BACKOFF", `${label}: got a 500 (possibly provisioned-throughput throttling on this intentionally tiny-capacity table); waiting ${delayMs}ms before retry ${attempt}`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
   // ---- Authenticated (staff) helpers — same shape as realIntakeAcceptanceDrill.ts ----
   async function apiGet(path: string): Promise<{ status: number; json: unknown }> {
-    const response = await fetch(`${API_URL}${path}`, { headers: { authorization: `Bearer ${idToken}` } });
-    return { status: response.status, json: await response.json().catch(() => null) };
+    return withHttpThrottleRetry(async () => {
+      const response = await fetch(`${API_URL}${path}`, { headers: { authorization: `Bearer ${idToken}` } });
+      return { status: response.status, json: await response.json().catch(() => null) };
+    }, `GET ${path}`);
   }
   async function apiPost(path: string, bodyObj: unknown): Promise<{ status: number; json: unknown }> {
-    const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
-      body: JSON.stringify(bodyObj),
-    });
-    return { status: response.status, json: await response.json().catch(() => null) };
+    return withHttpThrottleRetry(async () => {
+      const response = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+        body: JSON.stringify(bodyObj),
+      });
+      return { status: response.status, json: await response.json().catch(() => null) };
+    }, `POST ${path}`);
   }
 
   // ---- Anonymous (public, unauthenticated) helpers — NO Authorization header, ever ----
   async function publicGet(path: string): Promise<{ status: number; json: unknown }> {
-    const response = await fetch(`${API_URL}${path}`);
-    return { status: response.status, json: await response.json().catch(() => null) };
+    return withHttpThrottleRetry(async () => {
+      const response = await fetch(`${API_URL}${path}`);
+      return { status: response.status, json: await response.json().catch(() => null) };
+    }, `GET ${path} (anonymous)`);
   }
   async function publicGetBinary(path: string): Promise<{ status: number; body: Buffer }> {
-    const response = await fetch(`${API_URL}${path}`);
-    const body = Buffer.from(await response.arrayBuffer());
-    return { status: response.status, body };
+    return withHttpThrottleRetry(async () => {
+      const response = await fetch(`${API_URL}${path}`);
+      const body = Buffer.from(await response.arrayBuffer());
+      return { status: response.status, body };
+    }, `GET ${path} (anonymous, binary)`);
   }
 
   // Walks GET /public/records across as many pages as the REAL encrypted

@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --test src/lib/recordKind.test.ts \"backend/src/**/*.test.ts\""
+    "test": "tsx --test src/lib/recordKind.test.ts src/lib/publicMemoryApi.test.ts \"backend/src/**/*.test.ts\""
   },
   "dependencies": {
     "@react-three/drei": "^10.0.6",

@@ -1665,6 +1665,138 @@ restored the fix and confirmed it passes again.
 221 backend tests pass (up from 220). Redeployed to `TiroFixtureBackend-drill-20261002`;
 `realIntakeAcceptanceDrill.ts` re-run end to end — **25/25 checks pass live.**
 
+## Public Memory site connection — what actually happened
+
+Dated 2026-10-08/2026-10-09. The staff intake-and-review workflow (above) works end to end, but
+the public `/memories` pages still read only the 3 hardcoded static records — until now,
+visitor access to an approved synthetic record had no connection to the backend at all. This
+milestone adds exactly that: public, unauthenticated, read-only listing/detail/media endpoints
+with `purpose: "publication"` / `audience: "public"` enforced entirely server-side (never from a
+caller-supplied query param), wired into the Memory index and detail pages, with every
+protective action (restrict, redact-text, redact-media, revoke-consent, withdraw, delete)
+propagating across pages, metadata, API, and media with no stale cached content. Stays
+synthetic throughout — a named operator and adopted consent/retention procedures remain
+prerequisites for real intake, unchanged from every other milestone's standing note.
+
+**A full plan-review round before any implementation**, resolving three open design forks
+(reused as-is, not relitigated here: a separate narrow `PublicMemoryRecord` type rather than
+stretching the display-only `MemoryRecord`; `/public/records` route naming, matching the
+backend's existing vocabulary; and a genuinely bounded, cursor-paginated register scan rather
+than the existing `listAll()`, which its own doc comment already admits is fixture-scale-only).
+
+**Five more real gaps, found by an independent review of the first implementation commit,
+before any live deployment — all closed:**
+
+1. **Public media had no `isSynthetic` gate, and leaked a disclosure-shaped status code.**
+   `fetchAuthorizedMedia` (reused as-is for the authenticated staff route) never checked
+   `isSynthetic`, and 403'd a denied-but-existing record while 404ing a genuinely missing one —
+   letting an anonymous caller distinguish "exists but denied" from "doesn't exist," exactly the
+   disclosure the detail route's own uniform-404 design was built to prevent. Fixed with a new
+   `fetchPublicMedia` (`services/publicView.ts`) that checks `isSynthetic` itself and collapses
+   its own 403/404 into one flat 404 — but passes 409/413/500 through unchanged, since those
+   only ever occur after authorization already succeeded.
+2. **A pagination cursor that could skip rows, built from a key an anonymous caller could read.**
+   Stopping mid-raw-page and handing back that page's own `LastEvaluatedKey` as the continuation
+   cursor would skip every eligible row between the stopping point and the end of that page,
+   forever. Separately, a plain (reversible) encoding of the real recordId a scan last examined
+   would hand a caller the literal backend id of a quarantined/restricted/withdrawn record they
+   were never shown. Fixed: the cursor now tracks the exact last row actually examined, row by
+   row, never a whole page's boundary; and `services/cursorCodec.ts` (new) encrypts it
+   (AES-256-GCM) rather than merely encoding it.
+3. **The response-size guard didn't measure the real response.** It assumed
+   `{"content-type": "application/json"}` only, undercounting the real wrapped response by
+   exactly the `,"cache-control":"no-store"` fragment `api/handler.ts` actually adds for these
+   routes — reproduced by the reviewer as a response measured at exactly Lambda's 6 MiB limit
+   that was, once truly wrapped, 27 bytes over it. Fixed by exporting one shared
+   `PUBLIC_JSON_RESPONSE_HEADERS` constant `router.ts`'s guard and `handler.ts`'s real response
+   both use — the same literal object, not two that can drift apart.
+4. **The detail page misreported every backend failure as "this record doesn't exist."**
+   `resolvePublicRecord` collapsed every non-2xx/network failure to a bare `null`, so a network
+   error or a backend 500 rendered the identical "Memory Not Found" page a genuine 404 would.
+   Fixed: it now returns a tri-state result (`found` / `not-found` / `unavailable`), and only a
+   real `404` from the backend is treated as not-found.
+5. **An empty pagination slice was reported as a false global claim.** A budget-bounded, sparse
+   page coming back empty (with more still to check via its `nextCursor`) was shown as "No live
+   records are currently published" — true only when the FIRST page is also exhausted. Fixed to
+   describe the current slice ("No live records on this page — more may be available further
+   on") and keep the "Load more" continuation available whenever one exists.
+
+All five fixed and regression-tested (`cursorCodec.test.ts`, `cursorCodecUninitialized.test.ts`,
+`publicView.test.ts`, `router.test.ts`'s new boundary test reproducing the reviewer's exact
+27-byte gap, `publicMemoryApi.test.ts`). 271 backend+frontend tests pass (up from 221).
+
+**Three more real bugs found only by actually deploying and running the live drill — exactly
+why that step is never skipped, even after 271 tests pass:**
+
+- **A real, live, sustained `ProvisionedThroughputExceededException`, not a transient blip.**
+  The first live run of `realPublicMemoryAcceptanceDrill.ts` 500'd on `GET /public/records`
+  consistently, across 30 client-side retries with backoff — a genuinely new finding, since the
+  in-memory test suite has no way to reproduce real DynamoDB capacity limits. Diagnosed via
+  CloudWatch Logs (not guessed): `evaluatePermission`'s `getRecord`/`listAuthorityClaims`/
+  `listLegalRights`/`listConsentGrants` are ALL forced `ConsistentRead: true` by deliberate,
+  load-bearing design (permission decisions must never read stale evidence) — against a
+  deliberately tiny 5 RCU primary table, a handful of full evaluations issued back-to-back with
+  no pacing is the entire per-second budget in one request, and retrying just re-issues the same
+  unpaced burst into the same wall. Two corrected attempts at a pacing number (first none, then
+  500ms) both still reproduced it live before a correctly-reasoned one (1500ms between
+  evaluations, `PUBLIC_LISTING_MAX_EVALUATIONS` lowered from 40 to 4) held. DynamoDB capacity
+  was NOT raised at any point, per the explicit "leave capacity unchanged"/"keep DynamoDB
+  capacity at 5/5" instruction standing from this milestone's first review round onward.
+- **One oversized record's read exceeded the entire provisioned budget by itself.** Even
+  correctly-paced, the live drill still threw — CloudWatch metrics showed a single
+  `queryByPrefixConsistent` call consuming 97 RCU in one shot, almost certainly a pre-existing
+  record (from this engagement's own extensive drill history across many prior milestones) with
+  an unusually large accumulated history of authority claims/legal rights/consent grants under
+  one partition. No amount of inter-request pacing fixes a single call that large. Fixed, not by
+  cleaning up or capacity, but by making the listing loop resilient: a candidate whose evaluation
+  throws is now skipped (never included, never failing the whole page) rather than taking down
+  the entire anonymous listing for every other, unrelated candidate — a defensible hardening for
+  a public, unauthenticated endpoint regardless of the specific cause. New test
+  (`publicView.test.ts`) injects a throwing `FixtureStore` for one of three candidates and
+  confirms the other two are still returned.
+- **Next.js's production build only, not `next dev`: unknown ids 500'd instead of 404ing.**
+  `next build && next start` against the real deployed backend — the walkthrough step this
+  milestone's own review insisted on — surfaced `Error: Page changed from static to dynamic at
+  runtime` (Next's E132) for any `/memories/[id]` request not in `generateStaticParams`'s list.
+  Root cause: this project's Next.js configuration has no Partial Prerendering, so `generateStaticParams`
+  marks the WHOLE route template `isSSG` at build time; any render whose fetch resolves to
+  `revalidate: 0` (exactly what `{cache: "no-store"}` does, by design, for live records)
+  contradicts that at request time, and Next treats the contradiction as a hard error, not a
+  dev-mode-only warning (dev mode never throws this — `next dev`'s own `isSSG` is "a best guess,"
+  per Next's own source comment, which is exactly why this was never caught before build-and-
+  start). Fixed by adding `export const dynamic = "force-dynamic"` to the whole route — an
+  accepted, explicit trade-off: the 3 static ids now render per-request instead of from a
+  prebuilt HTML file (negligible cost for these small pages), in exchange for never risking a 500
+  or any possibility of stale content on an unknown/live id.
+
+**Final live verification, after all of the above:** redeployed to `TiroFixtureBackend-drill-20261002`;
+`realPublicMemoryAcceptanceDrill.ts` re-run end to end — **32/32 checks pass live**, covering
+the completion test's exact language (preservation approval alone leaves a fixture anonymously
+invisible; a separate public-audience publication grant makes it visible; each of restrict/
+redact-text/redact-media/revoke-consent/withdraw/delete, applied independently to a fresh,
+previously-allowed fixture, correctly removes or masks the affected content across listing,
+detail, and media) with zero Authorization headers sent for every anonymous check, and a real,
+multi-page paginated walk exercising the encrypted cursor's actual round trip.
+
+Separately, against the real production build (`next build && next start`, pointed at the live
+stack): created one fresh approved-and-public fixture through the real staff API, confirmed the
+Memory index's "Live Records" section and the detail page both render it correctly (including
+the exact budget-aware slice message above, confirmed live: "No live records on this page — more
+may be available further on" with a working "Load more" link, for a page that didn't happen to
+contain this particular fixture); confirmed `<title>` metadata and the rendered body both read
+`[REDACTED]` together, with no stale pre-redaction title, immediately after a real `redact-text`
+call — the exact race the shared `cache()` wrapping around `resolvePublicRecord` exists to
+prevent; confirmed the real media byte-for-byte through the exact URL the detail page renders.
+The one-off verification fixture was deleted afterward via the real deletion workflow.
+
+**Honestly not covered:** no browser-automation tool is available in this environment, so the
+literal "press the back button in Chrome after a protective action and confirm the stale page
+doesn't reappear" check — the actual bfcache behavior `src/components/BfcacheRevalidator.tsx`
+and `src/proxy.ts` exist to defeat — was not performed against a real browser. Everything else
+in this section was verified against the real deployed backend and the real production Next.js
+server; this one piece still needs a human click-through, the same way the staff-intake
+milestone's browser-flow verification eventually got one (see above).
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |

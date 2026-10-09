@@ -7,13 +7,22 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoFixtureStore, DynamoIntakeRegisterCommitter, DynamoRestrictionRegisterStore } from "../store/dynamoStore";
 import { S3MediaStore } from "../store/s3MediaStore";
-import { isPublicGetRoutePath, routeRequest, type ApiRequest } from "./router";
+import { setCursorSecretKey } from "../services/cursorCodec";
+import { isPublicGetRoutePath, PUBLIC_JSON_RESPONSE_HEADERS, routeRequest, type ApiRequest } from "./router";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const PRIMARY_TABLE = requireEnv("TIRO_PRIMARY_TABLE");
 const REGISTER_TABLE = requireEnv("TIRO_REGISTER_TABLE");
 const STATUS_INDEX = process.env.TIRO_STATUS_INDEX ?? "GSI1-status-index";
 const MEDIA_BUCKET = requireEnv("TIRO_MEDIA_BUCKET");
+// Randomly generated per deployment by infra/lib/fixture-backend-stack.ts,
+// injected only as a Lambda environment variable — never committed to
+// source. Required at startup, same as every other env var here: a
+// missing secret must fail the whole module load, not silently fall back
+// to anything guessable. See services/cursorCodec.ts for why a
+// source-derived key was wrong (a reviewer decrypted a real cursor using
+// the constant this replaces, and could equally have forged one).
+setCursorSecretKey(requireEnv("TIRO_PUBLIC_CURSOR_SECRET"));
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -122,10 +131,16 @@ export async function handler(event: HttpApiEvent): Promise<HttpApiResponse> {
     // cache-control at all — a JSON public response (GET /public/records,
     // GET /public/records/:recordId) could be retained by a browser or
     // intermediary with no explicit instruction not to, exactly the
-    // staleness vector this milestone is meant to close.
+    // staleness vector this milestone is meant to close. Uses the SAME
+    // PUBLIC_JSON_RESPONSE_HEADERS object router.ts's own response-size
+    // guard measures against — reviewer-caught finding: a hand-written
+    // literal here that merely matched router.ts's by coincidence had
+    // already drifted once (the guard didn't know about cache-control at
+    // all), undercounting the real wrapped response by exactly that
+    // header's encoded size.
     return {
       statusCode: response.statusCode,
-      headers: isPublicRoute ? { ...headers, "cache-control": "no-store" } : headers,
+      headers: isPublicRoute ? PUBLIC_JSON_RESPONSE_HEADERS : headers,
       body: JSON.stringify(response.body),
     };
   } catch (error) {

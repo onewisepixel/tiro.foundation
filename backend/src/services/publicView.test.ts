@@ -9,7 +9,7 @@ import type { AuthorityClaim, ConsentGrant, FixtureRecord, RestrictionRegisterEn
 import { uuidv7 } from "../domain/id";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import { restrict, revokeConsentGrant, withdraw, startDeletion, completeDeletion, redactText, redactMedia } from "./lifecycle";
-import { decodePublicCursor } from "./cursorCodec";
+import { decodePublicCursor, setCursorSecretKey } from "./cursorCodec";
 import {
   fetchPublicMedia,
   PUBLIC_LISTING_MAX_EVALUATIONS,
@@ -17,6 +17,10 @@ import {
   readPublicListing,
   readPublicRecord,
 } from "./publicView";
+
+// Same fixed, clearly-local test key cursorCodec.test.ts uses — never the
+// real deployment secret, which infra generates fresh per deploy.
+setCursorSecretKey("test-only-fixed-cursor-key-never-used-in-production");
 
 const CALLER = "staff:test@example.invalid";
 
@@ -422,4 +426,67 @@ test("readPublicListing stops once the wall-clock time budget is exceeded, retur
 test("readPublicListing rejects a tampered/malformed cursor rather than silently restarting at page one", async () => {
   const { fixtureStore, registerStore } = await setup();
   await assert.rejects(() => readPublicListing(fixtureStore, registerStore, { limit: 10, cursor: "not-a-real-cursor" }));
+});
+
+// Live-drill-caught finding: a real, pre-existing record with an
+// unusually large accumulated evidence history threw (DynamoDB
+// throttling) while being evaluated as a listing candidate — and that one
+// candidate's failure took down the ENTIRE listing response (500) for
+// every OTHER, unrelated candidate too. A public, unauthenticated
+// endpoint must never let one record's problem — throttling, a
+// transient error, anything — fail the whole directory.
+test("readPublicListing skips a candidate whose evaluation throws, rather than failing the whole listing", async () => {
+  const fixtureStore = new InMemoryFixtureStore();
+  const registerStore = new InMemoryRestrictionRegisterStore();
+  const goodIds = ["good-0", "good-1"];
+  const badId = "bad-throws";
+  for (const id of [goodIds[0], badId, goodIds[1]]) {
+    await putEligible(fixtureStore, registerStore, id);
+  }
+
+  class ThrowsForOneRecordFixtureStore implements FixtureStore {
+    constructor(private readonly inner: FixtureStore) {}
+    getRecord(recordId: string) {
+      return this.inner.getRecord(recordId);
+    }
+    listAuthorityClaims(recordId: string) {
+      if (recordId === badId) {
+        throw new Error("simulated ProvisionedThroughputExceededException");
+      }
+      return this.inner.listAuthorityClaims(recordId);
+    }
+    putRecord(...a: Parameters<FixtureStore["putRecord"]>) { return this.inner.putRecord(...a); }
+    deleteRecord(...a: Parameters<FixtureStore["deleteRecord"]>) { return this.inner.deleteRecord(...a); }
+    putAuthorityClaim(...a: Parameters<FixtureStore["putAuthorityClaim"]>) { return this.inner.putAuthorityClaim(...a); }
+    getAuthorityClaim(...a: Parameters<FixtureStore["getAuthorityClaim"]>) { return this.inner.getAuthorityClaim(...a); }
+    listLegalRights(...a: Parameters<FixtureStore["listLegalRights"]>) { return this.inner.listLegalRights(...a); }
+    putLegalRight(...a: Parameters<FixtureStore["putLegalRight"]>) { return this.inner.putLegalRight(...a); }
+    getLegalRight(...a: Parameters<FixtureStore["getLegalRight"]>) { return this.inner.getLegalRight(...a); }
+    listConsentGrants(...a: Parameters<FixtureStore["listConsentGrants"]>) { return this.inner.listConsentGrants(...a); }
+    getConsentGrant(...a: Parameters<FixtureStore["getConsentGrant"]>) { return this.inner.getConsentGrant(...a); }
+    putConsentGrant(...a: Parameters<FixtureStore["putConsentGrant"]>) { return this.inner.putConsentGrant(...a); }
+    listCustodyCopies(...a: Parameters<FixtureStore["listCustodyCopies"]>) { return this.inner.listCustodyCopies(...a); }
+    putCustodyCopy(...a: Parameters<FixtureStore["putCustodyCopy"]>) { return this.inner.putCustodyCopy(...a); }
+    createLifecycleRequest(...a: Parameters<FixtureStore["createLifecycleRequest"]>) { return this.inner.createLifecycleRequest(...a); }
+    getLifecycleRequest(...a: Parameters<FixtureStore["getLifecycleRequest"]>) { return this.inner.getLifecycleRequest(...a); }
+    updateLifecycleRequest(...a: Parameters<FixtureStore["updateLifecycleRequest"]>) { return this.inner.updateLifecycleRequest(...a); }
+    listLifecycleRequestsByStatus(...a: Parameters<FixtureStore["listLifecycleRequestsByStatus"]>) { return this.inner.listLifecycleRequestsByStatus(...a); }
+    putAuditReceipt(...a: Parameters<FixtureStore["putAuditReceipt"]>) { return this.inner.putAuditReceipt(...a); }
+    listAuditReceipts(...a: Parameters<FixtureStore["listAuditReceipts"]>) { return this.inner.listAuditReceipts(...a); }
+    listCorrections(...a: Parameters<FixtureStore["listCorrections"]>) { return this.inner.listCorrections(...a); }
+    putCorrection(...a: Parameters<FixtureStore["putCorrection"]>) { return this.inner.putCorrection(...a); }
+    getCorrection(...a: Parameters<FixtureStore["getCorrection"]>) { return this.inner.getCorrection(...a); }
+    listRedactions(...a: Parameters<FixtureStore["listRedactions"]>) { return this.inner.listRedactions(...a); }
+    putRedaction(...a: Parameters<FixtureStore["putRedaction"]>) { return this.inner.putRedaction(...a); }
+    getRedaction(...a: Parameters<FixtureStore["getRedaction"]>) { return this.inner.getRedaction(...a); }
+    putRecordWithCorrection(...a: Parameters<FixtureStore["putRecordWithCorrection"]>) { return this.inner.putRecordWithCorrection(...a); }
+    putRecordWithRedaction(...a: Parameters<FixtureStore["putRecordWithRedaction"]>) { return this.inner.putRecordWithRedaction(...a); }
+    putRecordWithCustodyCopy(...a: Parameters<FixtureStore["putRecordWithCustodyCopy"]>) { return this.inner.putRecordWithCustodyCopy(...a); }
+  }
+
+  const wrapped = new ThrowsForOneRecordFixtureStore(fixtureStore);
+  const page = await readPublicListing(wrapped, registerStore, { limit: 10, cursor: null });
+  const returnedIds = page.items.map((i) => i.recordId).sort();
+  assert.deepEqual(returnedIds, [...goodIds].sort(), "both good candidates must still be returned");
+  assert.equal(returnedIds.includes(badId), false, "the throwing candidate must be skipped, not included");
 });
