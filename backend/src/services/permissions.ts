@@ -6,7 +6,7 @@
 // consent grant with undisputed authority and a permitting control state, or
 // it denies. There is no bypass branch — "staff" is just another audience
 // value, checked the same way as "public".
-import type { ConsentGrant, Purpose, RestrictionRegisterEntry } from "../domain/types";
+import type { ConsentGrant, FixtureRecord, Purpose, RestrictionRegisterEntry } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 
 export type PermissionDecision = {
@@ -75,12 +75,41 @@ export function findApprovableGrant(
   );
 }
 
+// The decision PLUS the exact record snapshot it was computed from. Kept
+// separate from PermissionDecision on purpose: decision objects are
+// returned verbatim to API callers (router.ts's permission-check route, and
+// the staff limited-metadata view's `access` field), and must never carry
+// record content.
+//
+// Read-once (live-profiled 2026-10-10: a near-400 KB record item costs 97
+// RCU per strongly consistent read, and the public read path used to read
+// it twice — three times for media): callers that need the record as well
+// as the decision use THIS record instead of reading it again. It is never
+// supplied by a caller — it is the one read this function performs itself,
+// within the current request, before the evidence reads and before the
+// authoritative register read — so masking and media selection run against
+// the same snapshot the decision judged, never a separately-timed read.
+export type PermissionSnapshot = {
+  decision: PermissionDecision;
+  // Null whenever no record was read for this query (missing), or the read
+  // returned a record whose id doesn't match the query (fail closed).
+  record: FixtureRecord | null;
+};
+
 export async function evaluatePermission(
   fixtureStore: FixtureStore,
   registerStore: RestrictionRegisterStore,
   query: PermissionQuery,
 ): Promise<PermissionDecision> {
-  const { recordId, purpose, audience, now } = query;
+  return (await evaluatePermissionSnapshot(fixtureStore, registerStore, query)).decision;
+}
+
+export async function evaluatePermissionSnapshot(
+  fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
+  query: PermissionQuery,
+): Promise<PermissionSnapshot> {
+  const { recordId } = query;
 
   // Reviewer-caught finding, round five: control used to be read FIRST,
   // before any evidence (record/authorityClaims/legalRights/consentGrants)
@@ -112,6 +141,33 @@ export async function evaluatePermission(
   const grants = await fixtureStore.listConsentGrants(recordId);
 
   const control = await registerStore.getCurrent(recordId);
+
+  // A record whose id doesn't match the query is never used for anything —
+  // not for this decision, not returned for masking or media selection.
+  if (record && record.recordId !== recordId) {
+    return {
+      decision: { allowed: false, reason: "The record read does not match the requested record id; denied.", control },
+      record: null,
+    };
+  }
+  const decision = decideFrom({ record, authorityClaims, legalRights, grants, control }, query);
+  // Only an ALLOWED decision hands its record back — a caller can never
+  // mask or select media from a record the decision didn't permit.
+  return { decision, record: decision.allowed ? record : null };
+}
+
+function decideFrom(
+  evidence: {
+    record: FixtureRecord | null;
+    authorityClaims: Awaited<ReturnType<FixtureStore["listAuthorityClaims"]>>;
+    legalRights: Awaited<ReturnType<FixtureStore["listLegalRights"]>>;
+    grants: ConsentGrant[];
+    control: RestrictionRegisterEntry | null;
+  },
+  query: PermissionQuery,
+): PermissionDecision {
+  const { record, authorityClaims, legalRights, grants, control } = evidence;
+  const { purpose, audience, now } = query;
   if (!control) {
     return {
       allowed: false,

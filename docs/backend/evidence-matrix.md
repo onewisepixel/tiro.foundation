@@ -1929,6 +1929,69 @@ not run live):**
 - 286 tests pass (up from 275); backend/infra/frontend typechecks clean; lint unchanged (the same 2
   pre-existing warnings); `npm run build` clean.
 
+**2026-10-10, later still — read-once and a two-walk drill (local only; not deployed, not run as a
+live drill, not committed).**
+- *Read-once.* `permissions.ts` gains `evaluatePermissionSnapshot`, which returns the decision plus
+  the record read the evaluation itself performed. Callers never supply the record. The read order
+  is unchanged: record, then the three strongly consistent evidence queries, then the
+  authoritative register last. A record whose id doesn't match the query is denied and never
+  returned. A denied snapshot returns no record. `evaluatePermission` is now a thin wrapper
+  returning only the decision, whose shape is unchanged; that matters because it is returned
+  verbatim by `POST /records/:id/permission-check` and inside the staff limited-metadata view, so
+  it must not carry record content.
+  - `readPublicRecord`, `fetchPublicMedia` and `fetchAuthorizedMedia` now mask and select media
+    from that one snapshot. The media path previously read the record three times.
+  - Synthetic checks, pinned `versionId`, the HEAD-before-GET size cap, checksum verification, and
+    the 403→404 collapse on the public route are unchanged.
+  - The staff `GET /records/:id` route (which still reads the record twice) is unchanged; it is not
+    on the public path.
+  - `readOnce.test.ts` (13 tests) covers one record read per path (detail, public media, staff
+    media, per listing candidate); fail-closed on missing or mismatched records; no record content
+    in the plain decision; and a consent revocation, a text redaction, and a media redaction each
+    landing *after* an evidence read but before the register read (all honored). It also shows that
+    a record rewrite landing mid-evaluation can't swap in a different pinned version or checksum.
+- *Re-profiled live (read-only), same 4 candidates, running the local read-once code:* heavy
+  candidates **198 → 101 RCU** (`getRecord` 97 + three evidence queries at 1 + register 1), light
+  candidates **6 → 5 RCU**, 5 operations instead of 6, 0 throttled attempts.
+- *Drill consolidated to two complete walks* (baseline before protective actions, then after), each
+  classifying every fixture; per-action direct detail/media checks kept. Each action's own
+  lifecycle completion is now checked too. A dedicated never-published fixture carries the
+  "preservation approval alone" listing check in both walks; every fixture still gets its direct
+  detail/media 404 checks at that stage.
+- 300 tests pass; all typechecks clean; lint unchanged (2 pre-existing warnings); build clean.
+
+**Correction to "pacing and 503 remain the real protection" (stated in conversation on
+2026-10-10, not in these docs, and wrong):** pacing only reduces how often a request issues reads,
+and a 503 only reports failure after work has already consumed capacity. Neither guarantees
+anything about capacity. API Gateway throttling is also documented by AWS as best-effort, not a
+hard cap.
+
+**Measured read cost per table, after read-once** (strongly consistent unless noted; from the two
+2026-10-10 profiles). "Light" means a ~1 KB record item; "heavy" means a ~395 KB one.
+
+| Unit of work | Primary table RCU | Register table RCU |
+| --- | --- | --- |
+| One evaluation (detail, media authorization, or one listing candidate) | light 4, heavy 100 | 1 (`GetItem`) |
+| Listing raw page (25 register rows, eventually consistent Scan) | 0 | ~1 per page |
+| One listing request, worst case (4 evaluations, up to 8 raw pages) | light 16, heavy **400** | ~12 |
+| One complete walk (197 candidates; ~50 requests at ≤4 evaluations each, and each request starts a fresh 25-row Scan from its resume key, so ~50–60 raw pages) | 4·(197 − H) + 100·H, i.e. **~980 at H = 2** (the measured minimum) up to **~4,340 if H = 37** (the most the docs say were attempted) | ~250 (197 + ~50–60) |
+| Two-walk drill, listing only | about twice the walk figure | ~500 |
+
+H, the number of heavy candidates among the 197, is deliberately not counted; the consolidated
+live drill will show whether read-once plus two walks is sufficient. The register table's ~250 RCU
+per walk fits within one burst bucket (at most 300 s × 5 RCU = 1,500 when fully accrued) and takes
+~50 s of provisioned rate to replace. The primary table's cost is dominated by heavy items. These
+are estimates from per-operation measurements, not a measured walk total.
+
+**Throttle settings stay a proposal.** At the proposed 1 req/s on `/public/records`, worst-case
+sustained public demand on the primary table would be up to ~400 RCU/s, against a 5 RCU/s
+provisioned rate shared with the staff API. Even a single heavy detail read at 100 RCU exceeds 20
+s of the table's provisioned rate. No usable rate limit fits a public budget that leaves staff
+headroom while near-400 KB items are eligible; HTTP API `throttlingRateLimit` is a double, so
+fractional rates are possible, but best-effort enforcement and per-item variance still make it no
+capacity guarantee. Revisit once a combined public traffic budget with explicit staff headroom is
+decided.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |

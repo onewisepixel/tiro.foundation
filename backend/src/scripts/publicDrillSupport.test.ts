@@ -11,14 +11,15 @@ import {
   cleanupDrillFixtures,
   idempotentPost,
   retryOnServerError,
-  walkPublicListing,
+  classifyInWalk,
+  walkEntirePublicListing,
   type HttpResult,
 } from "./publicDrillSupport";
 
 setCursorSecretKey("test-only-fixed-cursor-key-never-used-in-production");
 
 // Routes a drill-style path ("/public/records?limit=50&cursor=...") through
-// the REAL router, so walkPublicListing is exercised against the actual
+// the REAL router, so walkEntirePublicListing is exercised against the actual
 // response shape readPublicListing/router.ts produce — not a hand-written
 // imitation of it.
 function routerGet(fixtureStore: FixtureStore, registerStore: InMemoryRestrictionRegisterStore) {
@@ -40,7 +41,7 @@ function routerGet(fixtureStore: FixtureStore, registerStore: InMemoryRestrictio
 // another allowed record succeeds — the real API answers 200 with
 // hadFailures: true and nextCursor: null. The failed record must NOT be
 // reported absent.
-test("walkPublicListing reports a failed-to-evaluate record as inconclusive, never absent, when another record on the page succeeds", async () => {
+test("a failed-to-evaluate record is inconclusive, never absent, when another record on the page succeeds", async () => {
   const fixtureStore = new InMemoryFixtureStore();
   const registerStore = new InMemoryRestrictionRegisterStore();
   const [failing] = buildSeedFixtures();
@@ -67,32 +68,52 @@ test("walkPublicListing reports a failed-to-evaluate record as inconclusive, nev
   assert.equal(body.nextCursor, null);
   assert.deepEqual(body.items.map((i) => i.recordId), [succeeding.record.recordId]);
 
-  const failedOutcome = await walkPublicListing(get, failing.record.recordId);
-  assert.equal(failedOutcome.kind, "inconclusive");
+  const walk = await walkEntirePublicListing(get);
+  assert.equal(walk.incompleteReason, null, "precondition: the walk itself completed");
+  assert.equal(walk.failedPages, 1);
+  assert.equal(classifyInWalk(walk, failing.record.recordId).kind, "inconclusive");
+  // A record that was never a candidate at all is ALSO inconclusive on a
+  // walk with a failed page — absence can't be verified by that walk.
+  assert.equal(classifyInWalk(walk, "never-existed").kind, "inconclusive");
 
   // Presence stays positive evidence even on a page with failures.
-  const presentOutcome = await walkPublicListing(get, succeeding.record.recordId);
-  assert.deepEqual(presentOutcome, { kind: "present" });
+  const presentOutcome = classifyInWalk(walk, succeeding.record.recordId);
+  assert.equal(presentOutcome.kind, "present");
+  assert.equal(presentOutcome.kind === "present" && presentOutcome.item.recordId, succeeding.record.recordId);
 });
 
-test("walkPublicListing reports absent only when every page explicitly reports hadFailures: false", async () => {
+test("a complete walk reports absent only when every page explicitly reports hadFailures: false", async () => {
   const fixtureStore = new InMemoryFixtureStore();
   const registerStore = new InMemoryRestrictionRegisterStore();
   const [allowed] = buildSeedFixtures();
   await seedStore(fixtureStore, registerStore, [allowed]);
-  const outcome = await walkPublicListing(routerGet(fixtureStore, registerStore), "never-existed");
-  assert.deepEqual(outcome, { kind: "absent" });
+  const walk = await walkEntirePublicListing(routerGet(fixtureStore, registerStore));
+  assert.deepEqual(classifyInWalk(walk, "never-existed"), { kind: "absent" });
+  assert.equal(classifyInWalk(walk, allowed.record.recordId).kind, "present");
 });
 
-test("walkPublicListing treats a missing hadFailures field, a non-200, and an exhausted page bound as inconclusive", async () => {
-  const noField = await walkPublicListing(async () => ({ status: 200, json: { items: [], nextCursor: null } }), "x");
-  assert.equal(noField.kind, "inconclusive");
+test("a walk keeps collecting past the first match, so one walk can classify every fixture", async () => {
+  const pages = [
+    { items: [{ recordId: "a" }], nextCursor: "p2", hadFailures: false },
+    { items: [{ recordId: "b" }], nextCursor: null, hadFailures: false },
+  ];
+  let call = 0;
+  const walk = await walkEntirePublicListing(async () => ({ status: 200, json: pages[call++] }));
+  assert.equal(walk.pages, 2);
+  assert.equal(classifyInWalk(walk, "a").kind, "present");
+  assert.equal(classifyInWalk(walk, "b").kind, "present");
+  assert.deepEqual(classifyInWalk(walk, "c"), { kind: "absent" });
+});
 
-  const unavailable = await walkPublicListing(async () => ({ status: 503, json: { error: "x" } }), "x");
-  assert.equal(unavailable.kind, "inconclusive");
+test("a missing hadFailures field, a non-200, or an exhausted page bound makes absence inconclusive", async () => {
+  const noField = await walkEntirePublicListing(async () => ({ status: 200, json: { items: [], nextCursor: null } }));
+  assert.equal(classifyInWalk(noField, "x").kind, "inconclusive");
 
-  const endless = await walkPublicListing(async () => ({ status: 200, json: { items: [], nextCursor: "more", hadFailures: false } }), "x", { maxPages: 3 });
-  assert.equal(endless.kind, "inconclusive");
+  const unavailable = await walkEntirePublicListing(async () => ({ status: 503, json: { error: "x" } }));
+  assert.equal(classifyInWalk(unavailable, "x").kind, "inconclusive");
+
+  const endless = await walkEntirePublicListing(async () => ({ status: 200, json: { items: [], nextCursor: "more", hadFailures: false } }), { maxPages: 3 });
+  assert.equal(classifyInWalk(endless, "x").kind, "inconclusive");
 });
 
 test("retryOnServerError retries 500/503 and returns (never throws) the last failure after maxAttempts", async () => {

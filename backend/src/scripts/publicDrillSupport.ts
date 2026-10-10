@@ -15,47 +15,81 @@ export type HttpResult = { status: number; json: unknown };
 // "inconclusive". Presence, by contrast, is positive evidence and stands
 // regardless of failures elsewhere.
 export type ListingOutcome =
-  | { kind: "present" }
+  | { kind: "present"; item: Record<string, unknown> }
   | { kind: "absent" }
   | { kind: "inconclusive"; reason: string };
 
-export async function walkPublicListing(
+// One COMPLETE walk of the whole public directory, collecting every listed
+// item. The drill takes exactly two of these (a baseline before protective
+// actions, and one after) and checks every fixture against each, rather
+// than one walk per check: each walk evaluates every preserved+published
+// candidate on the shared namespace, which is what made a per-check walk
+// infeasible at 5 RCU.
+export type ListingWalk = {
+  items: Map<string, Record<string, unknown>>;
+  pages: number;
+  // Pages whose body did not explicitly report hadFailures: false.
+  failedPages: number;
+  // Set when the walk stopped before reaching nextCursor: null.
+  incompleteReason: string | null;
+};
+
+export async function walkEntirePublicListing(
   get: (path: string) => Promise<HttpResult>,
-  targetRecordId: string,
   options: { pageSize?: number; maxPages?: number } = {},
-): Promise<ListingOutcome> {
+): Promise<ListingWalk> {
   const pageSize = options.pageSize ?? 50;
   const maxPages = options.maxPages ?? 200;
+  const walk: ListingWalk = { items: new Map(), pages: 0, failedPages: 0, incompleteReason: null };
   let cursor: string | null = null;
-  let failedPages = 0;
   for (let page = 0; page < maxPages; page++) {
     const path = cursor
       ? `/public/records?limit=${pageSize}&cursor=${encodeURIComponent(cursor)}`
       : `/public/records?limit=${pageSize}`;
     const response = await get(path);
+    walk.pages++;
     if (response.status !== 200) {
-      return { kind: "inconclusive", reason: `GET /public/records returned ${response.status} on page ${page + 1}` };
+      walk.incompleteReason = `GET /public/records returned ${response.status} on page ${page + 1}`;
+      return walk;
     }
-    const body = response.json as { items?: { recordId: string }[]; nextCursor?: string | null; hadFailures?: boolean } | null;
+    const body = response.json as { items?: Record<string, unknown>[]; nextCursor?: string | null; hadFailures?: boolean } | null;
     if (!body || !Array.isArray(body.items)) {
-      return { kind: "inconclusive", reason: `GET /public/records returned an unrecognized body on page ${page + 1}` };
+      walk.incompleteReason = `GET /public/records returned an unrecognized body on page ${page + 1}`;
+      return walk;
     }
-    if (body.items.some((item) => item.recordId === targetRecordId)) {
-      return { kind: "present" };
+    for (const item of body.items) {
+      walk.items.set(String(item.recordId), item);
     }
     // Anything other than an explicit `false` counts as a failed page — a
     // missing field is not evidence that every candidate was checked.
     if (body.hadFailures !== false) {
-      failedPages++;
+      walk.failedPages++;
     }
     if (!body.nextCursor) {
-      return failedPages > 0
-        ? { kind: "inconclusive", reason: `${failedPages} page(s) reported hadFailures; the target may have been one of the unchecked candidates` }
-        : { kind: "absent" };
+      return walk;
     }
     cursor = body.nextCursor;
   }
-  return { kind: "inconclusive", reason: `walk exceeded its ${maxPages}-page safety bound` };
+  walk.incompleteReason = `walk exceeded its ${maxPages}-page safety bound`;
+  return walk;
+}
+
+// Presence is positive evidence and stands regardless of failures
+// elsewhere. Absence needs a COMPLETE walk in which EVERY page explicitly
+// reported hadFailures: false — any failed page evaluation, or any
+// incomplete walk, makes absence inconclusive, never "absent."
+export function classifyInWalk(walk: ListingWalk, recordId: string): ListingOutcome {
+  const item = walk.items.get(recordId);
+  if (item) {
+    return { kind: "present", item };
+  }
+  if (walk.incompleteReason) {
+    return { kind: "inconclusive", reason: walk.incompleteReason };
+  }
+  if (walk.failedPages > 0) {
+    return { kind: "inconclusive", reason: `${walk.failedPages} page(s) reported hadFailures; this record may have been one of the unchecked candidates` };
+  }
+  return { kind: "absent" };
 }
 
 // Retries a whole HTTP call on 500/503 (how a Lambda-side

@@ -313,11 +313,15 @@ AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
   npx tsx backend/src/scripts/realPublicMemoryAcceptanceDrill.ts
 ```
 
-This builds 7 fixtures through staff intake and checks every anonymous surface (listing, detail,
-media) before and after each protective action. Checks report **PASS**, **FAIL**, or
-**INCONCLUSIVE**. A listing-absence check is INCONCLUSIVE whenever any page of the walk reported
-`hadFailures` or the walk could not complete, because a candidate that failed to evaluate is
-silently missing from that page. Only an all-PASS run is clean.
+This builds 8 fixtures through staff intake. One stops at preservation approval; the other 7 are
+published. It checks every anonymous surface with **exactly two complete listing walks**: a
+baseline after all fixtures are published and before any protective action, and one after every
+action. Each walk is checked against every fixture's expected state. Per-fixture detail and media
+checks are still made directly, at the preservation-only stage, after publication, and after each
+action. Checks report **PASS**, **FAIL**, or **INCONCLUSIVE**. A listing-absence check is
+INCONCLUSIVE whenever any page of that walk reported `hadFailures` or the walk could not
+complete, because a candidate that failed to evaluate is silently missing from that page. Only an
+all-PASS run is clean.
 
 **Cleanup does not delete every fixture.** The delete-path fixture is deleted by the drill itself;
 every other fixture is withdrawn. Each one is then verified, either by a staff GET 404 or by a
@@ -328,8 +332,8 @@ per logical operation, reused across retries, so a retry after a lost response i
 replay rather than a second request.
 
 Each full listing walk evaluates every preserved+published candidate on the shared namespace (197
-of 271 register rows as of 2026-10-10), and the drill does about 12 walks. See the evidence
-matrix's "per-operation profile" note for why that throttles at 5 RCU.
+of 271 register rows as of 2026-10-10). That is why the drill takes only two. See the evidence
+matrix's "per-operation profile" and "read-once" notes for the measured per-table costs.
 
 ### Read-only capacity profile of the public read path
 

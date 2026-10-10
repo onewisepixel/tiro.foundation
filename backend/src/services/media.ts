@@ -9,7 +9,7 @@
 import type { ConsentGrant, FixtureRecord, Purpose } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
-import { evaluatePermission } from "./permissions";
+import { evaluatePermissionSnapshot } from "./permissions";
 
 // Enforced BEFORE any attempt to fetch/buffer the object, from the
 // MediaRef's own recorded size (bytes we measured ourselves at upload time —
@@ -115,6 +115,9 @@ export async function fetchAuthorizedMedia(
   registerStore: RestrictionRegisterStore,
   mediaStore: MediaStore,
   query: MediaFetchQuery,
+  // Server-side policy only (publicView.ts's fetchPublicMedia sets it) —
+  // never derived from request input.
+  options: { requireSynthetic?: boolean } = {},
 ): Promise<MediaFetchResult> {
   const now = query.now ?? new Date();
 
@@ -123,7 +126,11 @@ export async function fetchAuthorizedMedia(
   // the media store. Passing mediaId here also enforces redactMedia()'s
   // hard override (services/lifecycle.ts) — a redacted object denies even
   // when the record's own purpose/audience would otherwise fully allow it.
-  const decision = await evaluatePermission(fixtureStore, registerStore, {
+  // Read-once: the MediaRef (pinned versionId and checksum) is selected
+  // from the SAME record snapshot this decision judged — no second
+  // getRecord, so a record changed after the decision can't supply a
+  // different reference than the one that was authorized.
+  const { decision, record } = await evaluatePermissionSnapshot(fixtureStore, registerStore, {
     recordId: query.recordId,
     purpose: query.purpose,
     audience: query.audience,
@@ -133,10 +140,13 @@ export async function fetchAuthorizedMedia(
   if (!decision.allowed) {
     return { ok: false, statusCode: 403, reason: decision.reason };
   }
-
-  const record = await fixtureStore.getRecord(query.recordId);
+  // Unreachable while an allowed decision always carries its record, but
+  // fails closed rather than trusting that.
   if (!record) {
     return { ok: false, statusCode: 404, reason: "Record not found." };
+  }
+  if (options.requireSynthetic && !record.isSynthetic) {
+    return { ok: false, statusCode: 404, reason: "Not found." };
   }
   const media = findMediaRef(record, query.mediaId);
   if (!media) {

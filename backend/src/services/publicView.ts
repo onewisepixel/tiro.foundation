@@ -22,7 +22,7 @@ import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import { decodePublicCursor, encodePublicCursor } from "./cursorCodec";
 import { fetchAuthorizedMedia, type MediaFetchResult } from "./media";
-import { evaluatePermission } from "./permissions";
+import { evaluatePermissionSnapshot } from "./permissions";
 import { applyTextRedactions } from "./redactionView";
 
 export type PublicMediaRef = {
@@ -66,21 +66,17 @@ export async function readPublicRecord(
   registerStore: RestrictionRegisterStore,
   recordId: string,
 ): Promise<PublicMemoryView | null> {
-  const record = await fixtureStore.getRecord(recordId);
-  if (!record || !record.isSynthetic) {
-    return null;
-  }
-  // One evaluatePermission call; its returned decision.control is the
-  // SAME snapshot used for every masking decision below — never a second,
-  // separately-timed register read. See permissions.ts's own docstring for
-  // why that matters.
-  const decision = await evaluatePermission(fixtureStore, registerStore, {
+  // ONE record read, performed inside evaluatePermissionSnapshot (read-once;
+  // see permissions.ts's PermissionSnapshot). Masking and media selection
+  // below use that same record and the same decision.control snapshot —
+  // never a second, separately-timed record or register read.
+  const { decision, record } = await evaluatePermissionSnapshot(fixtureStore, registerStore, {
     recordId,
     purpose: "publication",
     audience: "public",
     now: new Date(),
   });
-  if (!decision.allowed) {
+  if (!decision.allowed || !record || !record.isSynthetic) {
     return null;
   }
   const masked = applyTextRedactions(record, decision.control);
@@ -97,6 +93,13 @@ export async function readPublicRecord(
 // continuation cursor) — never an error, and never an unbounded scan.
 export const PUBLIC_LISTING_RAW_PAGE_SIZE = 25;
 export const PUBLIC_LISTING_MAX_RAW_ROWS = 200;
+// [2026-10-10 update: superseded in two ways. (1) Read-once — the record is
+// now read once per evaluation, not twice, so it is FOUR primary-table
+// reads plus one register read. (2) Measured per operation
+// (scripts/profilePublicReadPath.ts), each read costs 1 RCU for an ordinary
+// item but ~97 RCU for a near-400 KB record item. Cost is set by item size,
+// not by read count, so the per-evaluation figure below is a floor, not
+// a constant. The original reasoning follows unchanged.]
 // Live-drill-caught finding, corrected twice: a full evaluatePermission's
 // real cost against the PRIMARY table is NOT ~1-3 RCU — it's FIVE
 // strongly-consistent reads (confirmed directly in dynamoStore.ts:
@@ -281,9 +284,10 @@ export async function readPublicListing(
   return { items, nextCursor: exhausted ? null : encodePublicCursor(resumeKey), hadFailures };
 }
 
-// Same eligibility gate as readPublicRecord (isSynthetic, then the
-// hardcoded publication/public evaluatePermission call via the unmodified
-// fetchAuthorizedMedia), plus one normalization fetchAuthorizedMedia alone
+// Same eligibility gate as readPublicRecord (the hardcoded
+// publication/public permission check via fetchAuthorizedMedia, then
+// isSynthetic on that same record snapshot via requireSynthetic), plus one
+// normalization fetchAuthorizedMedia alone
 // doesn't do: a denied-but-existing record (403) and a genuinely missing
 // one (404) are collapsed into the SAME flat 404 here. 409 ("no bound S3
 // version"), 413 (size cap), and 500 (checksum mismatch) pass through
@@ -295,17 +299,22 @@ export async function fetchPublicMedia(
   mediaStore: MediaStore,
   query: { recordId: string; mediaId: string; now?: Date },
 ): Promise<MediaFetchResult> {
-  const record = await fixtureStore.getRecord(query.recordId);
-  if (!record || !record.isSynthetic) {
-    return { ok: false, statusCode: 404, reason: "Not found." };
-  }
-  const result = await fetchAuthorizedMedia(fixtureStore, registerStore, mediaStore, {
-    recordId: query.recordId,
-    mediaId: query.mediaId,
-    purpose: "publication",
-    audience: "public",
-    now: query.now ?? new Date(),
-  });
+  // Read-once: no separate getRecord here any more — the synthetic check
+  // runs inside fetchAuthorizedMedia against the one record snapshot its
+  // permission decision used.
+  const result = await fetchAuthorizedMedia(
+    fixtureStore,
+    registerStore,
+    mediaStore,
+    {
+      recordId: query.recordId,
+      mediaId: query.mediaId,
+      purpose: "publication",
+      audience: "public",
+      now: query.now ?? new Date(),
+    },
+    { requireSynthetic: true },
+  );
   if (!result.ok && (result.statusCode === 403 || result.statusCode === 404)) {
     return { ok: false, statusCode: 404, reason: "Not found." };
   }
