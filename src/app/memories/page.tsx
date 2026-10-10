@@ -152,6 +152,16 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             records listed there.
           </p>
 
+          {listingResult.ok && listingResult.listing.hadFailures ? (
+            // Reviewer-caught finding: some candidates on this page could
+            // not be checked, so records may be missing from it. Never
+            // present a partial page as the whole slice.
+            <p role="status" className="mb-8 text-sm text-[var(--tiro-text-muted)]">
+              Some records could not be checked just now, so this list may be incomplete. Please try again
+              shortly.
+            </p>
+          ) : null}
+
           {!listingResult.ok ? (
             <p className="text-sm text-[var(--tiro-text-muted)]">
               Live records are temporarily unavailable. Please try again shortly.
@@ -162,7 +172,9 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
                 <PublicMemoryCard key={record.recordId} record={record} />
               ))}
             </div>
-          ) : listingResult.listing.nextCursor ? (
+          ) : listingResult.listing.hadFailures ? null : listingResult.listing.nextCursor ? (
+            // An empty page with unchecked candidates makes no emptiness
+            // claim at all — the incomplete-results notice above covers it.
             // Reviewer-caught finding: an empty page does not mean nothing
             // is published — the backend's own listing is budget-bounded
             // and can legitimately return a sparse or empty slice while

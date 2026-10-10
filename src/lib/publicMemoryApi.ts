@@ -32,6 +32,12 @@ export type PublicMemoryRecord = {
 export type PublicMemoryListing = {
   items: PublicMemoryRecord[];
   nextCursor: string | null;
+  // True when at least one candidate on this page could not be checked
+  // (backend services/publicView.ts's readPublicListing) — the page is
+  // INCOMPLETE, and the UI must say so rather than present it as the
+  // whole slice. Normalized to true unless the backend explicitly sent
+  // false: a missing field is not evidence every candidate was checked.
+  hadFailures: boolean;
 };
 
 // Distinguishes a fetch that failed/errored (backend unreachable, bad
@@ -68,8 +74,8 @@ export async function fetchPublicMemoryListing(params: { limit?: number; cursor?
     if (!response.ok) {
       return { ok: false };
     }
-    const listing = (await response.json()) as PublicMemoryListing;
-    return { ok: true, listing };
+    const body = (await response.json()) as Omit<PublicMemoryListing, "hadFailures"> & { hadFailures?: unknown };
+    return { ok: true, listing: { items: body.items, nextCursor: body.nextCursor, hadFailures: body.hadFailures !== false } };
   } catch {
     return { ok: false };
   }

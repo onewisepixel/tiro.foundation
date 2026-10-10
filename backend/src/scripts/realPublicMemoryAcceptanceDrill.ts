@@ -32,11 +32,21 @@
 //      content disappears (listing/detail/media all 404) or becomes masked
 //      (redacted text/media only), never partially stale on any surface.
 //
-// Cleanup: only this drill's own disposable Cognito test user is deleted.
-// Every fixture this drill creates is deleted by the drill itself (the
-// dedicated "delete" case, plus an explicit cleanup pass over every other
-// fixture built along the way) — nothing else is left behind beyond the
-// ordinary synthetic-fixture precedent.
+// Cleanup: the disposable Cognito test user is deleted. Fixtures are NOT
+// all deleted: the dedicated "delete" case exercises real deletion, and
+// every other fixture this run built is WITHDRAWN (left in a terminal,
+// non-public state, matching this engagement's synthetic-fixture
+// precedent). Cleanup verifies each one — staff GET 404 (deleted), or a
+// withdraw that returned HTTP 200 with lifecycle status "completed" AND a
+// register read-back showing "withdrawn" — and lists every fixture it
+// could not verify by recordId, exiting non-zero. A run whose cleanup is
+// unfinished is never reported as clean.
+//
+// Listing checks have three outcomes: PASS, FAIL, and INCONCLUSIVE. An
+// "absent from GET /public/records" check is INCONCLUSIVE — never PASS —
+// whenever any page of the walk reported hadFailures (a candidate that
+// failed to evaluate is silently missing from that page) or the walk could
+// not complete; see publicDrillSupport.ts. Any non-PASS exits non-zero.
 //
 // Run with:
 // AWS_PROFILE=tiro-fixture-deploy AWS_REGION=us-east-1 \
@@ -51,6 +61,14 @@ import {
   AdminDeleteUserCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { createHash, randomUUID } from "node:crypto";
+import {
+  cleanupDrillFixtures,
+  idempotentPost,
+  retryOnServerError,
+  walkPublicListing,
+  type HttpResult,
+  type ListingOutcome,
+} from "./publicDrillSupport";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const API_URL = requireEnv("TIRO_STAFF_API_URL").replace(/\/+$/, "");
@@ -67,11 +85,26 @@ function log(step: string, message: string, data?: unknown): void {
   console.log(`\n[${step}] ${message}`, data !== undefined ? JSON.stringify(data, null, 2) : "");
 }
 
-type CheckResult = { name: string; passed: boolean; detail?: string };
+type CheckOutcome = "PASS" | "FAIL" | "INCONCLUSIVE";
+type CheckResult = { name: string; outcome: CheckOutcome; detail?: string };
 const results: CheckResult[] = [];
+function recordOutcome(name: string, outcome: CheckOutcome, detail?: string): void {
+  results.push({ name, outcome, detail });
+  log(outcome, name, detail);
+}
 function record(name: string, passed: boolean, detail?: string): void {
-  results.push({ name, passed, detail });
-  log(passed ? "PASS" : "FAIL", name, detail);
+  recordOutcome(name, passed ? "PASS" : "FAIL", detail);
+}
+// A listing check passes only on the expected definite outcome. An
+// inconclusive walk is reported as INCONCLUSIVE whatever was expected —
+// "not found, but some candidates were never checked" proves neither
+// presence nor absence.
+function recordListing(name: string, expected: "present" | "absent", outcome: ListingOutcome): void {
+  if (outcome.kind === "inconclusive") {
+    recordOutcome(name, "INCONCLUSIVE", outcome.reason);
+  } else {
+    record(name, outcome.kind === expected, `walk result: ${outcome.kind}`);
+  }
 }
 
 async function main() {
@@ -121,16 +154,13 @@ async function main() {
   // way on every retry and still surfaces — this never masks a real
   // defect, it only stops a known capacity limit from aborting the whole
   // run.
+  // After its last attempt this RETURNS the final 500/503 rather than
+  // throwing — every caller must check the status itself.
   async function withHttpThrottleRetry<T extends { status: number }>(fn: () => Promise<T>, label: string): Promise<T> {
-    for (let attempt = 1; ; attempt++) {
-      const result = await fn();
-      if ((result.status !== 500 && result.status !== 503) || attempt > 30) {
-        return result;
-      }
-      const delayMs = Math.min(1000 * attempt, 8000);
-      log("THROTTLE BACKOFF", `${label}: got a ${result.status} (possibly provisioned-throughput throttling on this intentionally tiny-capacity table); waiting ${delayMs}ms before retry ${attempt}`);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
+    return retryOnServerError(fn, {
+      onRetry: (attempt, status, delayMs) =>
+        log("THROTTLE BACKOFF", `${label}: got a ${status} (possibly provisioned-throughput throttling on this intentionally tiny-capacity table); waiting ${delayMs}ms before retry ${attempt}`),
+    });
   }
 
   // ---- Authenticated (staff) helpers — same shape as realIntakeAcceptanceDrill.ts ----
@@ -140,15 +170,22 @@ async function main() {
       return { status: response.status, json: await response.json().catch(() => null) };
     }, `GET ${path}`);
   }
-  async function apiPost(path: string, bodyObj: unknown): Promise<{ status: number; json: unknown }> {
-    return withHttpThrottleRetry(async () => {
-      const response = await fetch(`${API_URL}${path}`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
-        body: JSON.stringify(bodyObj),
-      });
-      return { status: response.status, json: await response.json().catch(() => null) };
-    }, `POST ${path}`);
+  // One requestId per logical POST, minted once and reused by every retry
+  // attempt (publicDrillSupport.ts's idempotentPost) — so a retry after a
+  // lost response is the backend's idempotent replay, not a second request.
+  async function apiPost(path: string, bodyObj: Record<string, unknown>): Promise<HttpResult> {
+    return idempotentPost(
+      async (stableBody) => {
+        const response = await fetch(`${API_URL}${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+          body: JSON.stringify(stableBody),
+        });
+        return { status: response.status, json: await response.json().catch(() => null) };
+      },
+      bodyObj,
+      (fn) => withHttpThrottleRetry(fn, `POST ${path}`),
+    );
   }
 
   // ---- Anonymous (public, unauthenticated) helpers — NO Authorization header, ever ----
@@ -169,27 +206,12 @@ async function main() {
   // Walks GET /public/records across as many pages as the REAL encrypted
   // cursor needs, exercising the actual round trip end to end (not just
   // in-memory) — bounded so a bug can never hang this drill.
-  async function findInPublicListing(targetRecordId: string): Promise<boolean> {
-    let cursor: string | null = null;
-    for (let page = 0; page < 200; page++) {
-      const path = cursor ? `/public/records?limit=50&cursor=${encodeURIComponent(cursor)}` : "/public/records?limit=50";
-      const response = await publicGet(path);
-      if (response.status !== 200) {
-        throw new Error(`GET /public/records returned ${response.status} while paginating.`);
-      }
-      const body = response.json as { items: { recordId: string }[]; nextCursor: string | null };
-      if (body.items.some((item) => item.recordId === targetRecordId)) {
-        return true;
-      }
-      if (!body.nextCursor) {
-        return false;
-      }
-      cursor = body.nextCursor;
-    }
-    throw new Error("findInPublicListing exceeded its page-walk safety bound — possible infinite pagination.");
+  function findInPublicListing(targetRecordId: string): Promise<ListingOutcome> {
+    return walkPublicListing(publicGet, targetRecordId);
   }
 
   const builtRecordIds: string[] = [];
+  let cleanupUnresolved: { recordId: string; reason: string }[] = [];
 
   // Builds one fresh fixture, through the REAL deployed API, all the way
   // to "preserved and published, visible anonymously" — the exact
@@ -272,8 +294,7 @@ async function main() {
       preservationOnlyDetail.status === 404,
       `status=${preservationOnlyDetail.status}`,
     );
-    const preservationOnlyListed = await findInPublicListing(recordId);
-    record(`[${suffix}] record is absent from GET /public/records with preservation approval alone`, preservationOnlyListed === false);
+    recordListing(`[${suffix}] record is absent from GET /public/records with preservation approval alone`, "absent", await findInPublicListing(recordId));
 
     const afterPreservation = await apiGet(`/records/${recordId}?purpose=preservation&audience=staff`);
     const afterPreservationBody = afterPreservation.json as { control: { controlVersion: number }; record: { version: number } };
@@ -295,8 +316,7 @@ async function main() {
     const detail = await publicGet(`/public/records/${recordId}`);
     record(`${label}: GET /public/records/:id returns 200`, detail.status === 200, `status=${detail.status}`);
 
-    const listed = await findInPublicListing(recordId);
-    record(`${label}: record is present in GET /public/records (real, paginated walk)`, listed === true);
+    recordListing(`${label}: record is present in GET /public/records (real, paginated walk)`, "present", await findInPublicListing(recordId));
 
     const media = await publicGetBinary(`/public/records/${recordId}/media/${mediaId}`);
     const checksumMatches = media.status === 200 && createHash("sha256").update(media.body).digest("hex") === createHash("sha256").update(mediaBody).digest("hex");
@@ -307,8 +327,7 @@ async function main() {
     const detail = await publicGet(`/public/records/${recordId}`);
     record(`${label}: GET /public/records/:id is 404`, detail.status === 404, `status=${detail.status}`);
 
-    const listed = await findInPublicListing(recordId);
-    record(`${label}: record is absent from GET /public/records`, listed === false);
+    recordListing(`${label}: record is absent from GET /public/records`, "absent", await findInPublicListing(recordId));
 
     const media = await publicGetBinary(`/public/records/${recordId}/media/${mediaId}`);
     record(`${label}: media is 404 (never 403) anonymously`, media.status === 404, `status=${media.status}`);
@@ -366,9 +385,14 @@ async function main() {
     // state rather than deleting them outright — matching this
     // engagement's precedent of not accumulating unbounded live-drill
     // debris, while keeping the delete-path check (above) the one place
-    // actual deletion is exercised.
-    for (const recordId of builtRecordIds) {
-      await apiPost(`/records/${recordId}/withdraw`, { reason: "[SYNTHETIC] drill cleanup — withdrawing every fixture this run created" }).catch(() => undefined);
+    // actual deletion is exercised. Each fixture is VERIFIED; any that
+    // can't be are reported by recordId and fail the run.
+    log("CLEANUP", `Withdrawing and verifying ${builtRecordIds.length} fixture(s) built by this run`);
+    const cleanup = await cleanupDrillFixtures(builtRecordIds, { post: apiPost, get: apiGet });
+    cleanupUnresolved = cleanup.unresolved;
+    log("CLEANUP", "Verified non-public", cleanup.resolved);
+    if (cleanup.unresolved.length > 0) {
+      log("CLEANUP INCOMPLETE", "These fixtures could NOT be verified as withdrawn or deleted and may still be public — resolve manually", cleanup.unresolved);
     }
     log("CLEANUP", "Deleting the disposable drill Cognito test user (nothing else)", { email: testEmail });
     await cognitoClient
@@ -378,11 +402,17 @@ async function main() {
 
   console.log("\n==================== SUMMARY ====================");
   for (const r of results) {
-    console.log(`${r.passed ? "PASS" : "FAIL"} — ${r.name}`);
+    console.log(`${r.outcome} — ${r.name}${r.outcome === "PASS" ? "" : ` (${r.detail ?? ""})`}`);
   }
-  const failed = results.filter((r) => !r.passed);
-  console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
-  if (failed.length > 0) {
+  const passed = results.filter((r) => r.outcome === "PASS").length;
+  const inconclusive = results.filter((r) => r.outcome === "INCONCLUSIVE").length;
+  console.log(`\n${passed}/${results.length} checks passed; ${results.length - passed - inconclusive} failed; ${inconclusive} inconclusive.`);
+  if (cleanupUnresolved.length > 0) {
+    console.log(`CLEANUP INCOMPLETE — ${cleanupUnresolved.length} fixture(s) unverified: ${cleanupUnresolved.map((u) => u.recordId).join(", ")}`);
+  } else {
+    console.log("Cleanup verified for every fixture this run built.");
+  }
+  if (passed !== results.length || cleanupUnresolved.length > 0) {
     process.exitCode = 1;
   }
 }

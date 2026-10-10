@@ -1875,6 +1875,60 @@ without being asked, since it isn't this feature's data to delete. See
 `docs/backend/handoff-summary.md`'s session-handoff section for the full current state and
 next-action priority.
 
+**2026-10-10, later — per-operation profile and a correction to the capacity reasoning above.**
+A follow-up orientation read CloudWatch's one-minute `ConsumedReadCapacityUnits` Sums (199 and 200
+in the two spot-check minutes) as "~200 RCU per request, therefore needing ~40 s at 5 RCU/s, therefore
+impossible within a 10 s Lambda." The user corrected that reasoning: a one-minute Sum aggregates every
+operation in the minute (200 ≈ 3.33 RCU/s averaged) and cannot attribute consumption to one request,
+and DynamoDB burst capacity can absorb short spikes. Option (d)'s premise was also wrong for a
+different reason: the primary table was idle (0 RCU) for ~20 h before the spot-checks, so this is
+not contention.
+
+The cost was then measured directly with `backend/src/scripts/profilePublicReadPath.ts` (new;
+read-only by construction, since a middleware rejects any command other than GetItem/Query/Scan
+before sending). It runs the unmodified `readPublicRecord` → `evaluatePermission` path one
+candidate at a time, 15 s apart, taking candidates in `readPublicListing`'s own scan order, and
+records `ConsumedCapacity`, latency, SDK attempts/retry delay, and per-attempt `ThrottlingReasons`
+for each operation. Run 2026-10-10 against `drill-20261002`, first 4 preserved+published
+candidates:
+
+| Candidate | Outcome | Ops | Total RCU | Breakdown | Throttled attempts |
+| --- | --- | --- | --- | --- | --- |
+| `01a10915-…` | denied | 6 | 6 | six 1-RCU reads | 0 |
+| `01a10686-…` | allowed | 6 | **198** | `getRecord` ×2 at **97 RCU each** (~395 KB item); 4 other reads at 1 RCU | 0 |
+| `01a1069d-…` | allowed | 6 | **198** | same shape as above | 0 |
+| `01a10684-…` | allowed | 6 | 6 | six 1-RCU reads | 0 |
+
+Findings: (1) The entire cost is the `RECORD` item's size, read TWICE (once by `readPublicRecord`
+and again inside `evaluatePermission`); every authority/legal-right/consent query and the register
+`GetItem` cost 1 RCU. (2) The ~395 KB comes from a `summary` attribute of repeated `"x"`, in fixture
+set `fixture-set-2026-10-preservation-drill`, created 2026-10-04: these are the near-400 KB records
+from the correction/redaction milestone's abandoned live export-budget attempt (this file, "20, then
+14, then 3 near-400-KB records"), i.e. another milestone's data. How many of the 197 candidates are
+heavy was NOT measured (that needs a ~2,400 RCU scan of the primary table). (3) No attempt was
+throttled during the profile, because burst capacity absorbed each isolated 198-RCU candidate on an
+idle table. That is consistent with the user's correction, and also shows why one request is fine
+while a drill doing ~12 full-directory walks is not. One attribute read (~48.5 RCU, eventually
+consistent) identified the oversized field. No writes were made.
+
+**Drill and UI fixes from the user's independent re-review of `5c3d306` (local only, not deployed,
+not run live):**
+- *False absence after partial failure.* The user reproduced that GET /public/records returns 200
+  with `hadFailures: true, nextCursor: null` when one allowed candidate fails and another succeeds,
+  and the drill then reported the failed record "absent." Listing walks now have three outcomes
+  (`present`/`absent`/`inconclusive`) in `publicDrillSupport.ts`'s `walkPublicListing`. Absence
+  requires every page to report `hadFailures: false` explicitly. Inconclusive checks are reported as
+  INCONCLUSIVE, never PASS, and fail the run. Reproduced through the real router in
+  `publicDrillSupport.test.ts`. The Memory index page now shows an incomplete-results notice when
+  `hadFailures` is true and makes no emptiness claim in that state (`src/lib/publicMemoryApi.ts`
+  normalizes a missing field to `true`).
+- *Silent cleanup failure and unstable request IDs:* see `handoff-summary.md`'s corrected
+  "Fixtures/resources left by this session" entry. Covered by `publicDrillSupport.test.ts`,
+  including a lost-response retry against the real router, which shows the replay does not apply
+  the withdrawal twice.
+- 286 tests pass (up from 275); backend/infra/frontend typechecks clean; lint unchanged (the same 2
+  pre-existing warnings); `npm run build` clean.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |

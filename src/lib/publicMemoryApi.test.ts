@@ -105,11 +105,38 @@ test("fetchPublicMemoryListing returns ok:false (not a thrown error) on a networ
 
 test("fetchPublicMemoryListing returns ok:true with an empty, non-null items array for a genuinely empty listing", async () => {
   process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL = "https://example.invalid";
+  globalThis.fetch = (async () => new Response(JSON.stringify({ items: [], nextCursor: null, hadFailures: false }), { status: 200 })) as typeof fetch;
+  try {
+    const result = await fetchPublicMemoryListing({});
+    assert.equal(result.ok, true);
+    assert.deepEqual((result as { listing: unknown }).listing, { items: [], nextCursor: null, hadFailures: false });
+  } finally {
+    restore();
+  }
+});
+
+// Reviewer-caught finding: a 200 page with hadFailures: true is INCOMPLETE
+// — the index page renders an incomplete-results notice from this flag.
+test("fetchPublicMemoryListing carries hadFailures: true through, so the page can say results are incomplete", async () => {
+  process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL = "https://example.invalid";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ items: [{ recordId: "r1" }], nextCursor: null, hadFailures: true }), { status: 200 })) as typeof fetch;
+  try {
+    const result = await fetchPublicMemoryListing({});
+    assert.equal(result.ok, true);
+    assert.equal((result as { listing: { hadFailures: boolean } }).listing.hadFailures, true);
+  } finally {
+    restore();
+  }
+});
+
+test("fetchPublicMemoryListing treats a response missing hadFailures as incomplete, never as fully checked", async () => {
+  process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL = "https://example.invalid";
   globalThis.fetch = (async () => new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 })) as typeof fetch;
   try {
     const result = await fetchPublicMemoryListing({});
     assert.equal(result.ok, true);
-    assert.deepEqual((result as { listing: { items: unknown[]; nextCursor: null } }).listing, { items: [], nextCursor: null });
+    assert.equal((result as { listing: { hadFailures: boolean } }).listing.hadFailures, true);
   } finally {
     restore();
   }

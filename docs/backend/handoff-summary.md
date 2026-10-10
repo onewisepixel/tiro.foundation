@@ -27,7 +27,7 @@ with `purpose: "publication"` / `audience: "public"` enforced entirely server-si
 caller-supplied parameter), wired into the Memory index and detail pages, with every protective
 action (restrict, redact-text, redact-media, revoke-consent, withdraw, delete) required to
 propagate across pages, metadata, API, and media with no stale cached content. DynamoDB capacity
-must stay unchanged (5/5 RCU/WCU on all three tables) throughout.
+must stay unchanged (5/5 RCU/WCU on both tables and the primary table's one GSI — two tables, not three) throughout.
 
 **Acceptance criteria** (the user's own stated completion test, unchanged across all rounds):
 create a fixture through staff intake; confirm preservation approval alone leaves it anonymously
@@ -153,7 +153,7 @@ on," rather than claiming global emptiness for a budget-bounded partial scan).
 ### Decisions and authorization
 
 - **Standing constraint, repeated explicitly across every round: DynamoDB capacity stays at 5/5
-  RCU/WCU on all three tables.** Never raise it to work around throttling. Reconfirmed via
+  RCU/WCU on both tables and the GSI.** Never raise it to work around throttling. Reconfirmed via
   `infra/lib/fixture-backend-stack.ts` and `cdk synth` output each round (still 5/5 as of this
   writing).
 - **Explicit, current instruction: "Keep sign-off pending until these fixes and that human
@@ -238,12 +238,24 @@ without re-running the drill first.
   browser navigation behavior like Finding 1's fix).
   **No local dev server is currently running** — confirmed via `tasklist` immediately before
   writing this handoff.
-- **Fixtures/resources left by this session:** each live-drill attempt's own fixtures are created
-  and withdrawn (and, for the dedicated delete-path check, deleted) by the script's own `finally`
-  block, which runs even on a thrown error — likely cleaned up on all 3 failed attempts this
-  session, but **not independently re-verified by querying DynamoDB after each failure**. The 197
-  "preserved+published" legacy rows are PRE-EXISTING, not created this session, and were not
-  touched.
+- **Fixtures/resources left by this session — CORRECTED 2026-10-10 (later the same day):** the
+  statement previously here ("likely cleaned up on all 3 failed attempts") was unfounded. The
+  drill's `finally` block DID run, but at `5c3d306` it ignored the withdraw response entirely and
+  only `.catch()`-ed thrown errors — while its retry helper RETURNS its last 500/503 after 31
+  attempts instead of throwing. Your re-review of `5c3d306` reproduced exactly that: cleanup finished
+  "normally" after 31 failed HTTP attempts. Those POSTs also carried no `requestId`, so each retry
+  was a NEW lifecycle request rather than an idempotent replay. **So any of the 3 throttled runs may
+  have left fixtures still published; that is unverified either way.** Fixed locally (not yet
+  deployed or run live): cleanup now verifies each fixture (staff GET 404, or a withdraw with HTTP
+  200 + lifecycle status `completed` + a register read-back of `withdrawn`), lists unresolved
+  recordIds, and exits non-zero; POSTs mint one `requestId` per logical operation, reused across
+  retries (`backend/src/scripts/publicDrillSupport.ts`). The drill also never deleted every
+  fixture, despite its header comment saying so: only the delete-path fixture is deleted, and the
+  rest are withdrawn. The header is now corrected. The 197 "preserved+published" rows are confirmed
+  live (register scan); at least the two near-400 KB ones profiled are another milestone's data
+  (fixture set `fixture-set-2026-10-preservation-drill`, created 2026-10-04 by the
+  correction/redaction drill's abandoned export-budget attempt). Whether any of the 197 came from
+  this drill's throttled runs is NOT established.
 - **Dated facts carried over from an earlier, unrelated milestone** (preserved here only because
   they're still live and dated): an S3 noncurrent-version lifecycle-rule expiration observation is
   genuinely pending until `2026-11-04T00:00:00Z` — see `evidence-matrix.md`'s "S3 noncurrent-version
@@ -274,7 +286,12 @@ without re-running the drill first.
    first tab, press Back and confirm the stale (pre-withdrawal) detail page does NOT reappear even
    momentarily (content should hide, then show the corrected/404 state); press Forward and confirm
    the same; then test a genuine OS-level bfcache restore (navigate away to another site/tab,
-   trigger the native back/forward cache, return) and confirm the same. **Acceptance criterion:**
+   trigger the native back/forward cache, return) and confirm the same. **Added by the user,
+   2026-10-10:** also navigate OUT of `/memories` entirely (e.g. via the site nav to another
+   section), apply a protective action, then come back INTO `/memories` (both by a nav link click
+   and by Back), and confirm neither the index nor a previously-visited detail page shows the
+   pre-action state; also confirm the index's incomplete-results notice appears if a listing page
+   reports `hadFailures`. **Acceptance criterion:**
    the stale page is never visible, not even for one frame, in any of the three cases. This is the
    human walkthrough the user explicitly required before sign-off.
 3. **[Can be done by either party once 1 and 2 are resolved]** Update

@@ -303,6 +303,47 @@ the default `dev`), pass `TIRO_FIXTURE_NAMESPACE=<namespace>` to `cdk deploy` to
 `TIRO_FIXTURE_NAMESPACE=drill-20261002` for this stack — omitting it creates a SEPARATE stack
 under the default namespace instead of updating the existing one.
 
+## Public Memory site acceptance drill against real AWS
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 \
+  TIRO_STAFF_API_URL=<StaffApiUrl output> \
+  TIRO_STAFF_USER_POOL_ID=<StaffUserPoolId output> \
+  TIRO_STAFF_USER_POOL_CLIENT_ID=<StaffUserPoolClientId output> \
+  npx tsx backend/src/scripts/realPublicMemoryAcceptanceDrill.ts
+```
+
+This builds 7 fixtures through staff intake and checks every anonymous surface (listing, detail,
+media) before and after each protective action. Checks report **PASS**, **FAIL**, or
+**INCONCLUSIVE**. A listing-absence check is INCONCLUSIVE whenever any page of the walk reported
+`hadFailures` or the walk could not complete, because a candidate that failed to evaluate is
+silently missing from that page. Only an all-PASS run is clean.
+
+**Cleanup does not delete every fixture.** The delete-path fixture is deleted by the drill itself;
+every other fixture is withdrawn. Each one is then verified, either by a staff GET 404 or by a
+withdraw returning HTTP 200 with lifecycle status `completed` plus a register read-back of
+`withdrawn`. Any fixture that can't be verified is listed by recordId under `CLEANUP INCOMPLETE`
+and fails the run. Resolve those manually before re-running. Every POST carries one `requestId`
+per logical operation, reused across retries, so a retry after a lost response is an idempotent
+replay rather than a second request.
+
+Each full listing walk evaluates every preserved+published candidate on the shared namespace (197
+of 271 register rows as of 2026-10-10), and the drill does about 12 walks. See the evidence
+matrix's "per-operation profile" note for why that throttles at 5 RCU.
+
+### Read-only capacity profile of the public read path
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 TIRO_FIXTURE_NAMESPACE=drill-20261002 \
+  [PROFILE_MAX_CANDIDATES=4] [PROFILE_GAP_MS=15000] [PROFILE_RECORD_IDS=id1,id2] [PROFILE_OUT=out.json] \
+  npx tsx backend/src/scripts/profilePublicReadPath.ts
+```
+
+This runs the real `readPublicRecord` path, one candidate at a time (default 4, hard cap 12),
+and reports each DynamoDB operation's consumed capacity, latency, SDK attempts, and throttling
+reasons. A middleware rejects anything but GetItem/Query/Scan, so the script cannot write. It
+still consumes real read capacity: up to ~200 RCU per near-400 KB candidate.
+
 ## Staff API smoke test against real AWS
 
 Scripts the manual "Real staff API smoke test" steps from
