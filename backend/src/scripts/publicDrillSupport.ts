@@ -52,7 +52,7 @@ export async function walkEntirePublicListing(
       walk.incompleteReason = `GET /public/records returned ${response.status} on page ${page + 1}`;
       return walk;
     }
-    const body = response.json as { items?: Record<string, unknown>[]; nextCursor?: string | null; hadFailures?: boolean } | null;
+    const body = response.json as { items?: Record<string, unknown>[]; nextCursor?: unknown; hadFailures?: boolean } | null;
     if (!body || !Array.isArray(body.items)) {
       walk.incompleteReason = `GET /public/records returned an unrecognized body on page ${page + 1}`;
       return walk;
@@ -65,7 +65,15 @@ export async function walkEntirePublicListing(
     if (body.hadFailures !== false) {
       walk.failedPages++;
     }
-    if (!body.nextCursor) {
+    // Reviewer-caught finding: only an explicit `null` proves the directory
+    // is exhausted. A missing field, "", false, 0, or any other non-string
+    // is not evidence that pagination finished, so the walk is incomplete
+    // and every absence it would imply is inconclusive.
+    if (body.nextCursor === null) {
+      return walk;
+    }
+    if (typeof body.nextCursor !== "string" || body.nextCursor.length === 0) {
+      walk.incompleteReason = `GET /public/records returned an invalid nextCursor (${JSON.stringify(body.nextCursor) ?? "missing"}) on page ${page + 1}`;
       return walk;
     }
     cursor = body.nextCursor;

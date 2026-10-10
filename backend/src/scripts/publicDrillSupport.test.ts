@@ -105,6 +105,51 @@ test("a walk keeps collecting past the first match, so one walk can classify eve
   assert.deepEqual(classifyInWalk(walk, "c"), { kind: "absent" });
 });
 
+// Reviewer-caught finding: `!body.nextCursor` treated a missing cursor,
+// "", false, and 0 as successful exhaustion, letting classifyInWalk report
+// "absent" with no evidence pagination finished. Only `null` proves it.
+for (const [label, page] of [
+  ["a missing nextCursor", { items: [{ recordId: "a" }], hadFailures: false }],
+  ['an empty-string nextCursor ("")', { items: [{ recordId: "a" }], nextCursor: "", hadFailures: false }],
+  ["nextCursor: false", { items: [{ recordId: "a" }], nextCursor: false, hadFailures: false }],
+  ["nextCursor: 0", { items: [{ recordId: "a" }], nextCursor: 0, hadFailures: false }],
+] as const) {
+  test(`${label} leaves the walk incomplete, so absence is inconclusive (never absent)`, async () => {
+    let calls = 0;
+    const walk = await walkEntirePublicListing(async () => {
+      calls++;
+      return { status: 200, json: page };
+    });
+    assert.equal(calls, 1, "the walk must stop rather than follow an invalid cursor");
+    assert.notEqual(walk.incompleteReason, null);
+    assert.match(walk.incompleteReason!, /invalid nextCursor/);
+    assert.equal(classifyInWalk(walk, "never-listed").kind, "inconclusive");
+    // Presence already observed stays positive evidence.
+    assert.equal(classifyInWalk(walk, "a").kind, "present");
+  });
+}
+
+test("a valid multi-page walk follows each nonempty string cursor and completes only at nextCursor: null", async () => {
+  const pages: Record<string, { items: { recordId: string }[]; nextCursor: string | null; hadFailures: boolean }> = {
+    first: { items: [{ recordId: "a" }], nextCursor: "cursor-2", hadFailures: false },
+    "cursor-2": { items: [{ recordId: "b" }], nextCursor: "cursor-3", hadFailures: false },
+    "cursor-3": { items: [{ recordId: "c" }], nextCursor: null, hadFailures: false },
+  };
+  const requested: string[] = [];
+  const walk = await walkEntirePublicListing(async (path) => {
+    const cursor = new URL(path, "https://example.invalid").searchParams.get("cursor") ?? "first";
+    requested.push(cursor);
+    return { status: 200, json: pages[cursor] };
+  });
+  assert.deepEqual(requested, ["first", "cursor-2", "cursor-3"]);
+  assert.equal(walk.incompleteReason, null);
+  assert.equal(walk.pages, 3);
+  for (const id of ["a", "b", "c"]) {
+    assert.equal(classifyInWalk(walk, id).kind, "present");
+  }
+  assert.deepEqual(classifyInWalk(walk, "never-listed"), { kind: "absent" });
+});
+
 test("a missing hadFailures field, a non-200, or an exhausted page bound makes absence inconclusive", async () => {
   const noField = await walkEntirePublicListing(async () => ({ status: 200, json: { items: [], nextCursor: null } }));
   assert.equal(classifyInWalk(noField, "x").kind, "inconclusive");

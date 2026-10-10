@@ -1960,6 +1960,38 @@ live drill, not committed).**
   detail/media 404 checks at that stage.
 - 300 tests pass; all typechecks clean; lint unchanged (2 pre-existing warnings); build clean.
 
+**Reviewer-caught P2 in the walk, fixed (2026-10-10, local):** the user reviewed `ae56b67..9f74e0e`
+and found that `walkEntirePublicListing` used `if (!body.nextCursor) return walk;`. That treated a
+missing cursor, `""`, `false`, and `0` as successful exhaustion, so `classifyInWalk` could report
+"absent" with no evidence that pagination finished (the user reproduced all four). Now only
+`nextCursor === null` completes a walk; any other non-string or empty value marks the walk
+incomplete, which makes every absence it would imply inconclusive. Regression tests cover the four
+cases plus a valid three-page walk. 305 tests pass. This is drill-only code: it is not part of the
+Lambda bundle.
+
+**Live: deployed and ran the consolidated drill, 2026-10-10 (~18:55–19:30Z).** Deployed
+`TiroFixtureBackend-drill-20261002` (`cdk diff` beforehand showed only the Lambda code and the
+per-deploy cursor secret changing). The deployed runtime code is `9f74e0e`'s; the uncommitted
+cursor-guard fix is drill-only. Stack outputs are unchanged. The drill result was **55/64 PASS, 0
+FAIL, 9 INCONCLUSIVE, exit 1 — not a pass.**
+- *All 46 direct checks passed:* preservation-only 404s (detail and media) for all 8 fixtures,
+  post-publication 200s and checksummed media for all 7 published fixtures, every protective
+  action's own completion, and every post-action detail/media 404 or mask.
+- *Listing:* baseline walk 52 pages, 91 items, **36 pages with failed evaluations**. The 5 fixtures
+  that were listed passed; 2 expected-present and the preservation-only absence were INCONCLUSIVE.
+  The after-actions walk reached **503 on page 43** after its retries were exhausted, so it was
+  incomplete. redact-text (title masked in the listing item) and redact-media (mediaId absent from
+  the item) passed, and the other 6 listing checks were INCONCLUSIVE. Absence was never claimed.
+- *Cleanup verified* for all 8 fixtures (7 withdrawn and read back; 1 deleted).
+- *Per-table CloudWatch, run window (Sums; aggregate, not per-request):* primary table 11,528
+  read RCU with **1,206 read-throttle events**. After an initial burst bin, the 5-minute Sums held
+  at ~1,480 (≈ 4.9 RCU/s, i.e. the provisioned 5 RCU/s ceiling) for ~35 minutes. Register table
+  613.5 read RCU, **0** throttle events. Neither table had write throttling.
+- *Reading:* read-once and two walks were **not sufficient** at 5 RCU/s on this shared namespace.
+  The primary table's reads during the walks are the binding constraint; the register table is
+  not. Capacity, unrelated fixtures, the heavy-record count, and throttle settings were left
+  unchanged, as instructed.
+
 **Correction to "pacing and 503 remain the real protection" (stated in conversation on
 2026-10-10, not in these docs, and wrong):** pacing only reduces how often a request issues reads,
 and a 503 only reports failure after work has already consumed capacity. Neither guarantees
