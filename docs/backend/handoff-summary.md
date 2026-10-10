@@ -1,5 +1,291 @@
 # Fixture-Preservation Backend — Reviewer Handoff Summary
 
+> **For a fresh session picking this up: read the next section first.** It is the current,
+> structured state as of 2026-10-10 — exact repo/deploy state, what's verified vs. not, and the
+> next three actions. Everything below it (starting at "Dated 2026-10-03") is the original,
+> preserved historical narrative log, append-only since this document was created — it documents
+> earlier milestones in full and should not be edited to "clean up" the story; it is evidence, not
+> prose to be made more optimistic.
+
+## Session handoff — read this first (2026-10-10)
+
+### Objective and scope
+
+**Project purpose** (unchanged, per `docs/ethos.txt` §§3.3, 3.10, 4, 6.1, 12): a small, persistent
+AWS backend demonstrating permission evaluation, record lifecycle operations, preservation
+export/restore, and now public read access — using exclusively non-sensitive, clearly-labeled
+synthetic fixtures (`isSynthetic: true` is mandatory on every record). Real collection stays
+disabled; a named operator and adopted (not merely proposed) consent/retention procedures are
+explicit, stated prerequisites this document cannot resolve.
+
+**This session's milestone: "connect approved synthetic records to the public Memory site."**
+The staff intake-and-review workflow (prior milestone, closed — see the historical log below)
+works end to end, but the public `/memories` pages still read only 3 hardcoded static records.
+This milestone adds public, unauthenticated, read-only listing/detail/media endpoints
+(`GET /public/records`, `GET /public/records/:recordId`, `GET /public/records/:recordId/media/:mediaId`)
+with `purpose: "publication"` / `audience: "public"` enforced entirely server-side (never from a
+caller-supplied parameter), wired into the Memory index and detail pages, with every protective
+action (restrict, redact-text, redact-media, revoke-consent, withdraw, delete) required to
+propagate across pages, metadata, API, and media with no stale cached content. DynamoDB capacity
+must stay unchanged (5/5 RCU/WCU on all three tables) throughout.
+
+**Acceptance criteria** (the user's own stated completion test, unchanged across all rounds):
+create a fixture through staff intake; confirm preservation approval alone leaves it anonymously
+invisible; approve a *separate* public-audience publication grant; then browse and retrieve media
+without signing in. Test each protective action independently against a fresh, previously-allowed
+fixture, confirming the affected content disappears or becomes masked across pages, metadata, API,
+and media. Plus: a literal human browser walkthrough before sign-off (see below — not yet done).
+
+**Completed work:** full implementation (backend routes/services, infra routes, frontend wiring —
+commit `648daeb`), a first independent-review round of 5 findings fixed (commit `1e6d329`, which
+also folded in a documentation wording correction from an earlier milestone and updated
+`status.md`/`evidence-matrix.md`), and a second independent-review round of 3 more findings fixed
+(commit `5c3d306`, current `HEAD`). Two of the five findings from the first round
+("secret-key" and "exact response-size") were independently re-verified by the user as fixed, per
+their own words in this session. The three findings from the second round are implemented and
+locally/deterministically verified, but **not yet independently re-reviewed by the user**, and the
+live drill has not reconfirmed a clean end-to-end pass since they shipped (see Verification
+evidence below).
+
+**What remains explicitly outside this milestone's scope:** real (non-synthetic) intake; actual
+image/audio/video content redaction (only text-masking and a hard media-access deny exist); any
+DynamoDB capacity change; deleting or cleaning up legacy fixture data left on the shared
+`drill-20261002` namespace by *other*, unrelated milestones.
+
+**Current state — awaiting ALL of the following before sign-off** (the user's own words: "Keep
+sign-off pending until these fixes and that human walkthrough pass"):
+1. A decision on how to handle the live drill's current, persistent throttling (see "Open work and
+   resumption" below) — a **user decision is needed**, not something to resolve unilaterally.
+2. A literal human browser walkthrough of the Next.js back/forward fix — **requires a real browser,
+   not available to the assistant in this environment.**
+3. The user's own independent re-review of this round's three fixes (commit `5c3d306`) — the first
+   round's two confirmed-fixed findings give some confidence, but this round is unreviewed.
+
+### Exact repository state
+
+- **Location:** `c:\tiro\dev\tiro.foundation` (Windows). **Branch:** `main`.
+- **HEAD:** `5c3d306b8b19380a3ffc51502a96e5d5997d95f5`.
+- **Remote:** `origin` = `https://github.com/onewisepixel/tiro.foundation.git`. `main` is up to
+  date with `origin/main` — confirmed via `git fetch` + `git rev-list --left-right --count
+  origin/main...HEAD` → `0  0` (neither ahead nor behind), checked 2026-10-10.
+- **Working tree:** clean immediately before this handoff was written (`git status` → "nothing to
+  commit, working tree clean"). This handoff document and its two companion edits
+  (`docs/backend/status.md`, `docs/backend/evidence-matrix.md`) are now **new, uncommitted
+  changes** — **recheck `git status` after reading this** to see their current state; they have
+  deliberately NOT been committed or pushed (no explicit authorization to do so was given for this
+  task — see "Decisions and authorization" below).
+- **Relevant commits, most recent first:**
+  - `5c3d306` — this session: three review-round-2 fixes (bfcache/Next.js history nav, false-empty
+    directory on provider failure, pacing-past-deadline) plus a drill-script retry fix. 7 files,
+    +347/−40 lines.
+  - `1e6d329` — prior session: review-round-1's five fixes (cursor-secret randomization, exact
+    response-size headers, unavailable-vs-404 on the frontend, misleading-empty-listing message,
+    plus the per-candidate resilience catch that round 2's Finding 2 later found a gap in) and the
+    first `status.md`/`evidence-matrix.md` update for this milestone. 13 files.
+  - `648daeb` — first implementation commit for this milestone (public API, infra routes, frontend
+    wiring). 26 files, +1875/−29.
+  - `5e47dd2`, `f599117`, `f335ea3`, `b8c9d29`, `2fa7af6`, `efcc811`, `88f5dc7` and earlier —
+    the prior, separate "staff intake and review" milestone (closed; see historical log below).
+  - A second, unrelated branch exists: `backend/fixture-preservation-milestone` at `93427f7`, far
+    behind `main` — stale, not part of current work, do not touch.
+- **Deployment-to-commit correspondence: believed to match, NOT independently re-verified
+  byte-for-byte.** The live Lambda for stack `TiroFixtureBackend-drill-20261002` was redeployed
+  (`cdk deploy`) from the exact working tree that became commit `5c3d306`, with no further edits
+  to `backend/`/`infra/` afterward — but this was not re-confirmed by diffing the deployed bundle
+  hash against the commit after the fact. Treat as "should match `5c3d306`'s backend/infra code,"
+  not as a verified fact.
+
+### Changes and rationale (this session, commit `5c3d306`)
+
+1. **Next.js client-side back/forward (Router Cache) was never covered — P1.**
+   `src/components/BfcacheRevalidator.tsx`'s `pagehide`/`pageshow` handlers only see the native
+   browser bfcache; a same-document `<Link>` navigation never fires either event, so Next's OWN
+   client-side Router Cache reusing a page on back/forward — confirmed from
+   `node_modules/next/dist/docs/01-app/04-glossary.md`'s "Client Cache" entry: "Pages... are
+   reused during browser back/forward navigation," and `staleTimes.md`'s own note that
+   `staleTimes` doesn't touch this — went unguarded. **Fixed:** added a `popstate` listener
+   (fires for History-API back/forward, not for a forward click to a new entry) that hides content
+   (`data-bfcache-pending` on `<html>`, `src/app/globals.css`) and calls `router.refresh()` inside
+   `useTransition`, revealing only once `isPending` confirms fresh content actually committed.
+   **Abandoned-approach note, kept because it explains why this fix looks the way it does:** an
+   earlier round assumed `Cache-Control: no-store` (`src/proxy.ts`) would exclude a page from
+   Chrome's bfcache — wrong; Chrome ≥109 no longer treats `no-store` as a bfcache-exclusion
+   criterion. A later round assumed `staleTimes.dynamic: 0` (`next.config.ts`) would cover
+   back/forward reuse generally — also wrong, per the glossary quote above. Neither header/config
+   tweak was ever going to work for this specific case; only an explicit `popstate` handler can.
+2. **A provider failure on every candidate could still look like a confident, empty success — P2.**
+   The previous round's per-candidate resilience ("catch and skip one bad candidate, keep going")
+   had a blind spot: if ALL candidates on a page throw, the result still looks like a fully-checked
+   `{items: [], nextCursor: null}` — indistinguishable from "genuinely nothing is published."
+   **Fixed:** `backend/src/services/publicView.ts`'s `readPublicListing` now returns
+   `hadFailures: boolean`; `backend/src/api/router.ts`'s `GET /public/records` returns `503` (never
+   a lying `200`) when `hadFailures && items.length === 0`. The failed recordId is logged
+   server-side only (`console.error`), never returned to the anonymous caller. New tests:
+   `publicView.test.ts` ("flags hadFailures when every candidate on the page throws"),
+   `router.test.ts` ("returns 503, not a confident empty 200..."). **Confirmed live** — the drill
+   actually hit this path for real (see Verification evidence) and produced the designed `503`.
+3. **Pacing could still let real work start after the deadline — P2.** The time budget was checked
+   BEFORE each pacing sleep, never after — a deterministic reproduction started a second
+   evaluation at 9,400ms against an 8,000ms budget. **Fixed:** `readPublicListing` now re-checks
+   the deadline immediately after every sleep, at both call sites (per-evaluation and
+   per-raw-page), before starting new work; if exceeded, it breaks WITHOUT advancing `resumeKey`
+   past the unattempted row, so the next call retries it fresh rather than skipping it. New tests
+   in `publicView.test.ts` reproduce the exact scenario with a real timer firing mid-sleep.
+4. **Drill script fix (not a backend/infra change):** `realPublicMemoryAcceptanceDrill.ts`'s own
+   `withHttpThrottleRetry` only retried on HTTP `500`; after Finding 2 shipped, a sustained failure
+   now legitimately surfaces as `503` instead, and the drill was failing to retry it. Fixed to
+   retry on both.
+
+**Prior session's changes (commit `1e6d329`, reconfirmed by the user as fixed for 2 of 5 — "the
+secret-key and exact response-size fixes passed my earlier reproductions"):** cursor-secret
+randomization (`backend/src/services/cursorCodec.ts`'s `setCursorSecretKey`, a fresh
+`randomBytes(32)` minted per `cdk deploy` in `infra/lib/fixture-backend-stack.ts`, required at
+Lambda startup via `handler.ts` — replacing an earlier, wrong approach that derived the key from a
+constant committed to source, independently decryptable by the reviewer); exact response-size
+headers (`PUBLIC_JSON_RESPONSE_HEADERS`, one object shared between `router.ts`'s size guard and
+`handler.ts`'s real response, closing a 27-byte undercount the reviewer reproduced exactly);
+unavailable-vs-404 distinction (`src/app/memories/[id]/page.tsx`'s tri-state `resolvePublicRecord`
+— `found` / `not-found` / `unavailable` — so a backend 500/network error is never shown as "Memory
+Not Found"); and the misleading-empty-listing-message fix (`src/app/memories/page.tsx` now
+describes the current slice, e.g. "No live records on this page — more may be available further
+on," rather than claiming global emptiness for a budget-bounded partial scan).
+
+### Decisions and authorization
+
+- **Standing constraint, repeated explicitly across every round: DynamoDB capacity stays at 5/5
+  RCU/WCU on all three tables.** Never raise it to work around throttling. Reconfirmed via
+  `infra/lib/fixture-backend-stack.ts` and `cdk synth` output each round (still 5/5 as of this
+  writing).
+- **Explicit, current instruction: "Keep sign-off pending until these fixes and that human
+  walkthrough pass."** Sign-off has NOT been given. Do not represent this milestone as accepted
+  or complete in any future communication until both the live-drill blocker and the browser
+  walkthrough are resolved.
+- **Standing rule (the assistant's own operating constraint, not the user's): never commit or push
+  without being explicitly asked.** The user has been doing their own commits between rounds
+  (`648daeb`, `1e6d329`, `5c3d306` are all authored by the user, `Sean Obienu
+  <onewisepixel@gmail.com>`) — do not assume that pattern extends to this handoff task, which did
+  not ask for a commit.
+- **Prior explicit authorization — "After these fixes, proceed with the existing drill-20261002
+  deployment, anonymous acceptance drill, and production-mode browser walkthrough" — was treated
+  as standing for repeated redeploys/drill-runs against the SAME namespace across subsequent
+  rounds**, since nothing suggested revoking it. This is an interpretation, not a fresh grant for
+  each round; if a new session is unsure whether it still applies, ask rather than assume.
+- **Withheld / not done without being asked:** raising DynamoDB capacity (explicitly instructed not
+  to); deleting or cleaning up legacy "preserved+published" fixture data from OTHER, unrelated
+  milestones on the shared `drill-20261002` namespace, even though it's now a known contributor to
+  the live-drill blocker (not this feature's data to delete); committing or pushing this handoff's
+  own edits.
+- **Unresolved question posed to the user, not yet answered:** how to handle the live-drill
+  capacity/density blocker — see "Open work and resumption," action 1.
+- **Governance vs. adopted procedure, for clarity:** "a named operator" and "adopted consent/
+  retention procedures" remain PROPOSALS/PREREQUISITES per `docs/ethos.txt` §6.1 — no real
+  appointment or adopted procedure exists. Nothing in this session changed that; do not treat any
+  fixture or synthetic-data decision as if it did.
+
+### Verification evidence
+
+| Check | Command / method | Date (UTC) | Revision | Result | What it proves |
+| --- | --- | --- | --- | --- | --- |
+| Local tests | `npm test` (repo root) | 2026-10-10 | `5c3d306` | **275/275 pass** | All service-layer logic, including deterministic reproductions of this round's 3 findings, passes against in-memory fakes. Does not prove live AWS behavior. |
+| Backend typecheck | `npx tsc --noEmit -p backend/tsconfig.json` | 2026-10-10 | `5c3d306` | clean | No type errors. |
+| Infra typecheck | `npx tsc --noEmit -p infra/tsconfig.json` | 2026-10-10 | `5c3d306` | clean | No type errors. |
+| Lint | `npm run lint` | 2026-10-10 | `5c3d306` | 2 warnings, 0 errors | Both warnings pre-exist this milestone (`router.ts`'s `payloadFingerprint`, `intake.test.ts`'s `controlVersion`), unrelated. |
+| Frontend build | `npm run build` | prior round | `1e6d329`-era | clean | `/memories` and `/memories/[id]` both render `ƒ` (dynamic); not re-run against `5c3d306` in this session specifically — recommend re-running before trusting it unchanged. |
+| CDK synth | `npx cdk synth` (from `infra/`) | 2026-10-10 | `5c3d306` | clean | 3 tables confirmed `ReadCapacityUnits: 5`; 3 new `/public/records*` routes confirmed `AuthorizationType: NONE`. |
+| CI | GitHub Actions on push | — | `5c3d306` | **user-reported "CI passed"** | Not independently inspected by the assistant this round — attributed to the user's own report, not re-verified. |
+| Live deploy | `cdk deploy` to `TiroFixtureBackend-drill-20261002` | 2026-10-09 (this session, 3×) | `5c3d306`'s working tree | succeeded each time | Lambda code updated; each redeploy also mints a fresh `TIRO_PUBLIC_CURSOR_SECRET` (by design), invalidating any outstanding pagination cursors. |
+| Live acceptance drill (clean baseline) | `realPublicMemoryAcceptanceDrill.ts` | 2026-10-09, before this round's 3 fixes | `1e6d329`-era code | **32/32 passed** | The ENTIRE completion-test language, once, before this session's changes. Documented in evidence-matrix.md; now historical, not current. |
+| Live acceptance drill (after this round's fixes) | same script | 2026-10-09/10 (3 separate attempts) | `5c3d306` | **all 3 runs failed to complete** (sustained `500`→`503` on `GET /public/records`, exhausting the drill's own 30-attempt backoff every time) | Does NOT prove the 3 fixes are wrong — the failure is traced to live DynamoDB throttling (see below), not to the application logic. Does NOT re-confirm the 32/32 result still holds end-to-end on current code. |
+| Direct DynamoDB query (register table) | `ScanCommand` with `Select: "COUNT"` + `FilterExpression` for `currentCustodyStatus = "preserved" AND currentPublicationStatus = "published"`, via `@aws-sdk/client-dynamodb`, profile `tiro-fixture-deploy` | 2026-10-10 | live data, not code | **197 of 271 rows** currently eligible | Explains WHY the drill keeps throttling: the cheap pre-filter in `readPublicListing` passes for nearly every row scanned, so almost every evaluation is a real, expensive one — not the "sparse scan" the pacing constants were sized against. |
+| Direct DynamoDB query (primary table) | `DescribeTableCommand` | 2026-10-10 | live data | ~2,162 items, ~19.6 MB | Scale context for the above; this table has accumulated data across this engagement's ENTIRE multi-milestone history on this shared namespace, not just this feature. |
+| Live endpoint spot-check | `curl .../public/records?limit=1` (twice, 20+ seconds apart) | 2026-10-10T05:35:33Z and 05:36:01Z | live, current | **`503` both times** | Confirms the throttling is a PERSISTENT condition right now, not a momentary blip that already cleared. |
+| Live endpoint spot-check (negative control) | `curl .../public/records/<random-nonexistent-uuid>` | 2026-10-10 | live, current | **`404`, immediately** | A nonexistent-id request never reaches the expensive evaluation loop at all — confirms the throttling is specific to the listing's candidate-evaluation path, not universal. |
+| Production-build frontend check | `next build && next start` pointed at the live stack, verified via `curl` (no browser tool available) | prior round | `1e6d329`-era | index listing, detail page, `<title>` metadata, media, and redaction propagation all confirmed correct | This was run BEFORE this session's 3 fixes; not re-run against `5c3d306` — Finding 1's `popstate`/`router.refresh()` logic specifically cannot be verified via `curl` at all; it needs a real browser. |
+| Literal human browser walkthrough | — | — | — | **NOT PERFORMED** | No browser-automation tool is available in this environment. This is the central, explicitly-required gap before sign-off. |
+| Independent review | the user, reading commits and reproducing locally | 2026-10-08 through 2026-10-10 (2 rounds so far) | `1e6d329` (round 1, 5 findings) and `5c3d306` (round 2, 3 findings) | Round 1: 2 of 5 findings explicitly reconfirmed fixed by the user. Round 2: not yet independently re-reviewed. | The user's own review is the acceptance mechanism this whole engagement runs on; round 2 is the CURRENT open item. |
+
+**Never read a partially-evaluated listing or a provider failure as proof of absence:** a `503`
+from `GET /public/records` means "could not determine," not "nothing is published," and a
+budget-bounded page returning few/no items means "this slice, under this budget," not "the whole
+directory." Both distinctions are now enforced in code (Findings 2 and 3 above) — a future session
+should not need to re-litigate them, but should also not quote the stale 32/32 result as current
+without re-running the drill first.
+
+### Operational context
+
+- **AWS account:** `440744257823`. **Region:** `us-east-1`. **CLI/SDK profile:**
+  `tiro-fixture-deploy` (configured in this machine's `~/.aws/config`/`~/.aws/credentials`;
+  credentials present, not reproduced here).
+- **Stack:** `TiroFixtureBackend-drill-20261002` (name derived from
+  `TIRO_FIXTURE_NAMESPACE=drill-20261002`). **This exact namespace has been reused across many
+  unrelated milestones in this engagement** — see "197 of 271 rows" above for why that now matters.
+- **DynamoDB tables (all at 5 RCU / 5 WCU — do not change):**
+  `tiro-fixture-primary-drill-20261002` (~2,162 items, ~19.6 MB) and
+  `tiro-restriction-register-drill-20261002` (271 items, 197 currently "preserved+published").
+- **Deploy command** (from `infra/`):
+  `AWS_PROFILE=tiro-fixture-deploy AWS_REGION=us-east-1 TIRO_FIXTURE_NAMESPACE=drill-20261002 npx cdk deploy --require-approval never`
+  — never omit the namespace (omitting it once previously created a stray `dev` stack that had to
+  be torn down).
+- **Live drill command** (from repo root):
+  `AWS_PROFILE=tiro-fixture-deploy AWS_REGION=us-east-1 TIRO_STAFF_API_URL=https://fzbddb466g.execute-api.us-east-1.amazonaws.com TIRO_STAFF_USER_POOL_ID=us-east-1_dYIugcLDB TIRO_STAFF_USER_POOL_CLIENT_ID=4000m9rsm9fm1htc9aqmnl8fn3 npx tsx backend/src/scripts/realPublicMemoryAcceptanceDrill.ts`
+  — the three `TIRO_STAFF_*` values come from the CDK stack's own outputs and should be
+  re-confirmed (e.g. via `cdk deploy`'s own printed `Outputs:`) if a redeploy happens, though they
+  have been stable across every redeploy so far this session.
+- **Frontend local verification against the live backend:**
+  `NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL=https://fzbddb466g.execute-api.us-east-1.amazonaws.com npm run build`
+  then `NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL=... PORT=3100 npm start`, verified via `curl` against
+  `localhost:3100` (no browser tool available — this proves HTML/headers/content, never real
+  browser navigation behavior like Finding 1's fix).
+  **No local dev server is currently running** — confirmed via `tasklist` immediately before
+  writing this handoff.
+- **Fixtures/resources left by this session:** each live-drill attempt's own fixtures are created
+  and withdrawn (and, for the dedicated delete-path check, deleted) by the script's own `finally`
+  block, which runs even on a thrown error — likely cleaned up on all 3 failed attempts this
+  session, but **not independently re-verified by querying DynamoDB after each failure**. The 197
+  "preserved+published" legacy rows are PRE-EXISTING, not created this session, and were not
+  touched.
+- **Dated facts carried over from an earlier, unrelated milestone** (preserved here only because
+  they're still live and dated): an S3 noncurrent-version lifecycle-rule expiration observation is
+  genuinely pending until `2026-11-04T00:00:00Z` — see `evidence-matrix.md`'s "S3 noncurrent-version
+  expiration observation" section; unrelated to this milestone, do not conflate.
+
+### Open work and resumption — next three actions, in priority order
+
+1. **[Needs a user decision — do not resolve unilaterally]** Decide how to handle the live drill's
+   persistent throttling, now traced to 197/271 real "preserved+published" register rows on the
+   shared `drill-20261002` namespace. Options, none yet executed: (a) retune
+   `PUBLIC_LISTING_EVALUATION_PACING_MS` (currently 1500ms) /
+   `PUBLIC_LISTING_MAX_EVALUATIONS` (currently 4) in `backend/src/services/publicView.ts` more
+   conservatively against this now-confirmed density; (b) reduce
+   `realPublicMemoryAcceptanceDrill.ts`'s own retry aggressiveness or add inter-fixture pacing,
+   since its 30-attempt backoff loop repeatedly re-hits the same early-scanned candidates; (c) get
+   explicit authorization to clean up legacy "preserved+published" fixtures from OTHER milestones
+   on this namespace; (d) accept the current drill as correctly reporting degradation and schedule
+   a retry for a lower-contention window instead of changing code. Once directed: implement (if
+   applicable), redeploy, and re-run `realPublicMemoryAcceptanceDrill.ts` until it reconfirms a
+   clean pass (expect 32 checks, possibly more if new ones were added) — **acceptance criterion:
+   the drill exits 0 with every check reporting PASS, re-run at least once more after that to rule
+   out a lucky low-contention window.**
+2. **[Needs a human with a real browser — cannot be done by an assistant in this environment]** Run
+   the literal walkthrough Finding 1's fix requires: `npm run build && npm start` (production mode)
+   pointed at the live stack via `NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL`; open `/memories`, navigate
+   into a live detail page via a normal `<Link>` click (not a direct URL load); in a separate tab
+   or via the staff UI, apply a protective action (e.g. withdraw) to that same record; back in the
+   first tab, press Back and confirm the stale (pre-withdrawal) detail page does NOT reappear even
+   momentarily (content should hide, then show the corrected/404 state); press Forward and confirm
+   the same; then test a genuine OS-level bfcache restore (navigate away to another site/tab,
+   trigger the native back/forward cache, return) and confirm the same. **Acceptance criterion:**
+   the stale page is never visible, not even for one frame, in any of the three cases. This is the
+   human walkthrough the user explicitly required before sign-off.
+3. **[Can be done by either party once 1 and 2 are resolved]** Update
+   `docs/backend/status.md`/`docs/backend/evidence-matrix.md` with the FINAL outcome (the live
+   drill's reconfirmed clean pass, and the completed browser walkthrough's result), following the
+   exact same dated-entry pattern already used throughout both documents, and obtain the user's
+   explicit sign-off. Do not mark this milestone complete in any summary before that sign-off is
+   given.
+
+---
+
 Dated 2026-10-03. Branch `backend/fixture-preservation-milestone`, commits `b4c5172` (implementation)
 and `93427f7` (real-AWS verification), on top of `3de6d66`. 29 files changed, ~3,000 lines added. Not
 yet merged to `main`.
@@ -368,6 +654,27 @@ ever uploaded media itself) — DynamoDB capacity unchanged. Still open: a liter
 click-through of the new staff-ui sections, prepared but not yet run. See the evidence matrix's
 "Staff intake and review" entry for the full detail.
 
+**Catch-up update (2026-10-10) — this document had fallen behind `status.md`/`evidence-matrix.md`
+between 2026-10-08 and now; both of those remain the live, round-by-round source of truth
+throughout this gap, per this document's own next paragraph.** In order: the staff-intake
+milestone's own remaining open item above WAS completed on 2026-10-07 (16/16 browser
+click-through, one real setup bug found and fixed — see `evidence-matrix.md`'s "The literal human
+click-through, done" entry); a fifth staff-intake review round on 2026-10-08 closed a residual
+queue/evaluatePermission snapshot-sharing gap (`f599117`); then the **public Memory site
+connection milestone** began and ran through two full implementation-and-review rounds, detailed
+in full in the "Session handoff" section at the top of this document — summarized here only:
+public, unauthenticated listing/detail/media endpoints now exist and are wired into the Memory
+site; a first independent-review round (`1e6d329`) found and fixed 5 gaps, 2 of which the user has
+explicitly reconfirmed; a second round (`5c3d306`, current `HEAD`) found and fixed 3 more; a prior
+live-drill run reached 32/32 before this second round's fixes, but that result is now stale and
+has not been reconfirmed since, blocked by a genuine, currently-persistent DynamoDB throttling
+condition on the shared `drill-20261002` namespace (traced to 197 of 271 register rows being real,
+expensive-to-evaluate candidates — almost certainly legacy data from other milestones, not this
+feature). A literal browser walkthrough of this round's Next.js back/forward fix also remains
+outstanding (no browser-automation tool available in this environment). **Sign-off is explicitly
+withheld pending both**, per the user's own stated instruction. See the "Session handoff" section
+at the top of this document for the complete, structured current state, evidence, and next steps.
+
 This document is the entry point. For depth on any specific claim below, the four docs it points to
 are the actual source of truth — this summary should not be quoted as authoritative where it
 disagrees with them.
@@ -535,12 +842,34 @@ cap) is live, with a confirmed subscription at `cero@tiro.foundation` (confirmed
 - **Organizational, not engineering, and not something this document can resolve:** a named
   operator, and adopted (not merely proposed) consent/retention response-window numbers. Both are
   stated prerequisites in `docs/ethos.txt` §6.1. No placeholder values were fabricated for either.
+- **Added by the public Memory site connection milestone (2026-10-08 through 2026-10-10), same
+  "not a vague more-to-do list" standard:** real (non-synthetic) intake — unchanged, still an
+  organizational prerequisite, not engineering; actual image/audio/video content redaction (only
+  text-masking and a hard media-access deny exist, same limitation as the correction/redaction
+  milestone above, now also true of the public-facing read path); resolving the live-drill
+  throttling currently blocking a reconfirmed clean drill pass — genuinely open, see the "Session
+  handoff" section at the top of this document; the literal browser walkthrough of the Next.js
+  back/forward fix — not done, no browser-automation tool available; cleaning up legacy
+  "preserved+published" fixture data from other milestones on the shared `drill-20261002`
+  namespace — deliberately not done without explicit authorization, since it isn't this feature's
+  data.
 
 ## Where to look for more
 
+- **The "Session handoff" section at the very top of this document** — the current, structured
+  state as of 2026-10-10: exact repo/deploy state, verification evidence, operational context, and
+  the next three actions. Read this before anything below it for anything touching the public
+  Memory site connection milestone.
 - `docs/backend/decision-and-cost.md` — why DynamoDB, access-pattern analysis, cost estimate.
 - `docs/backend/evidence-matrix.md` — the requirement-by-requirement table, local vs. real-AWS
-  results, every AWS-only check still outstanding with the exact command to run it.
+  results, every AWS-only check still outstanding with the exact command to run it, and (newest)
+  the public Memory site connection milestone's full round-by-round detail.
 - `docs/backend/runbook.md` — exact commands for local dev, deploy, the real drill, and cleanup.
 - `docs/backend/status.md` — keeps the historical static prototype, this fixture milestone, and
-  future real-collection readiness from blurring into each other.
+  future real-collection readiness from blurring into each other; also the most frequently
+  updated, round-by-round running log.
+- `docs/backend/browser-acceptance-checklist.md` — the staff-intake milestone's own completed
+  (2026-10-07, 16/16) browser walkthrough checklist; a comparable checklist does not yet exist for
+  the public Memory site connection milestone's outstanding walkthrough (see "Open work and
+  resumption," action 2, at the top of this document) — would need to be written fresh if a future
+  session wants a scripted checklist rather than the free-form steps listed there.

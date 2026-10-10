@@ -717,6 +717,24 @@ and documented rather than chased further; revisit when either upstream ships a 
   human pass — see the evidence matrix's "Public Memory site connection" section for the full
   detail.
 
+- 2026-10-09/2026-10-10, a second review round on the public Memory site connection milestone
+  (commit `5c3d306`) found three more real gaps, all fixed: Next.js's OWN client-side back/forward
+  reuse (separate from, and never covered by, the native-bfcache fix or `staleTimes` — confirmed
+  from Next's own docs) was unguarded; a provider failure on every candidate could still produce a
+  confidently-empty `{items: [], nextCursor: null}` response (fixed with a new `hadFailures` flag
+  and a real `503`, confirmed live); and pacing could still let real work start after the time
+  budget passed (fixed with a post-sleep recheck, deterministically reproduced locally). 275 tests
+  pass (up from 271). **The "32/32 live" result above is now stale** — redeployed and re-ran the
+  drill three times after these fixes; all three failed to complete, not from a code defect but
+  from sustained, real DynamoDB throttling traced directly to 197 of 271 register rows on the
+  shared `drill-20261002` namespace currently being genuine, expensive "preserved+published"
+  candidates (almost certainly accumulated legacy data from this engagement's other milestones,
+  not this feature). Re-confirmed persistent as of 2026-10-10T05:36:01Z. The literal browser
+  walkthrough also remains outstanding (no browser-automation tool available). **Sign-off is
+  explicitly withheld pending both.** Full current state, evidence, and next actions:
+  `docs/backend/handoff-summary.md`'s session-handoff section and the evidence matrix's "second
+  review round" note under "Public Memory site connection."
+
 ## What remains open, by kind
 
 **Engineering, scoped and ready to pick up:**

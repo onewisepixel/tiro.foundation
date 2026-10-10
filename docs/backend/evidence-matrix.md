@@ -1797,6 +1797,84 @@ in this section was verified against the real deployed backend and the real prod
 server; this one piece still needs a human click-through, the same way the staff-intake
 milestone's browser-flow verification eventually got one (see above).
 
+### A second review round (2026-10-09/10) found three more real gaps — fixed, but the live
+drill has NOT yet reconfirmed a clean pass since
+
+**The "32/32 checks pass live" result immediately above is now STALE** — it describes the state
+*before* this round's fixes, not the current one. An independent reviewer found three more real
+defects in that same commit, all fixed (`commit 5c3d306`, not yet independently re-reviewed as of
+this writing):
+
+1. **Next.js client-side back/forward (Router Cache reuse) was never covered.**
+   `BfcacheRevalidator.tsx`'s `pagehide`/`pageshow` handlers only ever see the native browser
+   back/forward cache — a same-document `<Link>` navigation through Next's own router doesn't
+   fire either event, so Next's client-side Router Cache reusing a page on back/forward (a
+   SEPARATE mechanism) went completely unguarded. Confirmed directly from Next's own docs
+   (`node_modules/next/dist/docs/01-app/04-glossary.md`'s "Client Cache" entry): "Pages are not
+   cached by default but are **reused during browser back/forward navigation**" — and
+   `staleTimes.md`'s own note that `staleTimes` (set for an earlier finding) "doesn't change
+   back/forward caching behavior to prevent layout shift and to prevent losing the browser scroll
+   position." Both confirm the earlier `staleTimes.dynamic: 0` fix was never going to touch this.
+   Fixed by adding a `popstate` listener (fires for History-API back/forward, including Next's
+   own navigation, but not for a forward click to a new entry) that hides content and calls
+   `router.refresh()` inside `useTransition`, revealing only once `isPending` confirms fresh
+   content actually committed — never a guess or a fixed delay. **Not yet verified against a real
+   browser** — no browser-automation tool is available in this environment; this is the literal
+   walkthrough (index → live detail → protective action elsewhere → Back, then Forward, then a
+   genuine OS-level bfcache restore) still outstanding.
+2. **A provider failure could still produce a confidently-empty "nothing published" response.**
+   The prior round's per-candidate resilience fix (skip a throwing candidate, keep going) had a
+   blind spot: if EVERY candidate on a page throws, the response still looked like a successful,
+   fully-checked `{items: [], nextCursor: null}` — reproduced by the reviewer with two real
+   previously-public records whose reads both threw. Fixed: `readPublicListing` now returns
+   `hadFailures: boolean`; `router.ts`'s `GET /public/records` returns `503` (never a lying `200`)
+   when `hadFailures && items.length === 0` — the failed recordId is logged server-side only
+   (`console.error`), never in the response. **Confirmed live**: the live drill actually hit this
+   exact path for real (see below) and produced the designed `503`, not a silent empty success.
+3. **Pacing could still let real work start after the deadline.** The budget was checked BEFORE
+   each pacing sleep, never after — the reviewer's own deterministic reproduction started a
+   second evaluation at 9,400ms against an 8,000ms budget. Fixed by re-checking the deadline
+   immediately after every sleep, at both call sites (per-evaluation and per-raw-page), before
+   starting any new work; the unattempted row/page stays reachable via the continuation cursor,
+   never silently skipped. **Confirmed with a deterministic local reproduction**
+   (`publicView.test.ts`): a real timer fires mid-sleep and pushes the clock past budget,
+   confirming the second evaluation never starts.
+
+275 tests pass (up from 271): `cursorCodecUninitialized.test.ts` (new, from the prior round),
+plus new cases in `publicView.test.ts` and `router.test.ts` for all three findings above,
+including the exact 9,400ms-vs-8,000ms and two-real-throws reproductions.
+
+**Live drill status — genuinely unresolved, not glossed over.** Redeployed to
+`TiroFixtureBackend-drill-20261002` and re-ran `realPublicMemoryAcceptanceDrill.ts` three times
+after these fixes. All three runs failed to complete — not from a code defect, but from
+sustained, real DynamoDB throttling on `GET /public/records` that persisted across the drill's
+own 30-attempt backoff loop every time (the drill script was also fixed mid-session to retry on
+`503`, not just `500`, since Finding 2's fix means a sustained failure now legitimately surfaces
+as `503`). Directly queried (read-only, via the AWS SDK, same `tiro-fixture-deploy` profile) to
+find out why: `tiro-restriction-register-drill-20261002` currently has **197 of 271 rows**
+(`currentCustodyStatus = "preserved" AND currentPublicationStatus = "published"`) — i.e. almost
+every row the cheap pre-filter in `readPublicListing` lets through is a REAL, expensive candidate,
+not a sparse scan as originally assumed when the pacing constants were sized. This density is
+almost certainly accumulated legacy data from this engagement's entire multi-milestone drill
+history on this SAME shared, reused namespace — not created by this feature or this session.
+`tiro-fixture-primary-drill-20261002` has ~2,162 items (~19.6 MB). Re-confirmed live at
+2026-10-10T05:35:33Z and again at 05:36:01Z (20+ seconds later, same persistent `503` both times):
+`curl .../public/records?limit=1` → `503`; a nonexistent single record (`GET
+.../public/records/<random-uuid>`) still correctly 404s immediately (that path never reaches the
+expensive loop at all).
+
+**This is a real, currently-open blocker, not a logic bug left unfixed.** Three options exist,
+none executed without further direction: (a) retune `PUBLIC_LISTING_EVALUATION_PACING_MS`/
+`PUBLIC_LISTING_MAX_EVALUATIONS` more conservatively against the real, now-confirmed 197-row
+density (the current 1500ms/4 was sized assuming "a handful of candidates," not nearly every row
+scanned); (b) soften the drill script's own retry aggressiveness/add inter-fixture pacing, since
+its 30-attempt backoff loop repeatedly re-hits the same early-scanned, already-expensive
+candidates; (c) get explicit authorization to clean up legacy "preserved+published" fixtures left
+by OTHER, unrelated milestones on this shared namespace — not done, and not something to do
+without being asked, since it isn't this feature's data to delete. See
+`docs/backend/handoff-summary.md`'s session-handoff section for the full current state and
+next-action priority.
+
 ## AWS checks still not run, and the exact commands to finish them
 
 | Check | Command |
