@@ -31,9 +31,13 @@ import {
   type IntakeRegisterCommitter,
   type RestrictionRegisterStore,
 } from "./store";
+import { deriveListingItem } from "../services/publicListingItem";
 
 export class InMemoryFixtureStore implements FixtureStore {
   private records = new Map<string, FixtureRecord>();
+  // Raw (unvalidated) listing items, keyed by recordId — see
+  // services/publicListingItem.ts. Written only by writeRecord/removeRecord.
+  private listingItems = new Map<string, unknown>();
   private authorityClaims = new Map<string, AuthorityClaim[]>();
   private legalRights = new Map<string, LegalRight[]>();
   private consentGrants = new Map<string, ConsentGrant[]>();
@@ -62,7 +66,7 @@ export class InMemoryFixtureStore implements FixtureStore {
     // concurrent writers both reading the same expectedVersion would both
     // pass the check above and both "succeed", the second clobbering the
     // first, because nothing ever actually advanced the stored version.
-    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
+    this.writeRecord(record, (expectedVersion ?? 0) + 1);
   }
 
   async deleteRecord(recordId: string, expectedVersion: number): Promise<void> {
@@ -70,7 +74,36 @@ export class InMemoryFixtureStore implements FixtureStore {
     if (existing?.version !== expectedVersion) {
       throw new VersionConflictError("FixtureRecord", recordId);
     }
+    this.removeRecord(recordId);
+  }
+
+  async getListingItem(recordId: string): Promise<unknown | null> {
+    const item = this.listingItems.get(recordId);
+    return item ? structuredClone(item) : null;
+  }
+
+  // The ONLY two places a canonical record is mutated. Each also writes or
+  // removes the record's listing item with no `await` in between, so the
+  // pair can't be observed half-applied — mirroring dynamoStore.ts, where
+  // both items go in one TransactWriteItems.
+  private writeRecord(record: FixtureRecord, version: number): void {
+    const stored = { ...record, version };
+    this.records.set(record.recordId, stored);
+    this.listingItems.set(record.recordId, deriveListingItem(stored, version));
+  }
+
+  private removeRecord(recordId: string): void {
     this.records.delete(recordId);
+    this.listingItems.delete(recordId);
+  }
+
+  // Test-only: simulate missing or corrupted listing data (e.g. a legacy
+  // record not yet backfilled). Not part of the FixtureStore interface.
+  deleteListingItemSync(recordId: string): void {
+    this.listingItems.delete(recordId);
+  }
+  setRawListingItemSync(recordId: string, raw: unknown): void {
+    this.listingItems.set(recordId, raw);
   }
 
   async listAuthorityClaims(recordId: string): Promise<AuthorityClaim[]> {
@@ -234,7 +267,7 @@ export class InMemoryFixtureStore implements FixtureStore {
     if ((this.corrections.get(correction.recordId) ?? []).some((c) => c.correctionId === correction.correctionId)) {
       throw new AlreadyAppliedError("Correction", correction.correctionId);
     }
-    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
+    this.writeRecord(record, (expectedVersion ?? 0) + 1);
     const list = this.corrections.get(correction.recordId) ?? [];
     list.push({ ...correction });
     this.corrections.set(correction.recordId, list);
@@ -252,7 +285,7 @@ export class InMemoryFixtureStore implements FixtureStore {
     if ((this.redactions.get(redaction.recordId) ?? []).some((r) => r.redactionId === redaction.redactionId)) {
       throw new AlreadyAppliedError("Redaction", redaction.redactionId);
     }
-    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
+    this.writeRecord(record, (expectedVersion ?? 0) + 1);
     const list = this.redactions.get(redaction.recordId) ?? [];
     list.push({ ...redaction });
     this.redactions.set(redaction.recordId, list);
@@ -270,7 +303,7 @@ export class InMemoryFixtureStore implements FixtureStore {
     if (existing?.version !== expectedVersion) {
       throw new VersionConflictError("FixtureRecord", record.recordId);
     }
-    this.records.set(record.recordId, { ...record, version: (expectedVersion ?? 0) + 1 });
+    this.writeRecord(record, (expectedVersion ?? 0) + 1);
     const list = this.custodyCopies.get(copy.recordId) ?? [];
     const next = list.filter((c) => c.copyId !== copy.copyId);
     next.push({ ...copy });
@@ -289,7 +322,7 @@ export class InMemoryFixtureStore implements FixtureStore {
     return this.records.get(recordId) ?? null;
   }
   setRecordSync(record: FixtureRecord, nextVersion: number): void {
-    this.records.set(record.recordId, { ...record, version: nextVersion });
+    this.writeRecord(record, nextVersion);
   }
   getAuthorityClaimSync(recordId: string, claimId: string): AuthorityClaim | null {
     return (this.authorityClaims.get(recordId) ?? []).find((c) => c.claimId === claimId) ?? null;
@@ -341,7 +374,9 @@ export class InMemoryFixtureStore implements FixtureStore {
   static fromSnapshot(snapshot: ReturnType<InMemoryFixtureStore["snapshot"]>): InMemoryFixtureStore {
     const store = new InMemoryFixtureStore();
     for (const record of snapshot.records) {
-      store.records.set(record.recordId, { ...record });
+      // A table backup holds RECORD and LISTING items from the same
+      // point in time, so restoring one restores a consistent listing.
+      store.writeRecord(record, record.version);
     }
     for (const [recordId, copies] of snapshot.custodyCopies) {
       store.custodyCopies.set(recordId, copies.map((c) => ({ ...c })));

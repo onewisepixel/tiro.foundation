@@ -22,7 +22,8 @@ import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
 import type { MediaStore } from "../store/mediaStore";
 import { decodePublicCursor, encodePublicCursor } from "./cursorCodec";
 import { fetchAuthorizedMedia, type MediaFetchResult } from "./media";
-import { evaluatePermissionSnapshot } from "./permissions";
+import { evaluateListingSnapshot, evaluatePermissionSnapshot } from "./permissions";
+import { toPublicListingCard, type PublicListingCard } from "./publicListingItem";
 import { applyTextRedactions } from "./redactionView";
 
 export type PublicMediaRef = {
@@ -148,7 +149,42 @@ function sleep(ms: number): Promise<void> {
 // currently published": that collapses "we don't actually know" into the
 // same shape as "we checked and there's genuinely nothing there," exactly
 // the false-empty-directory problem this field exists to prevent.
-export type PublicListingResult = { items: PublicMemoryView[]; nextCursor: string | null; hadFailures: boolean };
+export type PublicListingResult = { items: PublicListingCard[]; nextCursor: string | null; hadFailures: boolean };
+
+// Thrown for a candidate whose current evidence and register would allow it
+// but whose listing item is missing or invalid. Caught per candidate below
+// like any other evaluation failure, so it sets hadFailures: the candidate
+// is reported as UNKNOWN, never silently treated as not listed.
+export class ListingItemUnavailableError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "ListingItemUnavailableError";
+  }
+}
+
+// One listing candidate: the small listing item, the same evidence, the
+// authoritative register last (permissions.ts's evaluateListingSnapshot),
+// then that register snapshot's redactions applied before anything is
+// returned. Never reads the canonical record, and never falls back to it.
+export async function readPublicListingCard(
+  fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
+  recordId: string,
+): Promise<PublicListingCard | null> {
+  const { decision, listing, listingUnavailable } = await evaluateListingSnapshot(fixtureStore, registerStore, {
+    recordId,
+    purpose: "publication",
+    audience: "public",
+    now: new Date(),
+  });
+  if (listingUnavailable) {
+    throw new ListingItemUnavailableError(decision.reason);
+  }
+  if (!decision.allowed || !listing) {
+    return null;
+  }
+  return toPublicListingCard(listing, decision.control);
+}
 
 export async function readPublicListing(
   fixtureStore: FixtureStore,
@@ -161,7 +197,7 @@ export async function readPublicListing(
   // itself understands. Throws InvalidCursorError (caught by router.ts) on
   // a tampered or malformed cursor — never silently treated as page one.
   let resumeKey: string | null = query.cursor ? decodePublicCursor(query.cursor) : null;
-  const items: PublicMemoryView[] = [];
+  const items: PublicListingCard[] = [];
   let rowsExamined = 0;
   let evaluations = 0;
   let rawPagesFetched = 0;
@@ -229,7 +265,7 @@ export async function readPublicListing(
         }
         evaluations++;
         try {
-          const view = await readPublicRecord(fixtureStore, registerStore, entry.recordId);
+          const view = await readPublicListingCard(fixtureStore, registerStore, entry.recordId);
           if (view) {
             items.push(view);
           }

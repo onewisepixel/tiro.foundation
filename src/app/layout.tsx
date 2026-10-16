@@ -88,9 +88,14 @@ export default function RootLayout({
       <body
         className={`${spectral.variable} ${karla.variable} ${spaceMono.variable} ${spaceGrotesk.variable} antialiased`}
       >
+        <a href="#content" className="tiro-skip-link">
+          Skip to content
+        </a>
         <TopNav />
 
-        {children}
+        <div id="content" tabIndex={-1} className="outline-none">
+          {children}
+        </div>
 
         <Footer />
       </body>

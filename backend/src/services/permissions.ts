@@ -8,6 +8,7 @@
 // value, checked the same way as "public".
 import type { ConsentGrant, FixtureRecord, Purpose, RestrictionRegisterEntry } from "../domain/types";
 import type { FixtureStore, RestrictionRegisterStore } from "../store/store";
+import { parseListingItem, type PublicListingItem } from "./publicListingItem";
 
 export type PermissionDecision = {
   allowed: boolean;
@@ -150,15 +151,75 @@ export async function evaluatePermissionSnapshot(
       record: null,
     };
   }
-  const decision = decideFrom({ record, authorityClaims, legalRights, grants, control }, query);
+  const decision = decideFrom({ recordExists: record !== null, authorityClaims, legalRights, grants, control }, query);
   // Only an ALLOWED decision hands its record back — a caller can never
   // mask or select media from a record the decision didn't permit.
   return { decision, record: decision.allowed ? record : null };
 }
 
+export type ListingSnapshot = {
+  decision: PermissionDecision;
+  // Set only when the decision allows AND the listing item is present and
+  // valid for this record.
+  listing: PublicListingItem | null;
+  // True when the current evidence and register WOULD allow this record but
+  // its listing item is missing or invalid: the caller must treat the
+  // candidate as a failure (unknown), never as "not listed" — otherwise a
+  // missing derived item would produce a false-empty listing.
+  listingUnavailable: boolean;
+};
+
+// The listing path's equivalent of evaluatePermissionSnapshot, used by
+// GET /public/records. It reads the small listing item INSTEAD of the
+// canonical record and never falls back to the record (a near-400 KB record
+// item costs ~97 RCU per strongly consistent read; its listing item, 1).
+// Same order and same rules as evaluatePermission: content first, then the
+// same strongly consistent evidence reads, then the authoritative register
+// LAST, and decideFrom unchanged. The listing item never authorizes
+// anything by itself; it only supplies what a card displays, after the
+// decision allows and the register's redactions are applied
+// (publicListingItem.ts's toPublicListingCard).
+export async function evaluateListingSnapshot(
+  fixtureStore: FixtureStore,
+  registerStore: RestrictionRegisterStore,
+  query: PermissionQuery,
+): Promise<ListingSnapshot> {
+  const { recordId } = query;
+  const rawListing = await fixtureStore.getListingItem(recordId);
+  const authorityClaims = await fixtureStore.listAuthorityClaims(recordId);
+  const legalRights = await fixtureStore.listLegalRights(recordId);
+  const grants = await fixtureStore.listConsentGrants(recordId);
+
+  const control = await registerStore.getCurrent(recordId);
+
+  // Decide as if the content exists: the rules never read its content, and
+  // this tells a legitimate denial (not listed) apart from missing derived
+  // data on a record that would otherwise be shown (unknown).
+  const decision = decideFrom({ recordExists: true, authorityClaims, legalRights, grants, control }, query);
+  if (!decision.allowed) {
+    return { decision, listing: null, listingUnavailable: false };
+  }
+  const listing = parseListingItem(rawListing, recordId);
+  if (!listing) {
+    return {
+      decision: {
+        allowed: false,
+        reason: rawListing === null ? "Listing item missing; failing closed." : "Listing item invalid; failing closed.",
+        control,
+      },
+      listing: null,
+      listingUnavailable: true,
+    };
+  }
+  return { decision, listing, listingUnavailable: false };
+}
+
 function decideFrom(
   evidence: {
-    record: FixtureRecord | null;
+    // Whether the content item this decision would serve exists. The rules
+    // never look at its content, so the record path and the listing path
+    // (evaluateListingSnapshot) share them exactly.
+    recordExists: boolean;
     authorityClaims: Awaited<ReturnType<FixtureStore["listAuthorityClaims"]>>;
     legalRights: Awaited<ReturnType<FixtureStore["listLegalRights"]>>;
     grants: ConsentGrant[];
@@ -166,7 +227,7 @@ function decideFrom(
   },
   query: PermissionQuery,
 ): PermissionDecision {
-  const { record, authorityClaims, legalRights, grants, control } = evidence;
+  const { recordExists, authorityClaims, legalRights, grants, control } = evidence;
   const { purpose, audience, now } = query;
   if (!control) {
     return {
@@ -208,7 +269,7 @@ function decideFrom(
     return { allowed: false, reason: "Publication status is \"withdrawn\".", control };
   }
 
-  if (!record) {
+  if (!recordExists) {
     return { allowed: false, reason: "Record not found.", control };
   }
 

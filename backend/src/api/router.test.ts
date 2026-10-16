@@ -1039,6 +1039,13 @@ test("GET /public/records returns 503, not a confident empty 200, when every can
   const { fixtureStore, registerStore, mediaStore, intakeCommitter, active } = await setup();
 
   class AlwaysThrowsFixtureStore implements FixtureStore {
+    // The listing path reads the listing item, never the record.
+    getListingItem(recordId: string) {
+      if (recordId === active.record.recordId) {
+        throw new Error("simulated ProvisionedThroughputExceededException");
+      }
+      return this.inner.getListingItem(recordId);
+    }
     constructor(private readonly inner: FixtureStore) {}
     getRecord(recordId: string) {
       if (recordId === active.record.recordId) {

@@ -335,6 +335,34 @@ Each full listing walk evaluates every preserved+published candidate on the shar
 of 271 register rows as of 2026-10-10). That is why the drill takes only two. See the evidence
 matrix's "per-operation profile" and "read-once" notes for the measured per-table costs.
 
+### Backfilling public listing items
+
+`GET /public/records` reads a small listing item per record (`SK=LISTING`), never the full record.
+Deployed code maintains it atomically with every record change. Records written before that
+deploy need a one-time backfill, which must run **after** the deploy:
+
+```bash
+# 1. Dry run (read-only, paced): review the log before writing anything.
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 TIRO_FIXTURE_NAMESPACE=drill-20261002 \
+  npx tsx backend/src/scripts/backfillPublicListingItems.ts [--limit N] [--resume]
+
+# 2. Apply (only after reviewing the dry run, with listing maintenance deployed).
+AWS_PROFILE=<your-profile> AWS_REGION=us-east-1 TIRO_FIXTURE_NAMESPACE=drill-20261002 \
+  npx tsx backend/src/scripts/backfillPublicListingItems.ts --apply --confirm-listing-maintenance-deployed [--resume]
+```
+
+- **Pacing.** The default is 2 RCU/s and 2 WCU/s, adjustable with `--rcu-per-second` and
+  `--wcu-per-second`; values of 5 or more are refused.
+- **Resuming.** Progress goes to `listing-backfill-<namespace>.state.json` and a JSONL decision log
+  (both git-ignored); `--resume` continues after the last completed record. A state file from a
+  dry run can't resume an apply run, or vice versa.
+- **What gets written.** Only `create` (item absent) and `replace-stale` (item older than the
+  record) are written, each conditionally and only while the register entry is not
+  deletion-pending or deleted.
+- **What is left alone.** `needs-review`, `skip-newer`, and lost races (`condition-failed`) are
+  never overwritten, and they make the run exit non-zero. Investigate them, then re-run with
+  `--resume`.
+
 ### Read-only capacity profile of the public read path
 
 ```bash

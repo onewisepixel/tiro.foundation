@@ -65,6 +65,9 @@ class AlwaysFailingRegisterStore implements RestrictionRegisterStore {
 // completeDeletion's partial-failure state is actually resumable — see the
 // reviewer's "recovery cannot resume" finding.
 class FailOnceOnDeleteFixtureStore implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private failed = false;
   constructor(private inner: FixtureStore) {}
   getRecord(recordId: string) {
@@ -170,6 +173,9 @@ class FailOnceOnDeleteFixtureStore implements FixtureStore {
 // failure in between (or a retry after full success) could lose the true
 // original or corrupt history.
 class FailOnceOnHistoryWriteFixtureStore implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private failed = false;
   constructor(private inner: FixtureStore) {}
   getRecord(recordId: string) {
@@ -1318,6 +1324,9 @@ test(
 // read the record at the SAME version, deterministically rather than
 // hoping real concurrency reproduces it.
 class InterleavingFixtureStore implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private triggered = false;
   private callCount = 0;
   constructor(
@@ -1494,6 +1503,9 @@ test(
 // (getCorrection/getRedaction) — a stable, requestId-derived id alone, or a
 // pre-check alone, would not be enough.
 class LyingAboutExistingHistoryFixtureStore implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private liedCorrectionIds = new Set<string>();
   private liedRedactionIds = new Set<string>();
   constructor(

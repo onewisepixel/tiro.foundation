@@ -126,6 +126,9 @@ async function withThrottleRetry<T>(fn: () => Promise<T>, label: string): Promis
 // version of the exact untracked-media bug this round fixed. Retrying
 // only the specific DynamoDB call that throttled avoids that.
 class ThrottledFixtureStore implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private callIndex = 0;
   constructor(private readonly inner: FixtureStore, private readonly totalExpected: number) {}
   getRecord(recordId: string) {

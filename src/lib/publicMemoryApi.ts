@@ -29,8 +29,26 @@ export type PublicMemoryRecord = {
   updatedAt: string;
 };
 
+// One GET /public/records item: the backend's PublicListingCard
+// (backend/src/services/publicListingItem.ts). Built from a small, bounded
+// listing item rather than the full record, so the summary is an excerpt;
+// the detail page (PublicMemoryRecord) carries the full text.
+export type PublicMemoryListingCard = {
+  recordId: string;
+  recordKind: "demo";
+  title: string;
+  titleTruncated: boolean;
+  summaryExcerpt: string;
+  summaryTruncated: boolean;
+  media: PublicMemoryMediaRef[];
+  mediaTruncated: boolean;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PublicMemoryListing = {
-  items: PublicMemoryRecord[];
+  items: PublicMemoryListingCard[];
   nextCursor: string | null;
   // True when at least one candidate on this page could not be checked
   // (backend services/publicView.ts's readPublicListing) — the page is

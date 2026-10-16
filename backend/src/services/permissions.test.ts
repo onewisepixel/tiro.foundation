@@ -242,6 +242,9 @@ const STAFF = "staff:reviewer@example.invalid";
 // been read (the old, buggy ordering) but before the evidence reads that
 // follow it.
 class TransitionDuringEvidenceReads implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private fired = false;
   constructor(
     private readonly inner: FixtureStore,

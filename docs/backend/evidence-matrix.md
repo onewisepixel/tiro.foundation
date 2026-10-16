@@ -1992,6 +1992,77 @@ FAIL, 9 INCONCLUSIVE, exit 1 — not a pass.**
   not. Capacity, unrelated fixtures, the heavy-record count, and throttle settings were left
   unchanged, as instructed.
 
+**2026-10-10, later — separately stored listing items (local only; not deployed, not backfilled,
+not committed).** The user chose option 3. The milestone stays open: the direct checks passed live,
+but listing acceptance is inconclusive. The measurements already identified duplicate and full reads
+of large `RECORD` items as the expensive operation, and DynamoDB charges a read by the stored item's
+size, so projecting fewer attributes would not help. A heavy-record census was not needed first.
+- *Item.* `PK=ENTITY#<id>, SK=LISTING` (`services/publicListingItem.ts`). It holds the schema
+  version, `recordId`, `recordVersion`, `isSynthetic`, a title (≤160 code points) and summary excerpt
+  (≤240) each with a truncation flag, up to 8 media references (id, type, bytes) with a flag, and
+  timestamps. The estimated stored size is ~3,690 bytes worst case and ~614 typical, so a strongly
+  consistent read is 1 RCU.
+- *Read path (`GET /public/records` only).* `evaluateListingSnapshot` (`permissions.ts`) reads the
+  listing item, then the same three strongly consistent evidence reads, then the register last, and
+  applies the unchanged `decideFrom` rules. The register snapshot's text and media redactions are
+  applied before anything is returned (`toPublicListingCard`). The listing path never reads the
+  canonical record and has no fallback to it. A missing or invalid listing item on a record the rules
+  would allow throws `ListingItemUnavailableError`, which sets `hadFailures` (or a 503 when every
+  candidate on the page fails); it is never treated as "not listed". On a record the rules deny, it is
+  simply not listed. Detail and media routes still use the read-once canonical record.
+- *Maintenance.* Every canonical `RECORD` write or delete in `dynamoStore.ts` now carries the
+  `LISTING` Put/Delete in the same `TransactWriteItems`: `putRecord` (now transactional),
+  `deleteRecord` (now transactional), `putRecordWithCorrection`/`WithRedaction`/`WithCustodyCopy`,
+  `commitIfNotDeleting`, `commitCreateSubmission`, and `commitMediaAdd`. `commitApproval` only
+  condition-checks the record. `memoryStore.ts` routes every record mutation through one
+  `writeRecord`/`removeRecord` pair. Restore and import go through `putRecord`. *Cost:* `putRecord`
+  and `deleteRecord` become transactional, which doubles their write units, plus ~2 WCU for the
+  listing item.
+- *API shape change.* Listing items now carry `summaryExcerpt`/`summaryTruncated`,
+  `titleTruncated`, and `mediaTruncated` instead of the full `summary` and `provenanceRef`. The
+  frontend card is updated to match. Deploy backend and frontend together.
+- *Local verification:* 331 tests pass, all typechecks are clean, lint is unchanged (2 older
+  warnings), and the build is clean.
+  - `publicListing.test.ts` (13): bounds and size; validation; masking; a near-400 KB record listed
+    with **zero** canonical-record reads; missing, unsynthetic, or other-record listing items failing
+    closed with `hadFailures`/503 and never false-empty; revocation, withdrawal, and text/media
+    redaction landing mid-evaluation each honored; the listing item matching the record after
+    creation, media add, correction, and text/media redaction; deletion removing both; and import
+    and snapshot restore producing consistent items, with a restored pre-redaction item still masked
+    by the live register.
+  - `dynamoStore.listing.test.ts` (6): captures the exact commands the real adapter would send and
+    asserts each of the eight write paths sends `RECORD` and `LISTING` in one transaction at the same
+    version.
+  - `listingBackfill.test.ts` (7).
+- *Backfill (`scripts/backfillPublicListingItems.ts`, engine in `services/listingBackfill.ts`),
+  prepared but not run.*
+  - It is a dry run by default. `--apply` also requires `--confirm-listing-maintenance-deployed`.
+  - Pacing comes from each operation's reported `ConsumedCapacity` (default 2 RCU/s and 2 WCU/s; it
+    refuses ≥5).
+  - It is resumable via a state file that refuses a different namespace or mode, and logs to JSONL.
+  - Each write is one transaction: a register condition check (exists, not deletion-pending or
+    deleted) plus a conditional Put (create if absent, or replace only at the exact stale
+    `recordVersion` read).
+  - Invalid or same-version-different-content items are reported for review, never overwritten.
+  - Tests cover dry run (no writes), apply and idempotent re-run, bounded run plus resume, a record
+    write racing the backfill (the backfill loses, listing never moves backwards), deletion racing
+    it (no orphan), and pacing arithmetic.
+- *Proposed live order (each step for review):* (1) deploy; (2) run the backfill dry run (read-only)
+  and review its log; (3) run the backfill with `--apply`; (4) run one consolidated live drill.
+  Between (1) and (3), allowed records without listing items fail closed, so the public index shows
+  the incomplete-results notice or 503s. That is degraded but never false-empty. Backfilling before
+  deploying is not safe: the old Lambda doesn't maintain listing items, so a record changed in
+  between would leave a stale one that nothing detects.
+- *Estimates (from per-operation measurements, not measured totals):*
+  - Backfill reads ≈ 271 listing reads + ~11 scan pages + record reads (1 RCU each, ~97 per
+    near-400 KB record): ~710 RCU if 2 are heavy, ~4,100 if 37 are, so ~6–34 min at 2 RCU/s. A dry
+    run costs the same reads.
+  - Backfill writes ≈ 4 WCU per created item, ~1,100 WCU for all 271 (~9 min at 2 WCU/s).
+  - After backfill, a listing walk costs ~4 primary RCU per candidate (~790 per walk over 197
+    candidates) and ~1 register RCU per candidate plus a scan page per request (~250 per walk).
+  - At the current 1.5 s evaluation pacing, that averages ~2.6 primary RCU/s, below the 5 RCU/s
+    ceiling. This is an estimate for the live drill to test, not a result.
+
 **Correction to "pacing and 503 remain the real protection" (stated in conversation on
 2026-10-10, not in these docs, and wrong):** pacing only reduces how often a request issues reads,
 and a 503 only reports failure after work has already consumed capacity. Neither guarantees

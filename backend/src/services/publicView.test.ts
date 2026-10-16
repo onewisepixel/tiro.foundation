@@ -524,6 +524,9 @@ test("readPublicListing skips a candidate whose evaluation throws, rather than f
   }
 
   class ThrowsForOneRecordFixtureStore implements FixtureStore {
+    getListingItem(recordId: string) {
+      return this.inner.getListingItem(recordId);
+    }
     constructor(private readonly inner: FixtureStore) {}
     getRecord(recordId: string) {
       return this.inner.getRecord(recordId);
@@ -589,6 +592,13 @@ test("readPublicListing flags hadFailures when every candidate on the page throw
   }
 
   class AlwaysThrowsFixtureStore implements FixtureStore {
+    // The listing path reads the listing item, never the record.
+    getListingItem(recordId: string) {
+      if (badIds.includes(recordId)) {
+        throw new Error("simulated ProvisionedThroughputExceededException");
+      }
+      return this.inner.getListingItem(recordId);
+    }
     constructor(private readonly inner: FixtureStore) {}
     getRecord(recordId: string) {
       if (badIds.includes(recordId)) {

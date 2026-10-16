@@ -47,3 +47,7 @@ cdk.context.json
 # staff-ui: deployment-specific (API URL, Cognito domain/client id differ per
 # namespace) — ship config.example.js as the template, not real values.
 /staff-ui/config.js
+
+# listing backfill progress/logs (backend/src/scripts/backfillPublicListingItems.ts)
+listing-backfill-*.state.json
+listing-backfill-*.log.jsonl

@@ -108,6 +108,16 @@ export interface FixtureStore {
   // match the current stored version; throws VersionConflictError otherwise.
   deleteRecord(recordId: string, expectedVersion: number): Promise<void>;
 
+  // The record's small public listing item (services/publicListingItem.ts),
+  // strongly consistent. Every implementation writes/deletes it in the SAME
+  // atomic unit as every write/delete of the canonical record above (and
+  // putRecordWith*, and the committers' record writes) — there is no
+  // separate write method for callers to forget. Returned RAW and untyped
+  // on purpose: callers must validate it with parseListingItem, and treat
+  // a missing or invalid item as "listing data unavailable" (fail closed),
+  // never as "nothing to list".
+  getListingItem(recordId: string): Promise<unknown | null>;
+
   listAuthorityClaims(recordId: string): Promise<AuthorityClaim[]>;
   putAuthorityClaim(claim: AuthorityClaim): Promise<void>;
   // Strongly consistent, by-exact-id — same contract as getCorrection/

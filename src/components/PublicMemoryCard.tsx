@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { getRecordKindNotice } from "@/data/recordNotices";
-import type { PublicMemoryRecord } from "@/lib/publicMemoryApi";
+import type { PublicMemoryListingCard } from "@/lib/publicMemoryApi";
 
 type PublicMemoryCardProps = {
-  record: PublicMemoryRecord;
+  record: PublicMemoryListingCard;
 };
 
 // Deliberately narrow — renders only the fields a backend-sourced record
@@ -33,15 +33,17 @@ export default function PublicMemoryCard({ record }: PublicMemoryCardProps) {
       ) : null}
       <div className="tiro-kv">
         <span className="k">Media</span>
-        <span className="v">{record.media.length > 0 ? `${record.media.length} file(s)` : "None"}</span>
+        <span className="v">{record.media.length > 0 ? `${record.media.length}${record.mediaTruncated ? "+" : ""} file(s)` : record.mediaTruncated ? "See record" : "None"}</span>
       </div>
 
       <h2 className="mt-6 font-[family-name:var(--font-display)] text-2xl italic tracking-tight text-[var(--tiro-text-soft)]">
         {record.title}
+        {record.titleTruncated ? "…" : null}
       </h2>
 
       <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-        {record.summary}
+        {record.summaryExcerpt}
+        {record.summaryTruncated ? "…" : null}
       </p>
 
       <Link href={`/memories/${record.recordId}`} className="tiro-link mt-6 inline-block text-sm">

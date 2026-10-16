@@ -10,7 +10,9 @@
   --tiro-text: #ede4d3;
   --tiro-text-soft: rgba(237, 228, 211, 0.86);
   --tiro-text-muted: rgba(237, 228, 211, 0.64);
-  --tiro-text-subtle: rgba(237, 228, 211, 0.4);
+  /* 0.4 → 0.56: the old value measured 3.26:1 on --tiro-bg (fails WCAG AA
+     for text); 0.56 measures 5.33:1. */
+  --tiro-text-subtle: rgba(237, 228, 211, 0.56);
   --tiro-border: rgba(237, 228, 211, 0.14);
   --tiro-border-strong: rgba(237, 228, 211, 0.24);
   --tiro-surface: rgba(237, 228, 211, 0.045);
@@ -18,6 +20,15 @@
   --tiro-accent: #c79a4b;
   --tiro-accent-strong: #b8543c;
   --tiro-mark: var(--tiro-accent);
+
+  /* Living Trace additions (see docs/design/living-trace.md). Additive —
+     nothing above changes meaning. Mineral is the relationship accent:
+     gold marks an origin and its documented line; mineral marks a
+     relationship between records. */
+  --tiro-mineral: #8fa6a3; /* text-safe: 7.49:1 on --tiro-bg */
+  --tiro-mineral-line: #6d8583; /* lines/strokes only (non-text, ≥3:1) */
+  --tiro-contested: #d08770; /* 6.78:1 on --tiro-bg */
+  --tiro-raised: #121621; /* a quiet, slightly lifted surface */
 }
 
 html[data-theme="light"] {
@@ -29,8 +40,11 @@ html[data-theme="light"] {
   --tiro-bg-deep: #e1d5bc;
   --tiro-text: #14161f;
   --tiro-text-soft: rgba(20, 22, 31, 0.84);
-  --tiro-text-muted: rgba(20, 22, 31, 0.63);
-  --tiro-text-subtle: rgba(20, 22, 31, 0.4);
+  /* muted 0.63 → 0.7 and subtle 0.4 → 0.63: subtle measured 2.45:1 on
+     --tiro-bg (fails WCAG AA); both now clear 4.5:1 while keeping their
+     relative order. */
+  --tiro-text-muted: rgba(20, 22, 31, 0.7);
+  --tiro-text-subtle: rgba(20, 22, 31, 0.63);
   --tiro-border: rgba(20, 22, 31, 0.16);
   --tiro-border-strong: rgba(20, 22, 31, 0.28);
   --tiro-surface: rgba(20, 22, 31, 0.035);
@@ -38,6 +52,96 @@ html[data-theme="light"] {
   --tiro-accent: #8b3a2b;
   --tiro-accent-strong: #7a6023;
   --tiro-mark: var(--tiro-accent);
+
+  --tiro-mineral: #46605d; /* 5.38:1 on --tiro-bg */
+  --tiro-mineral-line: #5f7976;
+  --tiro-contested: #8b3a2b;
+  --tiro-raised: #f6f1e6;
+}
+
+/* ---------- Registers ----------
+   TIRO already speaks in two registers: Indigo (institutional voice) and
+   Paper (archival record voice). `.tiro-register-paper` lets a record
+   surface speak in the Paper register inside a dark page, so atmospheric
+   sections can contrast with bright, structured records. */
+.tiro-register-paper {
+  --tiro-bg: #f4efe4;
+  --tiro-text: #14161f;
+  --tiro-text-soft: rgba(20, 22, 31, 0.86);
+  --tiro-text-muted: rgba(20, 22, 31, 0.7);
+  --tiro-text-subtle: rgba(20, 22, 31, 0.63);
+  --tiro-border: rgba(20, 22, 31, 0.15);
+  --tiro-border-strong: rgba(20, 22, 31, 0.28);
+  --tiro-surface: rgba(20, 22, 31, 0.035);
+  --tiro-surface-strong: rgba(20, 22, 31, 0.07);
+  --tiro-accent: #8b3a2b;
+  --tiro-mark: #7b6436;
+  --tiro-mineral: #46605d;
+  --tiro-mineral-line: #5f7976;
+  --tiro-contested: #8b3a2b;
+  --tiro-raised: #fbf8f2;
+  background: var(--tiro-bg);
+  color: var(--tiro-text);
+}
+
+/* ---------- Candidate palette (NOT ADOPTED) ----------
+   The Living Trace brief's exploratory palette (obsidian / slate / ivory /
+   antique gold / mineral), applied only inside an element carrying
+   data-palette="living-trace" so it can be compared against the current
+   brand palette on /living-trace. Adopting it site-wide is a founder
+   decision; doing so is a one-attribute change on <html>. */
+[data-palette="living-trace"] {
+  --tiro-bg: #101719;
+  --tiro-bg-deep: #0b1012;
+  --tiro-text: #e4ded0;
+  --tiro-text-soft: rgba(228, 222, 208, 0.86);
+  --tiro-text-muted: rgba(228, 222, 208, 0.68); /* 6.75:1 */
+  --tiro-text-subtle: rgba(228, 222, 208, 0.56);
+  --tiro-border: rgba(228, 222, 208, 0.13);
+  --tiro-border-strong: rgba(228, 222, 208, 0.24);
+  --tiro-surface: rgba(228, 222, 208, 0.04);
+  --tiro-surface-strong: rgba(228, 222, 208, 0.08);
+  --tiro-accent: #b79b68; /* 6.82:1 */
+  --tiro-mark: #b79b68;
+  --tiro-mineral: #8fa6a3; /* 7.04:1 */
+  --tiro-mineral-line: #6d8583; /* 4.60:1 */
+  --tiro-contested: #c98a6b; /* 6.33:1 */
+  --tiro-raised: #242b30; /* slate */
+  background: var(--tiro-bg);
+  color: var(--tiro-text);
+}
+
+html[data-theme="light"] [data-palette="living-trace"] {
+  --tiro-bg: #efebe2;
+  --tiro-bg-deep: #e4ded0;
+  --tiro-text: #172022;
+  --tiro-text-soft: rgba(23, 32, 34, 0.86);
+  --tiro-text-muted: rgba(23, 32, 34, 0.7);
+  --tiro-text-subtle: rgba(23, 32, 34, 0.64);
+  --tiro-border: rgba(23, 32, 34, 0.15);
+  --tiro-border-strong: rgba(23, 32, 34, 0.28);
+  --tiro-surface: rgba(23, 32, 34, 0.035);
+  --tiro-surface-strong: rgba(23, 32, 34, 0.07);
+  --tiro-accent: #7b6436; /* 4.75:1 */
+  --tiro-mark: #7b6436;
+  --tiro-mineral: #46605d; /* 5.71:1 */
+  --tiro-mineral-line: #5f7976;
+  --tiro-contested: #8b3a2b;
+  --tiro-raised: #f7f5f0;
+}
+
+[data-palette="living-trace"] .tiro-register-paper,
+html[data-theme="light"] [data-palette="living-trace"] .tiro-register-paper {
+  --tiro-bg: #f1eee7;
+  --tiro-text: #172022;
+  --tiro-text-soft: rgba(23, 32, 34, 0.86);
+  --tiro-text-muted: rgba(23, 32, 34, 0.7);
+  --tiro-text-subtle: rgba(23, 32, 34, 0.64);
+  --tiro-accent: #7b6436;
+  --tiro-mark: #7b6436;
+  --tiro-mineral: #46605d;
+  --tiro-mineral-line: #5f7976;
+  --tiro-raised: #f9f8f4;
 }
 
 @theme inline {
@@ -202,4 +306,198 @@ a.tiro-chip:hover {
    `router.refresh()` has actually committed fresh content. */
 html[data-bfcache-pending="true"] body {
   visibility: hidden;
+}
+
+/* ======================================================================
+   The Living Trace — primitives
+   Semantics live in src/lib/livingTrace/evidence.ts; the reference is
+   docs/design/living-trace.md. Every rule here must still read correctly
+   with motion disabled: animations only ever move TOWARD the static,
+   final state, never hide content behind them.
+   ====================================================================== */
+
+:root {
+  --lt-measure: 38rem; /* readable typographic measure */
+  --lt-gutter: 1.5rem;
+  --lt-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --lt-dur-quick: 160ms;
+  --lt-dur-base: 240ms;
+  --lt-dur-trace: 1400ms;
+  /* The mark's resonance line sits at x=47 of its 90-unit viewBox, not
+     the center (45). Spine segments offset by the same amount at each
+     rendered mark width (28px / 72px) so the line is continuous. */
+  --lt-spine-dx: 0.6px;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --lt-spine-dx: 1.6px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --lt-gutter: 1rem;
+  }
+}
+
+@layer components {
+  /* Focus: always visible, never color-only. */
+  :focus-visible {
+    outline: 2px solid var(--tiro-accent);
+    outline-offset: 3px;
+  }
+
+  .tiro-skip-link {
+    position: fixed;
+    left: 1rem;
+    top: -4rem;
+    z-index: 60;
+    background: var(--tiro-bg);
+    color: var(--tiro-text);
+    border: 1px solid var(--tiro-accent);
+    padding: 0.6rem 1rem;
+    font-family: var(--font-code);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .tiro-skip-link:focus {
+    top: 1rem;
+  }
+
+  /* Small, letterspaced catalog label — used sparingly, never for prose. */
+  .lt-label {
+    font-family: var(--font-code);
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--tiro-text-muted);
+  }
+
+  .lt-display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.04;
+  }
+
+  /* ---------- Trace (SVG) ----------
+     pathLength="1" on every trace path lets one dash rule draw any length. */
+  .lt-trace {
+    fill: none;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .lt-trace[data-evidence="recorded"],
+  .lt-trace[data-evidence="attested"] {
+    stroke-width: 1.5;
+  }
+
+  .lt-trace[data-evidence="inferred"],
+  .lt-trace[data-evidence="contested"],
+  .lt-trace[data-evidence="unknown"] {
+    stroke-width: 1.25;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .lt-draw {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: lt-draw var(--lt-dur-trace) var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+
+    .lt-fade-in {
+      opacity: 0;
+      animation: lt-fade-in 700ms var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+
+    .lt-grow-down {
+      transform-origin: top;
+      transform: scaleY(0);
+      animation: lt-grow-down 1800ms var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+  }
+
+  @keyframes lt-draw {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  @keyframes lt-fade-in {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes lt-grow-down {
+    to {
+      transform: scaleY(1);
+    }
+  }
+
+  /* ---------- Spine ----------
+     The page-level trace: a single line that runs from the mark's resonance
+     line through each movement. Decorative (aria-hidden); the movement index
+     is the accessible equivalent. */
+  .lt-spine {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(50% + var(--lt-spine-dx));
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      var(--tiro-accent) 0%,
+      var(--tiro-mineral-line) 30%,
+      var(--tiro-mineral-line) 85%,
+      transparent 100%
+    );
+    opacity: 0.7;
+  }
+
+  /* ---------- Boundary ----------
+     A boundary is drawn as a closed, quiet double rule: unmistakable, never
+     a padlock or a blur. Nothing inside a boundary is "behind" it — content
+     that is not authorized is never sent to the browser at all. */
+  .lt-boundary {
+    position: relative;
+    border: 1px solid var(--tiro-border-strong);
+    outline: 1px solid var(--tiro-border);
+    outline-offset: 5px;
+  }
+
+  /* ---------- Interactive rows ---------- */
+  .lt-row-button {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 0.85rem 0.25rem;
+    text-align: left;
+    border-top: 1px solid var(--tiro-border);
+    transition: background-color var(--lt-dur-quick) ease;
+  }
+
+  .lt-row-button:hover {
+    background: var(--tiro-surface);
+  }
+
+  .lt-row-button[aria-pressed="true"] {
+    background: var(--tiro-surface-strong);
+  }
+
+  @media print {
+    .lt-spine,
+    .tiro-skip-link {
+      display: none;
+    }
+  }
 }

@@ -49,11 +49,13 @@ test("a failed-to-evaluate record is inconclusive, never absent, when another re
   await seedStore(fixtureStore, registerStore, [failing, succeeding]);
   const failingStore = new Proxy(fixtureStore, {
     get(target, prop, receiver) {
-      if (prop === "getRecord") {
+      // The listing path reads the listing item (never the record); the
+      // detail path reads the record. Fail both for this one record.
+      if (prop === "getRecord" || prop === "getListingItem") {
         return (recordId: string) =>
           recordId === failing.record.recordId
             ? Promise.reject(new Error("simulated ProvisionedThroughputExceededException"))
-            : target.getRecord(recordId);
+            : (target[prop] as (id: string) => Promise<unknown>).call(target, recordId);
       }
       const value = Reflect.get(target, prop, receiver);
       return typeof value === "function" ? value.bind(target) : value;

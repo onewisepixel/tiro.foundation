@@ -12,7 +12,6 @@ import {
   TransactionCanceledException,
 } from "@aws-sdk/client-dynamodb";
 import {
-  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -43,6 +42,7 @@ import {
   type IntakeRegisterCommitter,
   type RestrictionRegisterStore,
 } from "./store";
+import { deriveListingItem } from "../services/publicListingItem";
 
 export type DynamoStoreConfig = {
   client: DynamoDBClient;
@@ -85,6 +85,28 @@ const correctionSk = (correctionId: string) => `CORRECTION#${correctionId}`;
 const redactionSk = (redactionId: string) => `REDACTION#${redactionId}`;
 const lifecyclePk = (requestId: string) => `LIFECYCLE#${requestId}`;
 const intakeReceiptSk = (requestId: string) => `INTAKE-RECEIPT#${requestId}`;
+const listingSk = () => "LISTING";
+
+// The record's public listing item (services/publicListingItem.ts) rides in
+// the SAME TransactWriteItems as every RECORD Put/Delete below — a sibling
+// item under the same PK, never written on its own by request-path code.
+// Unconditional: the record operation in the same transaction carries the
+// version condition, and the transaction is all-or-nothing.
+function listingPutItem(tableName: string, record: FixtureRecord, storedVersion: number) {
+  return {
+    Put: {
+      TableName: tableName,
+      Item: { PK: pk(record.recordId), SK: listingSk(), ...deriveListingItem({ ...record, version: storedVersion }, storedVersion) },
+    },
+  };
+}
+
+function listingDeleteItem(tableName: string, recordId: string) {
+  return { Delete: { TableName: tableName, Key: { PK: pk(recordId), SK: listingSk() } } };
+}
+
+// Exported for scripts/backfillPublicListingItems.ts only.
+export const listingItemKey = (recordId: string) => ({ PK: pk(recordId), SK: listingSk() });
 
 export class DynamoFixtureStore implements FixtureStore {
   private readonly doc: DynamoDBDocumentClient;
@@ -106,19 +128,39 @@ export class DynamoFixtureStore implements FixtureStore {
     return (result.Item as FixtureRecord | undefined) ?? null;
   }
 
+  async getListingItem(recordId: string): Promise<unknown | null> {
+    const result = await this.doc.send(
+      new GetCommand({
+        TableName: this.config.primaryTableName,
+        Key: { PK: pk(recordId), SK: listingSk() },
+        // Strongly consistent, like getRecord: it feeds a permission-gated read.
+        ConsistentRead: true,
+      }),
+    );
+    return result.Item ?? null;
+  }
+
   async putRecord(record: FixtureRecord, expectedVersion: number | undefined): Promise<void> {
     try {
+      // One transaction: the canonical record and its listing item.
       await this.doc.send(
-        new PutCommand({
-          TableName: this.config.primaryTableName,
-          // version is store-owned — see store.ts's putRecord comment.
-          // Placed AFTER the spread so it always wins over whatever stale
-          // value the caller's `record` object carries.
-          Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
-          ConditionExpression:
-            expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
-          ExpressionAttributeValues:
-            expectedVersion === undefined ? undefined : { ":expectedVersion": expectedVersion },
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.config.primaryTableName,
+                // version is store-owned — see store.ts's putRecord comment.
+                // Placed AFTER the spread so it always wins over whatever stale
+                // value the caller's `record` object carries.
+                Item: { PK: pk(record.recordId), SK: recordSk(), ...record, version: (expectedVersion ?? 0) + 1 },
+                ConditionExpression:
+                  expectedVersion === undefined ? "attribute_not_exists(PK)" : "version = :expectedVersion",
+                ExpressionAttributeValues:
+                  expectedVersion === undefined ? undefined : { ":expectedVersion": expectedVersion },
+              },
+            },
+            listingPutItem(this.config.primaryTableName, record, (expectedVersion ?? 0) + 1),
+          ],
         }),
       );
     } catch (error) {
@@ -131,12 +173,20 @@ export class DynamoFixtureStore implements FixtureStore {
 
   async deleteRecord(recordId: string, expectedVersion: number): Promise<void> {
     try {
+      // One transaction: the canonical record and its listing item go together.
       await this.doc.send(
-        new DeleteCommand({
-          TableName: this.config.primaryTableName,
-          Key: { PK: pk(recordId), SK: recordSk() },
-          ConditionExpression: "version = :expectedVersion",
-          ExpressionAttributeValues: { ":expectedVersion": expectedVersion },
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Delete: {
+                TableName: this.config.primaryTableName,
+                Key: { PK: pk(recordId), SK: recordSk() },
+                ConditionExpression: "version = :expectedVersion",
+                ExpressionAttributeValues: { ":expectedVersion": expectedVersion },
+              },
+            },
+            listingDeleteItem(this.config.primaryTableName, recordId),
+          ],
         }),
       );
     } catch (error) {
@@ -489,6 +539,7 @@ export class DynamoFixtureStore implements FixtureStore {
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
+            listingPutItem(this.config.primaryTableName, record, (expectedVersion ?? 0) + 1),
           ],
         }),
       );
@@ -536,6 +587,7 @@ export class DynamoFixtureStore implements FixtureStore {
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
+            listingPutItem(this.config.primaryTableName, record, (expectedVersion ?? 0) + 1),
           ],
         }),
       );
@@ -586,6 +638,7 @@ export class DynamoFixtureStore implements FixtureStore {
                 Item: { PK: pk(copy.recordId), SK: copySk(copy.copyId), ...copy },
               },
             },
+            listingPutItem(this.config.primaryTableName, record, (expectedVersion ?? 0) + 1),
           ],
         }),
       );
@@ -756,6 +809,7 @@ export class DynamoCustodyCopyCommitter implements CustodyCopyCommitter {
                 Item: { PK: pk(copy.recordId), SK: copySk(copy.copyId), ...copy },
               },
             },
+            listingPutItem(this.config.primaryTableName, record, (expectedVersion ?? 0) + 1),
           ],
         }),
       );
@@ -826,6 +880,7 @@ export class DynamoIntakeRegisterCommitter implements IntakeRegisterCommitter {
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
+            listingPutItem(this.config.primaryTableName, record, 1),
           ],
         }),
       );
@@ -927,6 +982,7 @@ export class DynamoIntakeRegisterCommitter implements IntakeRegisterCommitter {
                 Item: { PK: pk(copy.recordId), SK: copySk(copy.copyId), ...copy },
               },
             },
+            listingPutItem(this.config.primaryTableName, updatedRecord, expectedRecordVersion + 1),
           ],
         }),
       );

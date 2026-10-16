@@ -68,6 +68,9 @@ async function redactThenCorrect(
 // the record value they already captured predates the race: their LATER
 // register read (taken last, by design) still reflects it.
 class RaceOnFirstGetRecord implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   private fired = false;
   constructor(
     private readonly inner: InMemoryFixtureStore,
@@ -146,6 +149,9 @@ test("readIntakeQueue never leaks raw content from the same race, for the pendin
 // entries the scan's own data already rules out, rather than reading
 // every single register entry regardless of eligibility.
 class CountingFixtureStore implements FixtureStore {
+  getListingItem(recordId: string) {
+    return this.inner.getListingItem(recordId);
+  }
   readonly getRecordCalls: string[] = [];
   constructor(private readonly inner: InMemoryFixtureStore) {}
   async getRecord(recordId: string) {

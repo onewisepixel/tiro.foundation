@@ -109,12 +109,15 @@ test("fetchAuthorizedMedia (staff path) reads the record exactly once", async ()
   assert.equal(counts.getRecord, 1);
 });
 
-test("readPublicListing reads each evaluated candidate's record exactly once", async () => {
+// Superseded by the listing item (publicListingItem.ts): the listing path
+// now reads ZERO canonical records. See publicListing.test.ts for the
+// near-400 KB case.
+test("readPublicListing reads no canonical record at all", async () => {
   const { inner, registerStore, recordId } = await setup();
   const { store, counts } = instrumented(inner);
   const listing = await readPublicListing(store, registerStore, { limit: 10, cursor: null });
   assert.deepEqual(listing.items.map((i) => i.recordId), [recordId]);
-  assert.equal(counts.getRecord, 1);
+  assert.equal(counts.getRecord, 0);
 });
 
 // ---------------------------------------------------------------------------
