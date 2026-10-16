@@ -29,6 +29,10 @@ When authentic, authorized material is unavailable, use honest abstraction or a 
 | **Maps, timelines, spatial relationships** | Places and dates at the precision the source authorizes; uncertainty drawn as uncertainty (dotted, ranges). A timeline is the record's own history. | Precise locations of sensitive or restricted material; chronology implying that a culture is linear or "developing"; maps as decoration. |
 | **Institutional and research interfaces** | The Paper register: high legibility, structured fields, evidence states in words and line patterns, generous measure. Archival precision before atmosphere. | Cinematic effects inside records; colour as the only carrier of meaning; dashboards that turn people into metrics. |
 
+## The mark
+
+The approved mark is never altered, recolored outside the brand tokens, animated, or redrawn. The Origin's annotations (Origin / Transmission / Resonance, cited to Manifesto v0.2 §IV) are **approved as explanatory artwork** for that composition (`decisions.md`, decision 5). They sit beside the mark and do not change it. They are **not** part of ordinary logo usage and must never become a required lockup.
+
 ## Culture and context
 
 - **No generic motifs.** No "African" patterns, masks, adinkra or nsibidi symbols, textiles, sculpture, or script used as ornament, and no other culture's symbols used that way either. A culturally specific symbol appears only inside a record, with its source authority, its meaning as the source states it, and permission to show it.

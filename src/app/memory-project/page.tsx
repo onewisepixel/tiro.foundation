@@ -74,8 +74,8 @@ export default function MemoryProjectPage() {
               <Link href="/community-rights" className="tiro-link text-sm">
                 Community Rights &amp; Stewardship
               </Link>
-              <Link href="/memories/lagos-port-harcourt-migration" className="tiro-link text-sm">
-                View Sample Memory
+              <Link href="/memories/demo-audio-record" className="tiro-link text-sm">
+                View a demonstration record
               </Link>
             </div>
           </div>

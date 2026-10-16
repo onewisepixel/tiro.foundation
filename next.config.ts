@@ -1,6 +1,22 @@
 import type { NextConfig } from "next";
 
+// Former demonstration-record slugs named invented stories (retired in
+// Living Trace 0.2.1, docs/design/decisions.md decision 3). Temporary
+// redirects keep old links working without keeping the names in content.
+const RETIRED_DEMO_SLUGS: Record<string, string> = {
+  "lagos-port-harcourt-migration": "demo-audio-record",
+  "rain-season-enugu": "demo-image-record",
+  "market-song-lagos": "demo-video-record",
+};
+
 const nextConfig: NextConfig = {
+  async redirects() {
+    return Object.entries(RETIRED_DEMO_SLUGS).map(([from, to]) => ({
+      source: `/memories/${from}`,
+      destination: `/memories/${to}`,
+      permanent: false,
+    }));
+  },
   experimental: {
     // Explicit, not a fix for a live gap: as of Next 15+ (this project is
     // on 16), the client-side Router Cache's "dynamic" staleTime already

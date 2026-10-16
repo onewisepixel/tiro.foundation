@@ -54,11 +54,6 @@ export type InternalRecord = {
     reference: string;
     notice: string;
     mayContact: boolean;
-    // Whether the rights authority permits acknowledging, inside another
-    // record's relationship, that an account from this record exists. Never
-    // projected itself; it only decides whether a "withheld" placeholder
-    // may appear. Absent means no acknowledgement at all.
-    acknowledgeAccountsInRelationships?: boolean;
   };
 };
 
@@ -75,6 +70,23 @@ export type InternalGraphNode = {
 
 // One party's claim within a relationship. Several accounts on one edge
 // keep several provenances; they are never merged.
+// The disclosure unit is the authorized CLAIM, not the record
+// (docs/design/decisions.md, 2026-10-16). A restricted record's public
+// notice authorizes nothing about the accounts it holds. To be acknowledged
+// as "withheld" inside a visible relationship, a claim needs its own grant
+// from its rights authority, separately scoped:
+//   existence    that this account exists at all
+//   association  that it bears on THIS relationship (its type and ends)
+// Both default to deny. A grant never discloses the claim's position,
+// claimant, evidence state, or source, and a withheld account never
+// counts toward what the relationship says (its evidence state).
+export type ClaimDisclosureGrant = {
+  existence: boolean;
+  association: boolean;
+  // Reference to the authorization itself. Never projected.
+  grantRef: string;
+};
+
 export type InternalAccount = {
   id: string;
   position: string;
@@ -84,6 +96,8 @@ export type InternalAccount = {
   // Graph node holding the account. Its backing record's visibility
   // decides whether this account may be shown, acknowledged, or omitted.
   inNode: string | null;
+  // Only for an account held in a non-public record. Absent = deny.
+  disclosure?: ClaimDisclosureGrant;
 };
 
 export type InternalGraphEdge = {
@@ -178,7 +192,6 @@ export const INTERNAL_RECORDS: InternalRecord[] = [
       notice:
         "This material is held for preservation and is not available for public access. Its rights authority has authorized only this notice: no title, description, or other details.",
       mayContact: true,
-      acknowledgeAccountsInRelationships: true,
     },
   },
   {
@@ -344,13 +357,22 @@ export const INTERNAL_EDGES: InternalGraphEdge[] = [
     to: "place-1",
     relation: "Refers to",
     evidence: "attested",
-    summary: "A place named in the account. A second account from a restricted source also names it; its rights authority permits acknowledging only that it exists.",
+    summary: "A place named in Record A's account.",
     recordedBy: "Record DEMO-LT-0001",
     accounts: [
       { id: "e-a-place:1", position: "The account names this place.", assertedBy: "Synthetic source S-01", kind: "source", evidence: "attested", inNode: "rec-a" },
-      // Restricted source with acknowledgement authorized: shown only as
-      // "withheld", with no position, claimant, or reference.
-      { id: "e-a-place:r", position: "CANARY-ACCOUNT-RESTRICTED", assertedBy: "CANARY-ACCOUNT-RESTRICTED-BY", kind: "source", evidence: "attested", inNode: "rec-r" },
+      // Restricted source; its rights authority has granted BOTH existence
+      // and association for this claim: shown only as "withheld", with no
+      // position, claimant, evidence, or reference.
+      {
+        id: "e-a-place:r",
+        position: "CANARY-ACCOUNT-RESTRICTED",
+        assertedBy: "CANARY-ACCOUNT-RESTRICTED-BY",
+        kind: "source",
+        evidence: "attested",
+        inNode: "rec-r",
+        disclosure: { existence: true, association: true, grantRef: "CANARY-GRANT-REF-1" },
+      },
     ],
   },
   {
@@ -412,7 +434,57 @@ export const INTERNAL_EDGES: InternalGraphEdge[] = [
     recordedBy: "TIRO curator (illustrative role): recorded the open question",
     accounts: [],
   },
+  {
+    // A restricted claim granted EXISTENCE but not ASSOCIATION: acknowledging
+    // it here would disclose that it bears on this relationship, so it is
+    // omitted without a trace. The relationship itself still shows.
+    id: "e-c-event",
+    from: "rec-c",
+    to: "event-1",
+    relation: "Mentions",
+    evidence: "attested",
+    summary: "Record C mentions the event in passing.",
+    recordedBy: "Record DEMO-LT-0005",
+    accounts: [
+      { id: "e-c-event:1", position: "Mentions the event.", assertedBy: "Synthetic source S-03", kind: "source", evidence: "attested", inNode: "rec-c" },
+      {
+        id: "e-c-event:r",
+        position: "CANARY-ACCOUNT-EXISTENCE-ONLY",
+        assertedBy: "CANARY",
+        kind: "source",
+        evidence: "attested",
+        inNode: "rec-r",
+        disclosure: { existence: true, association: false, grantRef: "CANARY-GRANT-REF-2" },
+      },
+    ],
+  },
   // ---- Never projected: endpoints or supporting accounts are not public.
+  {
+    // A disagreement that only exists because of a withheld claim. Showing
+    // it as "contested" would reveal the withheld account's position (that
+    // it disagrees), even with full existence and association grants. A
+    // withheld account never determines what a relationship says, so the
+    // relationship is withheld whole.
+    id: "x-b-event-contested-by-withheld",
+    from: "rec-b",
+    to: "event-1",
+    relation: "CANARY-CONTESTED-ONLY-BY-WITHHELD",
+    evidence: "contested",
+    summary: "CANARY-CONTESTED-ONLY-BY-WITHHELD-SUMMARY",
+    recordedBy: "CANARY",
+    accounts: [
+      { id: "x-b-event-cw:b", position: "Dates the event.", assertedBy: "Synthetic source S-02", kind: "source", evidence: "attested", inNode: "rec-b" },
+      {
+        id: "x-b-event-cw:r",
+        position: "CANARY-ACCOUNT-DISAGREES",
+        assertedBy: "CANARY",
+        kind: "source",
+        evidence: "attested",
+        inNode: "rec-r",
+        disclosure: { existence: true, association: true, grantRef: "CANARY-GRANT-REF-3" },
+      },
+    ],
+  },
   {
     id: "x-a-r",
     from: "rec-a",

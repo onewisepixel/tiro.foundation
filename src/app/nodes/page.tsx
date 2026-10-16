@@ -15,16 +15,17 @@ export const metadata: Metadata = {
     "Seed node index for places, themes, and languages connected to TIRO memory records.",
 };
 
+// Only the places and languages the demonstration records use as example
+// metadata. Theme nodes (and "Balogun Market") were derived from invented
+// demonstration stories and were removed with them in Living Trace 0.2.1;
+// themes will come from collected records.
 const nodeSeeds: NodeSeed[] = [
   { label: "Lagos", type: "Place", href: "/nodes/lagos" },
   { label: "Port Harcourt", type: "Place" },
-  { label: "Balogun Market", type: "Place" },
-  { label: "Internal Migration", type: "Theme" },
-  { label: "Trade", type: "Theme" },
-  { label: "Urban Memory", type: "Theme" },
+  { label: "Enugu", type: "Place" },
   { label: "Nigerian Pidgin", type: "Language", href: "/nodes/nigerian-pidgin" },
   { label: "Yoruba", type: "Language" },
-  { label: "English", type: "Language" },
+  { label: "Igbo", type: "Language" },
 ];
 
 function getLinkedMemories(label: string) {
@@ -59,9 +60,10 @@ export default function NodesIndexPage() {
             Nodes
           </h1>
           <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            Foundational graph entities connected to memory records. This index
-            is the first architectural layer linking memory to place, language,
-            and thematic context.
+            Foundational graph entities: places and languages that memory
+            records will connect to. No collected records exist yet; the links
+            below come from demonstration records using them as example
+            metadata.
           </p>
           {pageNotice ? (
             <p className="mt-4 max-w-3xl font-[family-name:var(--font-code)] text-xs uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">

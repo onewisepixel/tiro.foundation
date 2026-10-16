@@ -6,26 +6,22 @@ import { getConnectionsNotice } from "@/lib/recordKind";
 export const metadata: Metadata = {
   title: "Lagos — Node — The Tiro Foundation",
   description:
-    "Node profile for Lagos, connecting related memory records, themes, and language context.",
+    "Place node for Lagos. No collected records yet; connections shown are demonstration records using Lagos as example metadata.",
 };
 
-const connectionIds = ["market-song-lagos", "lagos-port-harcourt-migration"];
+const memoryConnections = memories.filter((memory) =>
+  memory.relatedNodes.some((node) => node.label.toLowerCase() === "lagos"),
+);
 
-const memoryConnections = connectionIds
-  .map((id) => memories.find((memory) => memory.id === id))
-  .filter((memory): memory is NonNullable<typeof memory> => Boolean(memory));
-
-const themes = ["Trade", "Migration", "Urban Memory"];
-const languages = [
-  { label: "Yoruba" },
-  { label: "Nigerian Pidgin", href: "/nodes/nigerian-pidgin" },
-  { label: "English" },
-];
-const relatedNodes = [
-  { label: "Port Harcourt" },
-  { label: "Balogun Market" },
-  { label: "Internal Migration" },
-];
+// Themes and related nodes are relationships, and every visible
+// relationship needs a type and a basis. None can be stated until
+// collected records establish them, so these lists are honestly empty
+// (Living Trace 0.2.1; the earlier lists were derived from invented
+// demonstration stories).
+const themes: string[] = [];
+const languages: { label: string; href?: string }[] = [];
+const relatedNodes: { label: string }[] = [];
+const NONE_RECORDED = "None recorded. These are established by collected records, and none exist yet.";
 
 export default function LagosNodePage() {
   const connectionsNotice = getConnectionsNotice(memoryConnections);
@@ -39,10 +35,10 @@ export default function LagosNodePage() {
             Lagos
           </h1>
           <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            Lagos is represented here as a living urban node where language,
-            commerce, migration, and memory intersect. This profile links
-            records that document movement into and out of Lagos, as well as
-            performance and trade memory embedded in everyday life.
+            A place node. TIRO holds no collected records about Lagos. The
+            connections below are demonstration records that use Lagos as
+            example metadata, to show how a place node will gather the
+            records that refer to it. They say nothing about Lagos itself.
           </p>
         </div>
       </section>
@@ -80,6 +76,7 @@ export default function LagosNodePage() {
           <div className="tiro-card">
             <p className="tiro-eyebrow mb-5">Themes</p>
             <div className="flex flex-wrap gap-2.5">
+              {themes.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
               {themes.map((theme) => (
                 <span key={theme} className="tiro-chip">
                   {theme}
@@ -91,6 +88,7 @@ export default function LagosNodePage() {
           <div className="tiro-card">
             <p className="tiro-eyebrow mb-5">Languages</p>
             <div className="flex flex-wrap gap-2.5">
+              {languages.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
               {languages.map((language) =>
                 language.href ? (
                   <Link key={language.label} href={language.href} className="tiro-chip">
@@ -111,6 +109,7 @@ export default function LagosNodePage() {
         <div className="tiro-card mx-auto max-w-5xl">
           <p className="tiro-eyebrow mb-5">Related Nodes</p>
           <div className="flex flex-wrap gap-2.5">
+            {relatedNodes.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
             {relatedNodes.map((node) => (
               <span key={node.label} className="tiro-chip">
                 {node.label}

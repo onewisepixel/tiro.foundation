@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { RestrictedRecordNotice, UndiscoverableExplainer } from "@/components/trace/Boundary";
-import Constellation from "@/components/trace/Constellation";
+import ConstellationIsland from "@/components/trace/ConstellationIsland";
+import ConstellationPreview from "@/components/trace/ConstellationPreview";
 import Movement, { MovementTitle } from "@/components/trace/Movement";
 import OriginHero, { type MovementLink } from "@/components/trace/OriginHero";
 import RecordSpecimen from "@/components/trace/RecordSpecimen";
@@ -147,7 +148,9 @@ export default function Home() {
         }
         wide={
           <div className="mx-auto w-full max-w-[90rem] px-[var(--lt-gutter)] md:px-6">
-            <Constellation graph={graph} initialEdgeId="c-ab-when" />
+            <ConstellationIsland initialEdgeId="c-ab-when">
+              <ConstellationPreview graph={graph} />
+            </ConstellationIsland>
           </div>
         }
       />

@@ -166,13 +166,7 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
 
       <section className="px-6 pb-12 md:pb-16">
         <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">{isDemo ? "Illustrative Text" : "Transcript"}</p>
-          {isDemo ? (
-            <p className="mb-5 border-l-2 border-[var(--tiro-accent)] pl-4 text-sm leading-relaxed text-[var(--tiro-text-soft)]">
-              Written for this demonstration. It is not a transcript of any recording and not anyone&apos;s testimony; it
-              shows where a transcript and its attributed translation would appear.
-            </p>
-          ) : null}
+          <p className="tiro-eyebrow mb-5">Transcript</p>
           <p className="whitespace-pre-line font-[family-name:var(--font-code)] text-[15px] leading-[1.85] text-[var(--tiro-text-muted)]">
             {memory.transcript}
           </p>

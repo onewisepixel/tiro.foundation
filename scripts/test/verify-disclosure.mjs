@@ -46,7 +46,7 @@ const rel = (f) => path.relative(ROOT, f).replaceAll("\\", "/");
 const CLIENT_FORBIDDEN = [
   /CANARY/,
   /INTERNAL_RECORDS|INTERNAL_EDGES|INTERNAL_NODES/,
-  /authorizedDisclosure|acknowledgeAccountsInRelationships|internalNotes/,
+  /authorizedDisclosure|grantRef|internalNotes/,
   /"rec-[ru]"/,
   /DEMO-LT-0003/,
 ];
@@ -61,7 +61,7 @@ for (const file of clientFiles) {
 }
 
 // 2. Prerendered output (HTML, RSC payloads, metadata), excluding server JS.
-const PAGE_FORBIDDEN = [/CANARY/, /"rec-[ru]"/, /DEMO-LT-0003/, /acknowledgeAccountsInRelationships|internalNotes/];
+const PAGE_FORBIDDEN = [/CANARY/, /"rec-[ru]"/, /DEMO-LT-0003/, /grantRef|internalNotes/];
 const serverApp = path.join(NEXT, "server", "app");
 const pageFiles = walk(serverApp).filter((f) => !/\.(js|map|nft\.json)$/.test(f));
 for (const file of pageFiles) {
@@ -99,7 +99,7 @@ for (const r of specimenRoutes) {
 }
 
 // 4. Living Trace routes are static and noindex.
-for (const route of ["/", "/living-trace", ...expectedSpecimens]) {
+for (const route of ["/", "/living-trace", "/living-trace/graph.json", ...expectedSpecimens]) {
   if (!routes.includes(route)) {
     fail(`route is not statically prerendered, so its output is not verified here: ${route}`);
   }

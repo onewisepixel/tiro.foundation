@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import TiroMark from "@/components/TiroMark";
 import { RestrictedRecordNotice, UndiscoverableExplainer } from "@/components/trace/Boundary";
-import Constellation from "@/components/trace/Constellation";
+import ConstellationIsland from "@/components/trace/ConstellationIsland";
+import ConstellationPreview from "@/components/trace/ConstellationPreview";
 import { EvidenceLegend } from "@/components/trace/EvidenceTag";
 import OriginPoint from "@/components/trace/OriginPoint";
 import PaletteScope from "@/components/trace/PaletteScope";
@@ -283,7 +284,9 @@ export default function LivingTracePage() {
               recorded it, and each account&apos;s own chain back to its source. The selection is kept in the address, so it can
               be linked to.
             </ProofHeader>
-            <Constellation graph={graph} initialEdgeId="c-ab-when" syncUrl />
+            <ConstellationIsland initialEdgeId="c-ab-when" syncUrl>
+              <ConstellationPreview graph={graph} />
+            </ConstellationIsland>
             <div className="mt-14">
               <Annotations
                 items={[
@@ -291,7 +294,7 @@ export default function LivingTracePage() {
                   ["Claimant ≠ recorder", "Who made each claim is shown apart from who recorded or interpreted the relationship. A curator who notes a disagreement decides nothing."],
                   ["Provenance is not connectivity", "Chains follow source links only (source of the account, translated from). Two records meeting at a place are connected, not corroborated."],
                   ["Independence is checked", "Accounts that trace to the same origin are reported as not independent, however many there are."],
-                  ["Authorized one account at a time", "A restricted source's account appears only as “withheld”, and only where its rights authority permits acknowledgement. Otherwise it leaves no trace, and a relationship that depended on it is withheld whole."],
+                  ["The claim is the unit of disclosure", "A restricted record's notice authorizes nothing about its claims. A claim appears as “withheld” only with its own grants for existence AND association with that relationship; otherwise it leaves no trace. A withheld claim never decides what a relationship says: a disagreement that rests on one is not shown at all."],
                   ["Built to grow", "Nodes are placed by a deterministic layered layout (origins → records → derived → shared context), tested with 30-record collections. There are no hand-placed coordinates."],
                 ]}
               />

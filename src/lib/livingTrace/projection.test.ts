@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { discoverableRouteIds, listDiscoverable, projectGraph, relationsFor, resolveRecord } from "./projection";
 import { chainsToOrigins, edgeProvenance, provenanceFootprint, type GraphEdge, type ProjectedGraph } from "./graph";
-import { INTERNAL_RECORDS } from "../../data/livingTrace/syntheticArchive";
+import { INTERNAL_EDGES, INTERNAL_RECORDS } from "../../data/livingTrace/syntheticArchive";
 
 // Every canary planted in the internal archive. If any of these appears in
 // any projection, the boundary has leaked.
@@ -139,6 +139,104 @@ test("an account from an undiscoverable source is omitted without a trace", () =
   assert.equal(lang.accounts.length, 1);
   assert.equal(lang.accounts[0].state, "attributed");
   assert.doesNotMatch(JSON.stringify(lang), /withheld|:u\b/);
+});
+
+// ---------------------------------------------------------------------
+// Claim-level disclosure (decisions.md, 2026-10-16: the disclosure unit is
+// the authorized claim, not the record; default deny)
+// ---------------------------------------------------------------------
+
+function withAccount<T>(edgeId: string, accountId: string, mutate: (a: (typeof INTERNAL_EDGES)[number]["accounts"][number]) => void, run: () => T): T {
+  const edge = INTERNAL_EDGES.find((e) => e.id === edgeId)!;
+  const index = edge.accounts.findIndex((a) => a.id === accountId);
+  const saved = structuredClone(edge.accounts[index]);
+  try {
+    mutate(edge.accounts[index]);
+    return run();
+  } finally {
+    edge.accounts[index] = saved;
+  }
+}
+
+const withheldOn = (edgeId: string) => (edgeOf(projectGraph(), edgeId)?.accounts ?? []).filter((a) => a.state === "withheld").length;
+
+test("default deny: a restricted claim without its own grant is omitted, even when its record has a public notice", () => {
+  assert.equal(withheldOn("e-a-place"), 1);
+  withAccount(
+    "e-a-place",
+    "e-a-place:r",
+    (a) => {
+      delete a.disclosure;
+    },
+    () => {
+      const place = edgeOf(projectGraph(), "e-a-place")!;
+      assert.equal(place.accounts.length, 1);
+      assert.equal(place.accounts[0].state, "attributed");
+    },
+  );
+});
+
+test("existence alone is not enough: without an association grant the claim is omitted", () => {
+  // Data case: Record C's "Mentions" relationship holds an existence-only claim.
+  const mentions = edgeOf(projectGraph(), "e-c-event")!;
+  assert.ok(mentions, "the relationship itself still shows");
+  assert.equal(withheldOn("e-c-event"), 0);
+  assert.equal(mentions.accounts.length, 1);
+});
+
+test("association alone is not enough: without an existence grant the claim is omitted", () => {
+  withAccount(
+    "e-a-place",
+    "e-a-place:r",
+    (a) => {
+      a.disclosure = { existence: false, association: true, grantRef: "CANARY-GRANT" };
+    },
+    () => assert.equal(withheldOn("e-a-place"), 0),
+  );
+});
+
+test("a withheld claim never determines what a relationship says", () => {
+  const graph = projectGraph();
+  // Contested only because of a withheld claim, even with full grants.
+  assert.equal(edgeOf(graph, "x-b-event-contested-by-withheld"), undefined);
+  // An attested relationship whose only attributed account disappears is
+  // withheld whole, rather than left resting on the withheld claim.
+  withRecord(
+    "DEMO-LT-0001",
+    (r) => {
+      r.visibility = "undiscoverable";
+    },
+    () => assert.ok(!projectGraph().edges.some((e) => e.accounts.length > 0 && e.accounts.every((a) => a.state === "withheld"))),
+  );
+  // No visible edge's evidence depends on withheld accounts.
+  for (const edge of graph.edges) {
+    const attributed = edge.accounts.filter((a) => a.state === "attributed").length;
+    if (edge.evidence === "contested") {
+      assert.ok(attributed >= 2, edge.id);
+    } else if (edge.evidence !== "unknown") {
+      assert.ok(attributed >= 1, edge.id);
+    }
+  }
+});
+
+test("a withheld claim is never acknowledged on an open question", () => {
+  const edge = INTERNAL_EDGES.find((e) => e.id === "u-c-place")!;
+  edge.accounts.push({
+    id: "u-c-place:r",
+    position: "CANARY",
+    assertedBy: "CANARY",
+    kind: "source",
+    evidence: "attested",
+    inNode: "rec-r",
+    disclosure: { existence: true, association: true, grantRef: "CANARY" },
+  });
+  try {
+    // Acknowledging it would say someone made the claim; the open question
+    // cannot be shown honestly, so it is withheld whole.
+    assert.equal(edgeOf(projectGraph(), "u-c-place"), undefined);
+  } finally {
+    edge.accounts.pop();
+  }
 });
 
 test("a relationship whose evidence depends on an unauthorized account is withheld whole", () => {

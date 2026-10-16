@@ -1,12 +1,31 @@
 # The Living Trace — design language 0.2 (implementation reference)
 
-Status: **Proposal, implemented in code for founder review.** Not adopted brand, not doctrine, not an operational specification.
-Revision date: 2026-10-16. Supersedes the 0.1 version of this file. 0.1 evidence is in `screens/0.1/`.
+Status: **Provisionally approved as TIRO's design direction** (founder review, 2026-10-16; see `decisions.md`). Not adopted doctrine, not a production archival specification.
+Revision date: 2026-10-16 (0.2.1 Consolidation). Supersedes the 0.1 version of this file. Evidence: `screens/0.1/`, `screens/0.2/`, `screens/0.2.1/`.
 Sources: `docs/TIRO_Living_Trace_Claude_Execution_Brief.md`, `docs/TIRO_Living_Trace_Visual_Direction.pdf`, and the 0.2 implementation directive.
 Authority: Display semantics only. Defers to `docs/manifestov0-2.txt`, `/community-rights`, `docs/ethos.txt`, and `docs/501c3.txt`. Nothing here changes the mark, the manifesto, the rights policy, the backend, or legal status.
 Companion: `docs/design/art-direction.md`.
 
 ---
+
+## 0. 0.2.1 Consolidation (what changed after the founder review)
+
+All five items in the 0.2.1 mandate, in `decisions.md` order:
+
+1. **Disclosure granularity (decision 2).** The disclosure unit is now the **authorized claim**, not the record. The record-level `acknowledgeAccountsInRelationships` flag is gone. A restricted claim appears as "withheld" only with its own `ClaimDisclosureGrant` covering **existence AND association** with that relationship; the default is deny, and a record's public notice authorizes nothing about its claims. A withheld claim **never counts toward a relationship's evidence state**: a disagreement that rests on one is withheld whole, and an open question is never shown with a withheld claimant. The 0.2 summary text that described the withheld account's position ("also names it") is corrected; an edge summary may describe visible accounts only. 9 new tests cover this.
+2. **Synthetic content (decision 3).** The three demonstration records are now structural specimens: one per media type, with no testimony, story, person, or cultural practice. Slugs changed to `demo-audio-record`, `demo-image-record`, `demo-video-record`, with temporary (307) redirects from the old ones in `next.config.ts`. Place and language values are labeled example metadata. The Lagos and Nigerian Pidgin node pages no longer describe invented records; their themes and related nodes (which had no basis) are honest empty states. The node index drops the theme seeds and "Balogun Market". `src/data/memories.test.ts` guards against regressions.
+3. **Explorations (decision 4).** Moved to `design-explorations/archive/`. Each opens with a sticky, non-dismissible "Superseded" banner listing its false or proposed-only claims; the rest of each file is unchanged.
+4. **Assets (decision 6).** Removed Spectral 500/600 and Space Mono 700 (`.woff2`), `src/components/Hypersphere.tsx`, and `three` / `@react-three/fiber` / `@react-three/drei`, after verifying nothing referenced them. No built client chunk contained three.js before or after, so this reduces dependencies (634 lockfile lines), not download size.
+5. **Deferred Discover.** The homepage and `/living-trace` now ship a server-rendered preview (the complete relationship list as text, plus reserved space) and a ~1 KB client island. The island fetches the interactive constellation and the projected graph from the static route `/living-trace/graph.json` at the first of: a deep link, Discover nearing the viewport, or browser idle after `load`. Without JavaScript, all 13 relationships remain listed.
+6. **Accessibility.** I reviewed the accessibility tree and fixed two findings: the whole inspector was a live region (every selection re-read it), and is now one short status announcement; and the figure's accessible name included its "Clear selection" button. The manual protocol for physical devices and screen readers is in `accessibility-manual-test.md`. **It has not been run.**
+
+Measured (Lighthouse mobile, simulated, median of 3):
+- Homepage: LCP 2.81 s (2.79 s before deferral), performance 96, CLS 0.000.
+- Homepage first-load bytes: 316 → 321 KiB. That includes the deferred chunk and graph now loading after `load`; before `load` the page carries ~10 KiB less.
+- Homepage HTML: 26.3 → 22.6 KB gzip.
+- `/living-trace`: CLS 0.002.
+
+As predicted in the review, deferral did **not** move simulated LCP. Its benefit is a lighter first render and less hydration. The remaining gap to 2.5 s is the framework runtime (~145 KB JS on every page; `/about`, which has no Discover, measures 2.64 s).
 
 ## 1. What 0.2 is
 
@@ -43,13 +62,13 @@ Retained: the allow-list projection (`src/lib/livingTrace/projection.ts`). Stren
 | Production artifacts | `scripts/test/verify-disclosure.mjs` scans `.next/static` (client bundles) and every prerendered HTML/RSC payload; checks the prerender manifest | `npm run build && npm run verify:disclosure`: pass on 16 client files, 190 prerendered files, 19 routes. A seeded internal-field leak **fails** it (tested, then reverted) |
 | Undiscoverable = nonexistent | `dynamicParams = false`; no page generated; same Next 404 | Manifest lists DEMO-LT-0001/0002/0004/0005 only |
 | Counts reveal nothing | No totals of withheld records anywhere | Unit test |
-| Notice contains only authorized fields | Notice has exactly `reference`, `notice`, `mayContact`. The new `acknowledgeAccountsInRelationships` flag decides behavior but is never projected | Unit test |
+| Notice contains only authorized fields | Notice has exactly `reference`, `notice`, `mayContact`, and authorizes nothing about the record's claims (0.2.1) | Unit test |
 | New internal fields stay private | Field-by-field projection | Unit test adds a field and checks every projection |
 | Public search structures | None exist (no sitemap or search index) | Verifier fails if one appears |
 
 Per-account authorization (`projectGraph`):
 - An account from a **public** source is attributed.
-- An account from a **restricted** source appears only as `withheld`, with an opaque positional id and no position, claimant, anchor, or reference, and only if that source's rights authority has authorized acknowledgement.
+- An account from a **restricted** source appears only as `withheld`, with an opaque positional id and no position, claimant, anchor, evidence, or reference, and only if **that claim's own grant covers existence and association** (0.2.1; see §0).
 - Any other account is **omitted without a trace**.
 - An edge whose remaining accounts no longer support its evidence state is withheld whole rather than shown misstated. A contested relationship needs at least two accounts; an attested one needs one attributed account.
 - A source, place, or other non-record node exists only while a visible relationship touches it. The tests caught this case: an origin whose only record became restricted still named its source.
@@ -73,7 +92,7 @@ Per-account authorization (`projectGraph`):
 | Confidence, versions, disputes, annotations stated as findings | The same text, framed as example wording |
 | IDs `TIR-MEM-000n` (look like accessions) | `DEMO-MEM-000n` (`docs/memory.txt`: keep demo IDs distinct) |
 | Notice shown after the title and summary | Notice first, before the title |
-| "Transcript" heading over invented first-person testimony | "Illustrative Text", with a notice that it is not a transcript or anyone's testimony |
+| Invented first-person testimony under a "Transcript" heading | 0.2: labeled "Illustrative Text". **0.2.1: removed entirely**; records are structural specimens (§0) |
 | Empty `<audio>`/`<video>` players; "Audio capture preserved in record metadata"; "Video documentation is cataloged"; durations for files that don't exist | No player for a missing file; "No audio recording attached"; no duration |
 
 Design explorations: `design-explorations/README.md` lists each contradictory claim with file, approximate line, the conflicting authority, and a recommendation. The HTML files themselves are unchanged pending your decision.
@@ -174,7 +193,7 @@ New
 Changed
 - `src/lib/livingTrace/graph.ts`: accounts, per-account traces, independence, source-link-only traversal.
 - `src/lib/livingTrace/projection.ts`: `server-only`; per-account authorization; orphan pruning; scope note.
-- `src/data/livingTrace/syntheticArchive.ts`: `server-only`; accounts; record DEMO-LT-0005; acknowledgement flag; new canaries.
+- `src/data/livingTrace/syntheticArchive.ts`: `server-only`; accounts; record DEMO-LT-0005; claim-level disclosure grants (0.2.1); new canaries.
 - `src/lib/livingTrace/projection.test.ts`: 24 tests (was 10).
 - `src/components/trace/Constellation.tsx`: rebuilt.
 - `src/components/trace/OriginHero.tsx`: rebuilt.
@@ -242,23 +261,24 @@ Other pages on the final build: `/living-trace` scores 96 (LCP 2.80 s, CLS 0.002
 
 Full-page captures use reduced motion: the final state, identical to what motion arrives at, because a full-page capture cannot scroll regions into view.
 
-## 8. Decisions for the founder
+## 8. Decisions
 
-1. **Live-archive relationships (schema).** Accounts, claimants, the `recordedBy` field, source links, and the per-account acknowledgement flag have no backend schema. Bringing Discover to real records needs:
-   - a relationship/account model in `backend/src/domain/types.ts`;
-   - its authorization in `publicView.ts`;
-   - a public endpoint.
+The six questions raised in 0.2 were decided on 2026-10-16. The record and its status are in `decisions.md`. Still open:
+1. **Relationship schema proposal** (decision 1, approved to design only). Not started; the backend is untouched until authority, provenance, access, and revocation semantics are reviewed.
+2. **Production use of claim-level grants** (decision 2). Default deny; any production grant needs explicit, separately scoped authorization.
+3. **Candidate palette.** Still not adopted.
 
-   Not started, per instruction. **Proposed, needs approval.**
-2. **Acknowledging withheld accounts.** The demo lets a rights authority permit "an account from a restricted source exists". Whether that state should exist at all, or default to off as implemented, is a stewardship-policy question, since it discloses existence.
-3. **Demo records' invented first-person text.** The transcripts in `src/data/memories.ts` remain, now labeled. The brief forbids invented documentary quotations. My recommendation is to replace them with non-testimonial placeholder text, or retire the three records in favour of the specimens. Record 3 also describes a market-song practice attributed to a real community, which the art-direction standard would not permit for new content.
-4. **Design explorations.** Add "superseded" banners, move them to an archive, or delete them (`design-explorations/README.md`).
-5. **Demo ID change.** `TIR-MEM-*` became `DEMO-MEM-*`. URLs (`/memories/<slug>`) are unchanged.
-6. **Unused font faces.** Spectral 500/600 and Space Mono 700 are no longer declared. Keep the files, or remove them.
-7. **Hero annotations.** They name the mark's parts beside it, without changing the mark itself. Please confirm this sits within approved mark usage.
-8. **Candidate palette.** Still not adopted.
+## 9. Remaining improvements (prioritized, after 0.2.1)
 
-## 9. Remaining improvements (prioritized)
+Done in 0.2.1: deferred Discover, removal of unused 3D code and fonts, and the accessibility-tree fixes. Still open:
+
+1. Run `accessibility-manual-test.md` on real devices and screen readers.
+2. Simulated LCP: the remaining cost is the shared framework runtime. Options are a founder-level trade-off (for example, less client-side React on the homepage). Applied-throttling LCP is already under 2.5 s.
+3. The relationship schema proposal, then Memory Project Experience 1.0.
+
+The 0.2 list follows for history.
+
+### 0.2 list
 
 1. **Simulated LCP.** Reduce first-load JS. Candidates: lazy-hydrate the Constellation (it is below the fold), drop the unused `three`/`@react-three/*` dependencies and `Hypersphere.tsx`, and audit the BfcacheRevalidator scope.
 2. **Live integration** of relationships and accounts (decision 1), with per-request checks and cache invalidation (§2.2).

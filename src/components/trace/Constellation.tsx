@@ -311,8 +311,9 @@ function AccountCard({ graph, account, index, traces }: { graph: ProjectedGraph;
       <li className="lt-boundary p-3">
         <p className="lt-label">Account {index + 1} · Restricted source</p>
         <p className="mt-1.5 text-sm leading-relaxed text-[var(--tiro-text-soft)]">
-          Its rights authority permits acknowledging that this account exists, and nothing else: not its content, its
-          claimant, or its source.
+          Its rights authority has authorized two things for this claim only: that it exists, and that it bears on this
+          relationship. Nothing else is disclosed: not its content, its claimant, its evidence, or its source. It does not
+          count toward what this relationship says.
         </p>
       </li>
     );
@@ -542,6 +543,12 @@ export default function Constellation({ graph, initialEdgeId, headingLevel = 3, 
   const selectedEdge = selection?.type === "edge" ? graph.edges.find((e) => e.id === selection.id) : undefined;
   const selectedNode = selection?.type === "node" ? nodeById.get(selection.id) : undefined;
 
+  const announcement = selectedEdge
+    ? `Selected relationship: ${selectedEdge.relation}, ${EVIDENCE[selectedEdge.evidence].label.toLowerCase()}, ${selectedEdge.accounts.length === 0 ? "no accounts" : `${selectedEdge.accounts.length} account${selectedEdge.accounts.length === 1 ? "" : "s"}`}. Details in the inspector.`
+    : selectedNode
+      ? `Selected ${KIND_LABEL[selectedNode.kind].toLowerCase()}: ${selectedNode.label}. Details in the inspector.`
+      : "";
+
   const toggle = (state: EvidenceState) => {
     setHidden((prev) => {
       const next = new Set(prev);
@@ -579,20 +586,25 @@ export default function Constellation({ graph, initialEdgeId, headingLevel = 3, 
             <Drawing graph={graph} layout={wide} selection={selection} footprint={footprint} hidden={hidden} onSelect={select} className="hidden h-auto w-full md:block" />
             <Drawing graph={graph} layout={narrow} selection={selection} footprint={footprint} hidden={hidden} onSelect={select} className="block h-auto w-full md:hidden" />
           </Reveal>
-          <figcaption className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <span className="lt-label">Synthetic demonstration graph · not archival data</span>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <figcaption className="lt-label">Synthetic demonstration graph · not archival data</figcaption>
             {selection ? (
               <button type="button" className="tiro-link text-xs" onClick={() => select(null)}>
                 Clear selection
               </button>
             ) : null}
-          </figcaption>
+          </div>
         </figure>
+        {/* One short announcement per selection. The inspector itself is not
+            a live region: re-reading all of it on every change would bury
+            the change. */}
+        <p role="status" className="sr-only">
+          {announcement}
+        </p>
       </div>
 
       <section
         id={`${baseId}-inspector`}
-        aria-live="polite"
         aria-labelledby={`${baseId}-inspector-title`}
         className="border border-[var(--tiro-border-strong)] bg-[var(--tiro-raised)] p-5 md:p-6 xl:sticky xl:top-20 xl:row-span-2 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto"
       >

@@ -53,222 +53,187 @@ export type MemoryRecord = {
   }[];
 };
 
-// DEMONSTRATION RECORDS. Nothing below happened: no one was recorded, no
-// consent was given, no review or cross-check took place, and no TIRO
-// program collected anything. Field values that would be claims on a real
-// record are written as example wording, so the structure can still be
-// demonstrated without asserting anything. Identities are omitted rather
-// than invented. Keep demonstration identifiers (DEMO-MEM-*) distinct
-// from any future accession scheme (docs/memory.txt).
+// DEMONSTRATION RECORDS. They show the STRUCTURE of a memory record, one
+// per media type, and contain nothing else: no testimony, no story, no
+// person, and no cultural practice attributed to any community
+// (docs/design/decisions.md, 2026-10-16, decision 3). Nothing below
+// happened: no one was recorded, no consent was given, no review took
+// place, and no TIRO program collected anything. Fields that would be
+// claims on a real record describe what such a field holds. Place and
+// language values are example metadata only, kept so that place and
+// language nodes can show how they gather records; they say nothing about
+// those places or languages. Keep demonstration identifiers (DEMO-MEM-*)
+// distinct from any future accession scheme (docs/memory.txt).
 const NOT_VERIFIED = "Not verified (demonstration record)";
 const NOT_REVIEWED = "Not reviewed (demonstration record)";
 const NO_CONSENT = "None. No consent was sought or given; this is not a real record.";
+const NO_SOURCE = "None. This demonstration has no source.";
 
 function example(wording: string): string {
-  return `Example wording only; nothing described here took place: “${wording}”`;
+  return `Example of what this field holds; nothing described here took place: ${wording}`;
 }
+
+const NO_TRANSCRIPT = `No transcript. Nothing was recorded for this demonstration.
+
+On a real record, this panel shows the transcript in the language the source used, as reviewed with the source, and an attributed translation beside it. Corrections are added as attributed revisions; they never silently replace the source's words.`;
 
 export const memories: MemoryRecord[] = [
   {
-    id: "lagos-port-harcourt-migration",
+    id: "demo-audio-record",
     recordId: "DEMO-MEM-0001",
     recordKind: "demo",
     archiveStatus: NOT_VERIFIED,
     lastReviewed: NOT_REVIEWED,
     accessLevel: "Public (demonstration)",
-    confidenceLevel: example("High (oral account cross-checked with two community witnesses)"),
-    multipleVersions: example("Version 1.2 — minor transcript punctuation and time-marker clarifications."),
-    translatorNotes: example("Certain Pidgin phrases retain original cadence to preserve relational meaning."),
-    disputedDetails: example("Year of first relocation is remembered as either 1988 or 1989 across family retellings."),
-    communityAnnotations: example("Local reviewers noted that dock labor references map to a wider informal hiring network in the period."),
-    title: "Migration Story from Lagos to Port Harcourt",
-    summary:
-      "A family recollection from the late 1980s tracing movement, labor, and belonging across Nigerian urban communities.",
-    location: "Lagos and Port Harcourt, Nigeria",
-    language: "Nigerian Pidgin and English",
-    era: "Late 1980s to early 1990s",
+    confidenceLevel: example("how confident the record is in each detail, and on what basis, such as whether an account was cross-checked and by whom."),
+    multipleVersions: example("each revision of the transcript or metadata, with its date and the reason for the change."),
+    translatorNotes: example("why a phrase was left untranslated or rendered a particular way, signed by the translator."),
+    disputedDetails: example("a detail remembered differently across retellings, with each version kept and attributed."),
+    communityAnnotations: example("notes added by the source's community, attributed and kept separate from TIRO's own notes."),
+    title: "Demonstration record: an audio account",
+    summary: "Shows how an audio memory record is structured: source, authority, consent, provenance, and media, in that order. Contains no testimony.",
+    location: "Lagos and Port Harcourt, Nigeria (example metadata)",
+    language: "Nigerian Pidgin and English (example metadata)",
+    era: "Not specified (demonstration)",
     contributor: "No real contributor. A real record names the narrator and the collector as separate people.",
-    sourceAuthority: example("The narrator and the family whose migration this account describes."),
+    sourceAuthority: NO_SOURCE,
     consentStatus: NO_CONSENT,
     consentWithdrawal: example(
-      "The narrator or a designated family representative may request withdrawal or restriction at any time by contacting TIRO with this record's ID. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
+      "who may request withdrawal or restriction, how to contact TIRO with the record's ID, and what TIRO will do: cease public access and distribution within its systems, and retain a preservation copy only under terms disclosed at consent.",
     ),
-    provenance: example("Captured during a neighborhood oral-history session, with audio witness confirmation and local steward review before cataloging."),
-    rightsUsage: example(
-      "May be quoted for non-commercial education and research with full attribution. Commercial reuse requires renewed contributor authorization.",
-    ),
-    sensitivity: example("General historical account; no public redaction required."),
+    provenance: example("how and where the account was captured, who witnessed it, and who reviewed it before cataloging."),
+    rightsUsage: example("which uses are permitted (for example, non-commercial education with attribution) and which need renewed authorization."),
+    sensitivity: example("whether anything in the record needs redaction or an access restriction, and why."),
     media: {
       type: "audio",
       caption: "Placeholder for an audio record. No recording exists.",
       credit: "None (demonstration placeholder)",
     },
-    transcript: `I still remember the morning we left Lagos. The lorry was loaded before first light, and my mother kept counting the bags like each one was a person.
-
-In Lagos, everything was movement and noise. In Port Harcourt, we had to learn the rhythm again. New streets, new prices, new people, but the same hunger to belong.
-
-At first, my father worked at the docks on temporary shifts. My mother sold cooked beans by the roadside until she could rent a small stall. What saved us was not money first. It was people. Neighbors who showed us where to fetch water, which church could help with school uniforms, and who to trust in the market.
-
-When I tell this story now, I do not tell it as struggle only. I tell it as memory of how a family becomes community when strangers choose to carry each other for a while.`,
-    culturalContext:
-      "This record documents social infrastructure often absent from formal policy archives: neighborhood trust, kinship labor, and language adaptation during internal migration. It demonstrates why custodial memory systems must preserve lived context in addition to event chronology.",
-    tags: [
-      "Oral History",
-      "Migration",
-      "Nigeria",
-      "Urban Memory",
-      "Kinship",
-      "Labor",
-    ],
+    transcript: NO_TRANSCRIPT,
+    culturalContext: example(
+      "context the source or their community chooses to give, attributed to them, kept separate from any interpretation TIRO adds. This demonstration has none.",
+    ),
+    tags: ["Demonstration", "Audio record"],
     relatedNodes: [
       { label: "Lagos", type: "Place", href: "/nodes/lagos" },
       { label: "Port Harcourt", type: "Place" },
-      { label: "Internal Migration", type: "Theme" },
       { label: "Nigerian Pidgin", type: "Language", href: "/nodes/nigerian-pidgin" },
-      { label: "Informal Labor", type: "Theme" },
     ],
     relatedMemories: [
       {
-        id: "rain-season-enugu",
-        title: "Childhood Memory of Rain Season in Enugu",
-        summary:
-          "An account of monsoon routines, school life, and neighborhood preparation in southeastern Nigeria.",
-        href: "/memories/rain-season-enugu",
+        id: "demo-image-record",
+        title: "Demonstration record: an image with a translated account",
+        summary: "Shows how an image record carries a translation and its translator's notes. Contains no testimony.",
+        href: "/memories/demo-image-record",
       },
       {
-        id: "market-song-lagos",
-        title: "Market Song Remembered in Lagos",
-        summary:
-          "A preserved performance fragment linking commerce, rhythm, and collective memory.",
-        href: "/memories/market-song-lagos",
+        id: "demo-video-record",
+        title: "Demonstration record: a recorded performance",
+        summary: "Shows how a performance record handles shared authority and versions. Contains no performance.",
+        href: "/memories/demo-video-record",
       },
     ],
   },
   {
-    id: "rain-season-enugu",
+    id: "demo-image-record",
     recordId: "DEMO-MEM-0002",
     recordKind: "demo",
     archiveStatus: NOT_VERIFIED,
     lastReviewed: NOT_REVIEWED,
     accessLevel: "Public (demonstration)",
-    confidenceLevel: example("Moderate-high (single narrator, context reviewed by language steward)"),
-    translatorNotes: example("Original Igbo weather idioms are translated with bracketed sense-equivalents in internal notes."),
-    title: "Childhood Memory of Rain Season in Enugu",
-    summary:
-      "A recollection of daily life shaped by seasonal rain, from shared drainage work to evening storytelling.",
-    location: "Enugu, Nigeria",
-    language: "English and Igbo",
-    era: "Early 1990s",
+    confidenceLevel: example("how confident the record is in each detail, for example a single narrator with context reviewed by a language steward."),
+    translatorNotes: example("how idioms were rendered, with sense-equivalents and the translator's name."),
+    title: "Demonstration record: an image with a translated account",
+    summary: "Shows how an image record carries a translation and its translator's notes, attributed and kept beside the source. Contains no testimony.",
+    location: "Enugu, Nigeria (example metadata)",
+    language: "English and Igbo (example metadata)",
+    era: "Not specified (demonstration)",
     contributor: "No real contributor. A real record names who shared the account and who translated it.",
-    sourceAuthority: example("The narrator, together with the community group in which the account was shared."),
+    sourceAuthority: NO_SOURCE,
     consentStatus: NO_CONSENT,
     consentWithdrawal: example(
-      "The narrator may request withdrawal or restriction at any time by contacting TIRO with this record's ID. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
+      "who may request withdrawal or restriction, how, and what withdrawal does to the image, the transcript, and the translation as a derivative.",
     ),
-    provenance: example("Recorded in a facilitated workshop with transcript review by the contributor and a language steward."),
-    rightsUsage: example(
-      "Open for educational citation with attribution. No synthetic voice replication or derivative dramatization without additional consent.",
-    ),
+    provenance: example("where the account was shared, and who reviewed the transcript and translation."),
+    rightsUsage: example("whether the image may be cited, and that synthetic voice replication or dramatization needs separate consent."),
     media: {
       type: "image",
       alt: "",
       caption: "Placeholder for an image. No image exists.",
       credit: "None (demonstration placeholder)",
     },
-    transcript: `Rain season changed our timetable. Before school we checked the gutter near the compound to make sure water could pass. If the sky turned dark by afternoon, everyone rushed home early.
-
-When rain came hard, the whole street sounded like one drum. Afterward, elders sat outside and compared the season with older years: which roofs held, which roads failed, which families had to move.
-
-For us children, rain was both work and wonder. We carried sandbags, then sat with our aunties to hear stories while clothes dried by the kitchen fire.`,
-    culturalContext:
-      "The memory records ecological adaptation at household scale: communal drainage, weather interpretation, and oral intergenerational learning. It captures how climate and culture shape routine labor and local identity.",
-    tags: ["Climate Memory", "Enugu", "Family", "Infrastructure", "Igbo"],
+    transcript: NO_TRANSCRIPT,
+    culturalContext: example("context the source chooses to give, attributed to them. This demonstration has none."),
+    tags: ["Demonstration", "Image record", "Translation"],
     relatedNodes: [
       { label: "Enugu", type: "Place" },
-      { label: "Seasonal Rain", type: "Theme" },
-      { label: "Household Infrastructure", type: "Theme" },
       { label: "Igbo", type: "Language" },
     ],
     relatedMemories: [
       {
-        id: "lagos-port-harcourt-migration",
-        title: "Migration Story from Lagos to Port Harcourt",
-        summary:
-          "A family recollection tracing movement, labor, and belonging across Nigerian cities.",
-        href: "/memories/lagos-port-harcourt-migration",
+        id: "demo-audio-record",
+        title: "Demonstration record: an audio account",
+        summary: "Shows how an audio memory record is structured. Contains no testimony.",
+        href: "/memories/demo-audio-record",
       },
       {
-        id: "market-song-lagos",
-        title: "Market Song Remembered in Lagos",
-        summary:
-          "A preserved market performance linking rhythm with trade memory.",
-        href: "/memories/market-song-lagos",
+        id: "demo-video-record",
+        title: "Demonstration record: a recorded performance",
+        summary: "Shows how a performance record handles shared authority and versions. Contains no performance.",
+        href: "/memories/demo-video-record",
       },
     ],
   },
   {
-    id: "market-song-lagos",
+    id: "demo-video-record",
     recordId: "DEMO-MEM-0003",
     recordKind: "demo",
     archiveStatus: NOT_VERIFIED,
     lastReviewed: NOT_REVIEWED,
     accessLevel: "Public (demonstration)",
-    confidenceLevel: example("Moderate (performance memory reconstructed from recollection)"),
-    multipleVersions: example("Version 1.1 — chorus segmentation adjusted after performer review."),
-    disputedDetails: example("Some lyrical lines vary between contributor and secondary listeners from the same market era."),
-    title: "Market Song Remembered in Lagos",
-    summary:
-      "A remembered call-and-response fragment from roadside trading, documented as both performance and economic signal.",
-    location: "Lagos Island, Nigeria",
-    language: "Yoruba and Nigerian Pidgin",
-    era: "Mid 1970s recollected in 2000s",
+    confidenceLevel: example("how a performance was documented, and whether it was reconstructed from recollection."),
+    multipleVersions: example("segmentation or lyric revisions made after review with the performer."),
+    disputedDetails: example("parts of a performance remembered differently by different listeners, each kept and attributed."),
+    title: "Demonstration record: a recorded performance",
+    summary: "Shows how a performance record handles shared or collective authority, versions, and playback limits. Contains no performance.",
+    location: "Lagos, Nigeria (example metadata)",
+    language: "Yoruba and Nigerian Pidgin (example metadata)",
+    era: "Not specified (demonstration)",
     contributor: "No real performer. A real record names the performer as they choose to be identified.",
     sourceAuthority: example(
-      "The performer, and the community the song comes from. For a song, authority may be shared or collective, and the record would say so.",
+      "the performer and, where authority over a work is shared or collective, the community that holds it. The record says so when authority is shared, uncertain, or disputed.",
     ),
     consentStatus: NO_CONSENT,
-    consentWithdrawal: example(
-      "The performer may request withdrawal or restriction at any time by contacting TIRO with this record's ID. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
-    ),
-    provenance: example("Captured in a supervised oral-history session; melodic phrases reviewed with the performer for contextual accuracy."),
-    rightsUsage: example(
-      "Playback permitted for scholarship and educational exhibition. Standalone commercial music sampling is not authorized.",
-    ),
+    consentWithdrawal: example("who may request withdrawal or restriction of the performance, and how."),
+    provenance: example("how the performance was captured and reviewed with the performer."),
+    rightsUsage: example("whether playback is permitted for scholarship or exhibition, and that commercial sampling is not."),
     media: {
       type: "video",
       caption: "Placeholder for a video record. No recording exists.",
       credit: "None (demonstration placeholder)",
     },
-    transcript: `The song began as invitation, then warning, then humor. A seller could signal low stock, better price, or fresh goods only by changing rhythm and tone.
-
-Some lines were fixed, but many were improvised based on weather, police presence, or crowd mood. Older traders said the song kept memory of market ethics: fairness, wit, and timing.
-
-Even after loudspeakers arrived, fragments remained. People still recognized who had sung by listening to one phrase.`,
-    culturalContext:
-      "This record demonstrates voice as market infrastructure. Songs carried information, reputational signals, and social regulation. Preserving performance memory supports future study of language, economics, and urban sound culture.",
-    tags: ["Market Culture", "Lagos", "Performance", "Yoruba", "Oral Tradition"],
+    transcript: NO_TRANSCRIPT,
+    culturalContext: example(
+      "context written or approved by the performer or their community, attributed to them, and separate from TIRO's notes. This demonstration describes no practice of any community.",
+    ),
+    tags: ["Demonstration", "Video record", "Performance (format)"],
     relatedNodes: [
       { label: "Lagos", type: "Place", href: "/nodes/lagos" },
-      { label: "Lagos Island", type: "Place" },
-      { label: "Market Song", type: "Theme" },
       { label: "Yoruba", type: "Language" },
       { label: "Nigerian Pidgin", type: "Language", href: "/nodes/nigerian-pidgin" },
-      { label: "Informal Trade", type: "Theme" },
     ],
     relatedMemories: [
       {
-        id: "lagos-port-harcourt-migration",
-        title: "Migration Story from Lagos to Port Harcourt",
-        summary:
-          "A family recollection tracing movement, labor, and belonging across Nigerian cities.",
-        href: "/memories/lagos-port-harcourt-migration",
+        id: "demo-audio-record",
+        title: "Demonstration record: an audio account",
+        summary: "Shows how an audio memory record is structured. Contains no testimony.",
+        href: "/memories/demo-audio-record",
       },
       {
-        id: "rain-season-enugu",
-        title: "Childhood Memory of Rain Season in Enugu",
-        summary:
-          "An account of monsoon routines and neighborhood resilience in Enugu.",
-        href: "/memories/rain-season-enugu",
+        id: "demo-image-record",
+        title: "Demonstration record: an image with a translated account",
+        summary: "Shows how an image record carries a translation. Contains no testimony.",
+        href: "/memories/demo-image-record",
       },
     ],
   },

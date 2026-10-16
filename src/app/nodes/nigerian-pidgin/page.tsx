@@ -6,7 +6,7 @@ import { getConnectionsNotice } from "@/lib/recordKind";
 export const metadata: Metadata = {
   title: "Nigerian Pidgin — Node — The Tiro Foundation",
   description:
-    "Node profile for Nigerian Pidgin, linking memory records, themes, and related entities.",
+    "Language node for Nigerian Pidgin. No collected records yet; connections shown are demonstration records using it as example metadata.",
 };
 
 const memoryConnections = memories.filter((memory) =>
@@ -15,12 +15,14 @@ const memoryConnections = memories.filter((memory) =>
   ),
 );
 
-const themes = ["Urban Memory", "Migration", "Market Culture"];
-const relatedNodes = [
-  { label: "Lagos", href: "/nodes/lagos" },
-  { label: "Internal Migration" },
-  { label: "Informal Trade" },
-];
+// Themes and related nodes are relationships, and every visible
+// relationship needs a type and a basis. None can be stated until
+// collected records establish them, so these lists are honestly empty
+// (Living Trace 0.2.1; the earlier lists were derived from invented
+// demonstration stories).
+const themes: string[] = [];
+const relatedNodes: { label: string; href?: string }[] = [];
+const NONE_RECORDED = "None recorded. These are established by collected records, and none exist yet.";
 
 export default function NigerianPidginNodePage() {
   const connectionsNotice = getConnectionsNotice(memoryConnections);
@@ -34,10 +36,11 @@ export default function NigerianPidginNodePage() {
             Nigerian Pidgin
           </h1>
           <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            Nigerian Pidgin functions in these records as a bridge language for
-            migration, labor, and market interaction. Preserving it in memory
-            transcripts protects social nuance that formal translation can
-            flatten.
+            A language node. TIRO holds no collected records in Nigerian
+            Pidgin. The connections below are demonstration records that use
+            it as example metadata, to show how a language node will gather
+            records. A real language node describes the language only as its
+            speakers and records establish.
           </p>
         </div>
       </section>
@@ -75,6 +78,7 @@ export default function NigerianPidginNodePage() {
           <div className="tiro-card">
             <p className="tiro-eyebrow mb-5">Themes</p>
             <div className="flex flex-wrap gap-2.5">
+              {themes.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
               {themes.map((theme) => (
                 <span key={theme} className="tiro-chip">
                   {theme}
@@ -86,6 +90,7 @@ export default function NigerianPidginNodePage() {
           <div className="tiro-card">
             <p className="tiro-eyebrow mb-5">Related Nodes</p>
             <div className="flex flex-wrap gap-2.5">
+              {relatedNodes.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
               {relatedNodes.map((node) =>
                 node.href ? (
                   <Link key={node.label} href={node.href} className="tiro-chip">

@@ -22,6 +22,7 @@ import {
   INTERNAL_EDGES,
   INTERNAL_NODES,
   INTERNAL_RECORDS,
+  type InternalAccount,
   type InternalRecord,
 } from "../../data/livingTrace/syntheticArchive";
 import type { EvidenceState, UseCategory, UseGrant } from "./evidence";
@@ -148,19 +149,22 @@ export function discoverableRouteIds(): string[] {
 // PUBLIC; any other node only while a visible relationship touches it. A relationship to a restricted record is itself metadata about
 // it, so even a record with an authorized notice is not a graph node.
 //
-// Accounts are authorized one by one, by the record that holds each:
-//   public source            -> attributed (position, claimant, anchor)
-//   restricted, and its rights authority permits acknowledgement
-//                            -> "withheld" (existence only, no reference)
-//   anything else            -> omitted, leaving no trace
-// An edge is kept only when both ends are visible AND its remaining
-// accounts still support its evidence state: a contested relationship
-// needs at least two accounts, an unknown one has none by definition, and
-// every other state needs at least one attributed account. Otherwise the
-// relationship is withheld whole rather than shown misstated.
+// Accounts are authorized one by one. The disclosure unit is the CLAIM,
+// not the record (docs/design/decisions.md):
+//   held in a public record   -> attributed (position, claimant, anchor)
+//   held in a restricted record with a public notice, AND the claim's own
+//   grant covers both existence and association with this relationship
+//                             -> "withheld" (that it exists, nothing more)
+//   anything else             -> omitted, leaving no trace (default deny)
+// A record's public notice authorizes nothing about its claims.
+//
+// An edge is kept only when both ends are visible AND its ATTRIBUTED
+// accounts alone support its evidence state. Withheld accounts never count:
+// a relationship that is "contested" only because of a withheld claim would
+// reveal that claim's position, so it is withheld whole.
 type AccountVisibility = "attributed" | "withheld" | "omitted";
 
-function accountVisibility(inNode: string | null): AccountVisibility {
+function accountVisibility(inNode: string | null, grant: InternalAccount["disclosure"]): AccountVisibility {
   if (inNode === null) {
     return "attributed";
   }
@@ -171,24 +175,26 @@ function accountVisibility(inNode: string | null): AccountVisibility {
   if (node.kind !== "record") {
     return "attributed";
   }
-  const record = node.recordId ? INTERNAL_RECORDS.find((r) => r.id === node.recordId) : undefined;
   const resolved = node.recordId ? resolveRecord(node.recordId) : null;
   if (resolved?.state === "public") {
     return "attributed";
   }
-  if (resolved?.state === "restricted-notice" && record?.authorizedDisclosure?.acknowledgeAccountsInRelationships === true) {
+  if (resolved?.state === "restricted-notice" && grant?.existence === true && grant.association === true) {
     return "withheld";
   }
   return "omitted";
 }
 
+// Judged on attributed accounts only; withheld accounts never count.
 function supportsEvidence(edge: (typeof INTERNAL_EDGES)[number], accounts: GraphAccount[]): boolean {
   const attributed = accounts.filter((a) => a.state === "attributed").length;
   switch (edge.evidence) {
     case "unknown":
+      // An open question has no claimants; acknowledging a withheld one
+      // would say someone made the claim.
       return accounts.length === 0;
     case "contested":
-      return accounts.length >= 2 && attributed >= 1;
+      return attributed >= 2;
     default:
       return attributed >= 1;
   }
@@ -216,7 +222,7 @@ export function projectGraph(): ProjectedGraph {
     const accounts: GraphAccount[] = [];
     let withheld = 0;
     for (const a of e.accounts) {
-      const visibility = accountVisibility(a.inNode);
+      const visibility = accountVisibility(a.inNode, a.disclosure);
       if (visibility === "attributed") {
         accounts.push({
           state: "attributed",
