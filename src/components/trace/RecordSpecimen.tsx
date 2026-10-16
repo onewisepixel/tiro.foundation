@@ -52,6 +52,23 @@ function FieldRow({ term, value, evidence, note }: { term: string; value: string
   );
 }
 
+// Who made the claims in a relationship, kept separate from who recorded it.
+function claimLine(edge: GraphEdge): string {
+  const claimants = [...new Set(edge.accounts.flatMap((a) => (a.state === "attributed" ? [a.assertedBy] : [])))];
+  const withheld = edge.accounts.filter((a) => a.state === "withheld").length;
+  const parts: string[] = [];
+  if (claimants.length > 0) {
+    parts.push(`Claimed by: ${claimants.join("; ")}.`);
+  } else if (edge.accounts.length === 0) {
+    parts.push("No one has claimed this.");
+  }
+  if (withheld > 0) {
+    parts.push(`Plus ${withheld} account${withheld === 1 ? "" : "s"} from a restricted source, acknowledged only.`);
+  }
+  parts.push(`Recorded by: ${edge.recordedBy}.`);
+  return parts.join(" ");
+}
+
 export default function RecordSpecimen({ record, relations, headingLevel = 2, chainHref, compact = false }: RecordSpecimenProps) {
   const Title = headingLevel === 1 ? "h1" : "h2";
   const Section = headingLevel === 1 ? "h2" : "h3";
@@ -138,7 +155,7 @@ export default function RecordSpecimen({ record, relations, headingLevel = 2, ch
                       <span className="lt-label !tracking-[0.12em]">{EVIDENCE[edge.evidence].label}</span>
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
-                      {edge.basis} <span className="text-[var(--tiro-text-soft)]">Asserted by: {edge.assertedBy}.</span>
+                      {edge.summary} <span className="text-[var(--tiro-text-soft)]">{claimLine(edge)}</span>
                     </p>
                     {chainHref ? (
                       <Link href={chainHref(edge.id)} className="tiro-link mt-1 inline-block text-xs">

@@ -13,10 +13,8 @@ import { projectGraph, relationsFor, resolveRecord } from "@/lib/livingTrace/pro
 export const metadata: Metadata = {
   title: "The Living Trace (design proof) — The Tiro Foundation",
   description:
-    "Design language 0.1 proposal: the three proof scenes (Origin, Record, Boundary) and the visual grammar behind them. Synthetic demonstrations only.",
+    "Design language 0.2 proposal: the three proof scenes (Origin, Record, Boundary) and the visual grammar behind them. Synthetic demonstrations only.",
 };
-
-type PageProps = { searchParams: Promise<{ [key: string]: string | string[] | undefined }> };
 
 function Annotations({ items }: { items: [string, string][] }) {
   return (
@@ -52,20 +50,17 @@ const SWATCHES: { name: string; token: string; role: string }[] = [
   { name: "Contested", token: "--tiro-contested", role: "Disagreeing accounts" },
 ];
 
-export default async function LivingTracePage({ searchParams }: PageProps) {
+export default function LivingTracePage() {
   const graph = projectGraph();
   const specimen = resolveRecord("DEMO-LT-0001");
   const restricted = resolveRecord("DEMO-LT-0002");
-  const edgeParam = (await searchParams).edge;
-  // Only an edge that exists in the projected graph may be preselected.
-  const initialEdgeId = typeof edgeParam === "string" && graph.edges.some((e) => e.id === edgeParam) ? edgeParam : "e-context-b";
 
   return (
     <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-[57px] text-[var(--tiro-text)]">
       <PaletteScope>
         <section aria-labelledby="lt-intro" className="px-[var(--lt-gutter)] pb-16 pt-16 md:px-6 md:pb-24 md:pt-24">
           <div className="mx-auto max-w-6xl">
-            <p className="lt-label mb-5 text-[var(--tiro-accent)]">Design language 0.1 · Proposal for founder review</p>
+            <p className="lt-label mb-5 text-[var(--tiro-accent)]">Design language 0.2 · Proposal for founder review</p>
             <h1 id="lt-intro" className="lt-display max-w-4xl text-5xl md:text-7xl">
               The Living Trace
             </h1>
@@ -282,12 +277,25 @@ export default async function LivingTracePage({ searchParams }: PageProps) {
 
         {/* ---------- Discover ---------- */}
         <section id="discover" aria-labelledby="discover-title" className="scroll-mt-28 bg-[var(--tiro-bg-deep)] px-[var(--lt-gutter)] py-20 md:px-6 md:py-28">
-          <div className="mx-auto max-w-6xl">
+          <div className="mx-auto max-w-[90rem]">
             <ProofHeader id="discover" eyebrow="Movement 03 · Interaction" title="Connection without collapse">
-              Select any relationship, in the drawing or the list, to see its type, its evidence, who asserted it, and the
-              chain of traces back to its origin.
+              Select any relationship or point, in the drawing or the list, to see its accounts, who made each claim, who
+              recorded it, and each account&apos;s own chain back to its source. The selection is kept in the address, so it can
+              be linked to.
             </ProofHeader>
-            <Constellation graph={graph} initialEdgeId={initialEdgeId} />
+            <Constellation graph={graph} initialEdgeId="c-ab-when" syncUrl />
+            <div className="mt-14">
+              <Annotations
+                items={[
+                  ["Accounts, not facts", "A relationship holds one or more attributed accounts. A disagreement keeps every account, each with its own origin; none is merged or corrected away."],
+                  ["Claimant ≠ recorder", "Who made each claim is shown apart from who recorded or interpreted the relationship. A curator who notes a disagreement decides nothing."],
+                  ["Provenance is not connectivity", "Chains follow source links only (source of the account, translated from). Two records meeting at a place are connected, not corroborated."],
+                  ["Independence is checked", "Accounts that trace to the same origin are reported as not independent, however many there are."],
+                  ["Authorized one account at a time", "A restricted source's account appears only as “withheld”, and only where its rights authority permits acknowledgement. Otherwise it leaves no trace, and a relationship that depended on it is withheld whole."],
+                  ["Built to grow", "Nodes are placed by a deterministic layered layout (origins → records → derived → shared context), tested with 30-record collections. There are no hand-placed coordinates."],
+                ]}
+              />
+            </div>
           </div>
         </section>
 

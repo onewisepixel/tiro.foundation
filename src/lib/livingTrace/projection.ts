@@ -9,6 +9,15 @@
 // publicView.ts): a record a visitor may not discover and a record that
 // does not exist are indistinguishable. resolveRecord() returns null for
 // both; the route turns both into the same 404.
+//
+// SCOPE: this is a static demonstration of disclosure rules over a fixed,
+// synthetic, build-time dataset. It is NOT an authorization implementation
+// for mutable production records: it evaluates no current permission
+// state, no audience, no revocation, and its output is baked into static
+// pages. Integrating with the live archive needs per-request permission
+// checks against current state and cache/CDN invalidation on any change
+// (see docs/design/living-trace.md, "Production integration").
+import "server-only";
 import {
   INTERNAL_EDGES,
   INTERNAL_NODES,
@@ -16,9 +25,9 @@ import {
   type InternalRecord,
 } from "../../data/livingTrace/syntheticArchive";
 import type { EvidenceState, UseCategory, UseGrant } from "./evidence";
-import type { GraphEdge, GraphNode, ProjectedGraph } from "./graph";
+import type { GraphAccount, GraphEdge, GraphNode, ProjectedGraph } from "./graph";
 
-export { sourceChain, type GraphEdge, type GraphNode, type ProjectedGraph } from "./graph";
+export type { GraphEdge, GraphNode, ProjectedGraph } from "./graph";
 
 export type SpecimenRecord = {
   recordId: string;
@@ -133,11 +142,58 @@ export function discoverableRouteIds(): string[] {
   return listDiscoverable().map((entry) => (entry.state === "public" ? entry.recordId : entry.reference));
 }
 
-// The relationship graph a visitor may see. A node backed by a record is
-// kept only when that record is PUBLIC — a relationship to a restricted
-// record is itself metadata about that record, so even a record with an
-// authorized notice does not appear as a graph node. Edges are kept only
-// when both ends survive.
+// The relationship graph a visitor may see.
+//
+// Nodes: a node backed by a record is kept only when that record is
+// PUBLIC; any other node only while a visible relationship touches it. A relationship to a restricted record is itself metadata about
+// it, so even a record with an authorized notice is not a graph node.
+//
+// Accounts are authorized one by one, by the record that holds each:
+//   public source            -> attributed (position, claimant, anchor)
+//   restricted, and its rights authority permits acknowledgement
+//                            -> "withheld" (existence only, no reference)
+//   anything else            -> omitted, leaving no trace
+// An edge is kept only when both ends are visible AND its remaining
+// accounts still support its evidence state: a contested relationship
+// needs at least two accounts, an unknown one has none by definition, and
+// every other state needs at least one attributed account. Otherwise the
+// relationship is withheld whole rather than shown misstated.
+type AccountVisibility = "attributed" | "withheld" | "omitted";
+
+function accountVisibility(inNode: string | null): AccountVisibility {
+  if (inNode === null) {
+    return "attributed";
+  }
+  const node = INTERNAL_NODES.find((n) => n.id === inNode);
+  if (!node) {
+    return "omitted";
+  }
+  if (node.kind !== "record") {
+    return "attributed";
+  }
+  const record = node.recordId ? INTERNAL_RECORDS.find((r) => r.id === node.recordId) : undefined;
+  const resolved = node.recordId ? resolveRecord(node.recordId) : null;
+  if (resolved?.state === "public") {
+    return "attributed";
+  }
+  if (resolved?.state === "restricted-notice" && record?.authorizedDisclosure?.acknowledgeAccountsInRelationships === true) {
+    return "withheld";
+  }
+  return "omitted";
+}
+
+function supportsEvidence(edge: (typeof INTERNAL_EDGES)[number], accounts: GraphAccount[]): boolean {
+  const attributed = accounts.filter((a) => a.state === "attributed").length;
+  switch (edge.evidence) {
+    case "unknown":
+      return accounts.length === 0;
+    case "contested":
+      return accounts.length >= 2 && attributed >= 1;
+    default:
+      return attributed >= 1;
+  }
+}
+
 export function projectGraph(): ProjectedGraph {
   const nodes: GraphNode[] = [];
   for (const node of INTERNAL_NODES) {
@@ -152,16 +208,54 @@ export function projectGraph(): ProjectedGraph {
     }
   }
   const kept = new Set(nodes.map((n) => n.id));
-  const edges: GraphEdge[] = INTERNAL_EDGES.filter((e) => kept.has(e.from) && kept.has(e.to)).map((e) => ({
-    id: e.id,
-    from: e.from,
-    to: e.to,
-    relation: e.relation,
-    evidence: e.evidence,
-    basis: e.basis,
-    assertedBy: e.assertedBy,
-  }));
-  return { nodes, edges };
+  const edges: GraphEdge[] = [];
+  for (const e of INTERNAL_EDGES) {
+    if (!kept.has(e.from) || !kept.has(e.to)) {
+      continue;
+    }
+    const accounts: GraphAccount[] = [];
+    let withheld = 0;
+    for (const a of e.accounts) {
+      const visibility = accountVisibility(a.inNode);
+      if (visibility === "attributed") {
+        accounts.push({
+          state: "attributed",
+          id: a.id,
+          position: a.position,
+          assertedBy: a.assertedBy,
+          kind: a.kind,
+          evidence: a.evidence,
+          anchor: a.inNode !== null && kept.has(a.inNode) ? a.inNode : null,
+        });
+      } else if (visibility === "withheld") {
+        withheld += 1;
+        // Opaque, positional id: never derived from the internal account
+        // id, which could name the restricted record.
+        accounts.push({ state: "withheld", id: `${e.id}:withheld-${withheld}` });
+      }
+    }
+    if (!supportsEvidence(e, accounts)) {
+      continue;
+    }
+    edges.push({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      relation: e.relation,
+      evidence: e.evidence,
+      summary: e.summary,
+      recordedBy: e.recordedBy,
+      provenance: e.provenance === true,
+      accounts,
+    });
+  }
+  // A source, place, language, or other non-record node exists in the
+  // graph only through its relationships. Once none is visible, keeping
+  // it would disclose that something hidden stands behind it (an origin
+  // whose only record is restricted still names a source). Public records
+  // may stand alone.
+  const touched = new Set(edges.flatMap((e) => [e.from, e.to]));
+  return { nodes: nodes.filter((n) => n.kind === "record" || touched.has(n.id)), edges };
 }
 
 // The visible relationships touching one public record, phrased from that

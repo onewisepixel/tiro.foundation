@@ -324,15 +324,82 @@ html[data-bfcache-pending="true"] body {
   --lt-dur-base: 240ms;
   --lt-dur-trace: 1400ms;
   /* The mark's resonance line sits at x=47 of its 90-unit viewBox, not
-     the center (45). Spine segments offset by the same amount at each
-     rendered mark width (28px / 72px) so the line is continuous. */
-  --lt-spine-dx: 0.6px;
+     the center (45): an offset of (mark width / 45). Every spine segment
+     and marker uses it, so the line stays continuous with the hero mark
+     (48px / 72px / 160px wide at each breakpoint). */
+  --lt-spine-dx: 1.07px;
+  /* Content-column start to spine: half the 2rem spine column + pl-3. */
+  --lt-branch-reach: calc(1.75rem - var(--lt-spine-dx));
 }
 
 @media (min-width: 768px) {
   :root {
     --lt-spine-dx: 1.6px;
+    /* Half the 6rem spine column + pl-6. */
+    --lt-branch-reach: calc(4.5rem - var(--lt-spine-dx));
   }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --lt-spine-dx: 3.56px;
+    /* Half the 8rem spine column + pl-6. */
+    --lt-branch-reach: calc(5.5rem - var(--lt-spine-dx));
+  }
+}
+
+/* ---------- The Origin (hero) ----------
+   All geometry is in mark units of --lt-mark-w (see OriginHero.tsx). */
+.lt-hero {
+  --lt-mark-w: 3rem;
+  --lt-mark-top: 6.5rem;
+  --lt-annotation-x: 1.75rem;
+}
+
+@media (min-width: 768px) {
+  .lt-hero {
+    --lt-mark-w: 4.5rem;
+    --lt-mark-top: 8rem;
+    --lt-annotation-x: 2.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lt-hero {
+    --lt-mark-w: 10rem;
+    --lt-mark-top: 8.5rem;
+    --lt-annotation-x: 3.5rem;
+  }
+}
+
+.lt-hero-text {
+  padding-top: calc(var(--lt-mark-top) + var(--lt-mark-w) * 202 / 90 + 2.75rem);
+}
+
+@media (min-width: 1024px) {
+  .lt-hero-text {
+    padding-top: var(--lt-mark-top);
+    margin-left: 9.5rem;
+  }
+}
+
+.lt-hero-annotation {
+  transform: translateY(-50%);
+}
+
+.lt-hero-citation {
+  line-height: 1;
+}
+
+/* The mark's resonance stroke (2 of 90 units) narrowing to the 1px trace. */
+.lt-hero-taper {
+  --lt-taper-w: max(1px, calc(var(--lt-mark-w) * 2 / 90));
+  left: calc(50% + var(--lt-spine-dx));
+  width: var(--lt-taper-w);
+  margin-left: calc(var(--lt-taper-w) / -2);
+  height: 3rem;
+  background: linear-gradient(to bottom, var(--tiro-mark), var(--tiro-mineral-line));
+  clip-path: polygon(0 0, 100% 0, calc(50% + 0.5px) 100%, calc(50% - 0.5px) 100%);
 }
 
 @media (max-width: 480px) {
@@ -403,6 +470,21 @@ html[data-bfcache-pending="true"] body {
     stroke-width: 1.25;
   }
 
+  /* ---------- Motion vocabulary (0.2) ----------
+     Five patterns, each tied to one meaning. Every one runs only under
+     prefers-reduced-motion: no-preference, and only moves TOWARD the
+     static final state, so the page is complete without it.
+
+       emerge   a trace grows out of its origin       .lt-grow-down / -right, .lt-draw
+       arrive   a label or context appears beside it  .lt-fade-in
+       reveal   relationships appear once their context is on screen
+                [data-lt-reveal] (src/components/trace/Reveal.tsx)
+       emphasize a selected provenance path redraws from its origin
+                (Constellation, keyed .lt-draw)
+       settle   a register change between movements: background only,
+                never position (.lt-movement transitions)
+
+     No scroll-linked animation, no scroll hijacking, no loops. */
   @media (prefers-reduced-motion: no-preference) {
     .lt-draw {
       stroke-dasharray: 1;
@@ -421,6 +503,44 @@ html[data-bfcache-pending="true"] body {
       transform-origin: top;
       transform: scaleY(0);
       animation: lt-grow-down 1800ms var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+
+    .lt-grow-right {
+      transform-origin: left;
+      transform: scaleX(0);
+      animation: lt-grow-right 900ms var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+
+    /* Reveal: held at the start state only while the region is below the
+       fold and waiting; Reveal.tsx never sets "pending" on anything
+       already visible, so nothing on screen ever disappears. */
+    [data-lt-reveal="pending"] .lt-on-reveal-draw {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+    }
+    [data-lt-reveal="pending"] .lt-on-reveal-fade {
+      opacity: 0;
+    }
+    [data-lt-reveal="pending"] .lt-on-reveal-grow {
+      transform: scaleX(0);
+    }
+    [data-lt-reveal="shown"] .lt-on-reveal-draw {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: lt-draw var(--lt-dur-trace) var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+    [data-lt-reveal="shown"] .lt-on-reveal-fade {
+      opacity: 0;
+      animation: lt-fade-in 600ms var(--lt-ease) forwards;
+      animation-delay: var(--lt-delay, 0ms);
+    }
+    [data-lt-reveal="shown"] .lt-on-reveal-grow {
+      transform-origin: left;
+      transform: scaleX(0);
+      animation: lt-grow-right 900ms var(--lt-ease) forwards;
       animation-delay: var(--lt-delay, 0ms);
     }
   }
@@ -443,24 +563,90 @@ html[data-bfcache-pending="true"] body {
     }
   }
 
+  @keyframes lt-grow-right {
+    to {
+      transform: scaleX(1);
+    }
+  }
+
   /* ---------- Spine ----------
-     The page-level trace: a single line that runs from the mark's resonance
-     line through each movement. Decorative (aria-hidden); the movement index
-     is the accessible equivalent. */
+     The page-level trace: the mark's resonance line, continued through
+     every movement. One unbroken mineral line: its color only changes at
+     the mark itself (gold = the origin's own line). Decorative
+     (aria-hidden); the "On this page" index is the accessible equivalent. */
   .lt-spine {
     position: absolute;
     top: 0;
     bottom: 0;
     left: calc(50% + var(--lt-spine-dx));
     width: 1px;
-    background: linear-gradient(
-      to bottom,
-      var(--tiro-accent) 0%,
-      var(--tiro-mineral-line) 30%,
-      var(--tiro-mineral-line) 85%,
-      transparent 100%
-    );
-    opacity: 0.7;
+    background: var(--tiro-mineral-line);
+    opacity: 0.75;
+  }
+
+  /* ---------- Movement registers ----------
+     Each movement keeps the shared grammar but speaks in its own register.
+     Registers change surface, density, and measure; never the meaning of a
+     primitive. */
+  .lt-movement {
+    background: var(--lt-movement-bg, var(--tiro-bg));
+  }
+
+  .lt-movement[data-register="witness"] {
+    /* Intimacy: a faint warmth from the origin's own color. */
+    --lt-movement-bg: color-mix(in srgb, var(--tiro-accent) 5%, var(--tiro-bg));
+  }
+
+  .lt-movement[data-register="discover"] {
+    --lt-movement-bg: var(--tiro-bg-deep);
+  }
+
+  .lt-movement[data-register="respect"] {
+    --lt-movement-bg: var(--tiro-bg);
+  }
+
+  /* Preserve speaks in the Paper (archival record) register in both
+     themes: the one bright, structured surface in an atmospheric page. */
+  .lt-movement[data-register="preserve"] {
+    --lt-movement-bg: var(--tiro-bg);
+  }
+
+  /* Participate: the spine branches, one trace to each real action. The
+     branch runs from the spine (left of the content column) to the item. */
+  .lt-branch {
+    position: relative;
+  }
+
+  .lt-branch::before {
+    content: "";
+    position: absolute;
+    top: 1.85rem;
+    left: calc(-1 * var(--lt-branch-reach));
+    width: calc(var(--lt-branch-reach) - 0.25rem);
+    height: 1px;
+    background: var(--tiro-mineral-line);
+    transform-origin: left;
+  }
+
+  .lt-branch::after {
+    content: "";
+    position: absolute;
+    top: calc(1.85rem - 2.5px);
+    left: calc(-1 * var(--lt-branch-reach) - 2.5px);
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--tiro-mineral-line);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-lt-reveal="pending"] .lt-branch::before {
+      transform: scaleX(0);
+    }
+    [data-lt-reveal="shown"] .lt-branch::before {
+      animation: lt-grow-right 900ms var(--lt-ease) both;
+      animation-delay: var(--lt-delay, 0ms);
+    }
   }
 
   /* ---------- Boundary ----------
@@ -498,6 +684,13 @@ html[data-bfcache-pending="true"] body {
     .lt-spine,
     .tiro-skip-link {
       display: none;
+    }
+    /* Never print a region that is still waiting to be revealed. */
+    [data-lt-reveal] * {
+      animation: none !important;
+      opacity: 1 !important;
+      stroke-dashoffset: 0 !important;
+      transform: none !important;
     }
   }
 }

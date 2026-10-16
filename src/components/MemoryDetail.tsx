@@ -9,6 +9,7 @@ type MemoryDetailProps = {
 
 export default function MemoryDetail({ memory }: MemoryDetailProps) {
   const notice = getRecordKindNotice(memory.recordKind);
+  const isDemo = memory.recordKind === "demo";
 
   const hasIntegrityNotes =
     Boolean(memory.confidenceLevel) ||
@@ -22,6 +23,13 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
       <section className="px-6 pb-14 pt-8 md:pb-16 md:pt-12">
         <div className="mx-auto max-w-5xl">
           <p className="tiro-eyebrow mb-6">Memory Record</p>
+          {/* The notice precedes every archival-looking detail, the title
+              included (docs/ethos.txt §6.1). */}
+          {notice ? (
+            <p className="mb-8 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
+              {notice.full}
+            </p>
+          ) : null}
           <h1 className="mb-6 max-w-3xl font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
             {memory.title}
           </h1>
@@ -29,11 +37,6 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
             {memory.summary}
           </p>
 
-          {notice ? (
-            <p className="mt-6 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
-              {notice.full}
-            </p>
-          ) : null}
 
           <div className="tiro-card mt-10">
             <div className="tiro-kv">
@@ -156,14 +159,20 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
 
       <section className="px-6 pb-12 md:pb-16">
         <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Media Evidence</p>
+          <p className="tiro-eyebrow mb-5">{isDemo ? "Media" : "Media Evidence"}</p>
           <MemoryMediaViewer media={memory.media} />
         </div>
       </section>
 
       <section className="px-6 pb-12 md:pb-16">
         <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Transcript</p>
+          <p className="tiro-eyebrow mb-5">{isDemo ? "Illustrative Text" : "Transcript"}</p>
+          {isDemo ? (
+            <p className="mb-5 border-l-2 border-[var(--tiro-accent)] pl-4 text-sm leading-relaxed text-[var(--tiro-text-soft)]">
+              Written for this demonstration. It is not a transcript of any recording and not anyone&apos;s testimony; it
+              shows where a transcript and its attributed translation would appear.
+            </p>
+          ) : null}
           <p className="whitespace-pre-line font-[family-name:var(--font-code)] text-[15px] leading-[1.85] text-[var(--tiro-text-muted)]">
             {memory.transcript}
           </p>

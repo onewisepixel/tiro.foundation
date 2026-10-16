@@ -53,47 +53,55 @@ export type MemoryRecord = {
   }[];
 };
 
+// DEMONSTRATION RECORDS. Nothing below happened: no one was recorded, no
+// consent was given, no review or cross-check took place, and no TIRO
+// program collected anything. Field values that would be claims on a real
+// record are written as example wording, so the structure can still be
+// demonstrated without asserting anything. Identities are omitted rather
+// than invented. Keep demonstration identifiers (DEMO-MEM-*) distinct
+// from any future accession scheme (docs/memory.txt).
+const NOT_VERIFIED = "Not verified (demonstration record)";
+const NOT_REVIEWED = "Not reviewed (demonstration record)";
+const NO_CONSENT = "None. No consent was sought or given; this is not a real record.";
+
+function example(wording: string): string {
+  return `Example wording only; nothing described here took place: “${wording}”`;
+}
+
 export const memories: MemoryRecord[] = [
   {
     id: "lagos-port-harcourt-migration",
-    recordId: "TIR-MEM-0001",
+    recordId: "DEMO-MEM-0001",
     recordKind: "demo",
-    archiveStatus: "Verified",
-    lastReviewed: "2026-06-04",
-    accessLevel: "Public",
-    confidenceLevel: "High (oral account cross-checked with two community witnesses)",
-    multipleVersions:
-      "Version 1.2 (2026-06-04) — minor transcript punctuation and time-marker clarifications.",
-    translatorNotes:
-      "Certain Pidgin phrases retain original cadence to preserve relational meaning.",
-    disputedDetails:
-      "Year of first relocation is remembered as either 1988 or 1989 across family retellings.",
-    communityAnnotations:
-      "Local reviewers noted that dock labor references map to a wider informal hiring network in the period.",
+    archiveStatus: NOT_VERIFIED,
+    lastReviewed: NOT_REVIEWED,
+    accessLevel: "Public (demonstration)",
+    confidenceLevel: example("High (oral account cross-checked with two community witnesses)"),
+    multipleVersions: example("Version 1.2 — minor transcript punctuation and time-marker clarifications."),
+    translatorNotes: example("Certain Pidgin phrases retain original cadence to preserve relational meaning."),
+    disputedDetails: example("Year of first relocation is remembered as either 1988 or 1989 across family retellings."),
+    communityAnnotations: example("Local reviewers noted that dock labor references map to a wider informal hiring network in the period."),
     title: "Migration Story from Lagos to Port Harcourt",
     summary:
       "A family recollection from the late 1980s tracing movement, labor, and belonging across Nigerian urban communities.",
     location: "Lagos and Port Harcourt, Nigeria",
     language: "Nigerian Pidgin and English",
     era: "Late 1980s to early 1990s",
-    contributor:
-      "Recorded with Elder Chidinma N. by TIRO field researcher A. Okafor",
-    sourceAuthority:
-      "Elder Chidinma N. and the family whose migration this account describes",
-    consentStatus: "Explicitly granted for educational and archival use",
-    consentWithdrawal:
-      "Elder Chidinma N. or a designated family representative may request withdrawal or restriction at any time by contacting TIRO with record ID TIR-MEM-0001. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
-    provenance:
-      "Captured during a neighborhood oral-history session in Diobu, with audio witness confirmation and local steward review before cataloging.",
-    rightsUsage:
+    contributor: "No real contributor. A real record names the narrator and the collector as separate people.",
+    sourceAuthority: example("The narrator and the family whose migration this account describes."),
+    consentStatus: NO_CONSENT,
+    consentWithdrawal: example(
+      "The narrator or a designated family representative may request withdrawal or restriction at any time by contacting TIRO with this record's ID. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
+    ),
+    provenance: example("Captured during a neighborhood oral-history session, with audio witness confirmation and local steward review before cataloging."),
+    rightsUsage: example(
       "May be quoted for non-commercial education and research with full attribution. Commercial reuse requires renewed contributor authorization.",
-    sensitivity: "General historical account; no public redaction required.",
+    ),
+    sensitivity: example("General historical account; no public redaction required."),
     media: {
       type: "audio",
-      caption:
-        "Session excerpt from the contributor's migration account, preserved in voice-first format.",
-      duration: "04:26",
-      credit: "TIRO Memory Workshop Field Capture (Demo Placeholder)",
+      caption: "Placeholder for an audio record. No recording exists.",
+      credit: "None (demonstration placeholder)",
     },
     transcript: `I still remember the morning we left Lagos. The lorry was loaded before first light, and my mother kept counting the bags like each one was a person.
 
@@ -138,36 +146,34 @@ When I tell this story now, I do not tell it as struggle only. I tell it as memo
   },
   {
     id: "rain-season-enugu",
-    recordId: "TIR-MEM-0002",
+    recordId: "DEMO-MEM-0002",
     recordKind: "demo",
-    archiveStatus: "Verified",
-    lastReviewed: "2026-06-04",
-    accessLevel: "Public",
-    confidenceLevel: "Moderate-High (single narrator, context reviewed by language steward)",
-    translatorNotes:
-      "Original Igbo weather idioms are translated with bracketed sense-equivalents in internal notes.",
+    archiveStatus: NOT_VERIFIED,
+    lastReviewed: NOT_REVIEWED,
+    accessLevel: "Public (demonstration)",
+    confidenceLevel: example("Moderate-high (single narrator, context reviewed by language steward)"),
+    translatorNotes: example("Original Igbo weather idioms are translated with bracketed sense-equivalents in internal notes."),
     title: "Childhood Memory of Rain Season in Enugu",
     summary:
       "A recollection of daily life shaped by seasonal rain, from shared drainage work to evening storytelling.",
     location: "Enugu, Nigeria",
     language: "English and Igbo",
     era: "Early 1990s",
-    contributor:
-      "Shared by Nkem O. during TIRO community memory circle, translated with contributor review",
-    sourceAuthority: "Nkem O. and the Achara Layout community memory circle",
-    consentStatus: "Explicitly granted for public educational display",
-    consentWithdrawal:
-      "Nkem O. may request withdrawal or restriction at any time by contacting TIRO with record ID TIR-MEM-0002. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
-    provenance:
-      "Recorded in a facilitated workshop in Achara Layout with transcript review by contributor and language steward.",
-    rightsUsage:
+    contributor: "No real contributor. A real record names who shared the account and who translated it.",
+    sourceAuthority: example("The narrator, together with the community group in which the account was shared."),
+    consentStatus: NO_CONSENT,
+    consentWithdrawal: example(
+      "The narrator may request withdrawal or restriction at any time by contacting TIRO with this record's ID. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
+    ),
+    provenance: example("Recorded in a facilitated workshop with transcript review by the contributor and a language steward."),
+    rightsUsage: example(
       "Open for educational citation with attribution. No synthetic voice replication or derivative dramatization without additional consent.",
+    ),
     media: {
       type: "image",
-      alt: "Archival placeholder plate for rain-season neighborhood memory",
-      caption:
-        "Archival plate placeholder representing family drainage work before evening rainfall.",
-      credit: "TIRO Memory Workshop Visual Placeholder",
+      alt: "",
+      caption: "Placeholder for an image. No image exists.",
+      credit: "None (demonstration placeholder)",
     },
     transcript: `Rain season changed our timetable. Before school we checked the gutter near the compound to make sure water could pass. If the sky turned dark by afternoon, everyone rushed home early.
 
@@ -202,38 +208,36 @@ For us children, rain was both work and wonder. We carried sandbags, then sat wi
   },
   {
     id: "market-song-lagos",
-    recordId: "TIR-MEM-0003",
+    recordId: "DEMO-MEM-0003",
     recordKind: "demo",
-    archiveStatus: "Verified",
-    lastReviewed: "2026-06-04",
-    accessLevel: "Public",
-    confidenceLevel: "Moderate (performance memory reconstructed from recollection)",
-    multipleVersions:
-      "Version 1.1 (2026-06-04) — chorus segmentation adjusted after performer review.",
-    disputedDetails:
-      "Some lyrical lines vary between contributor and secondary listeners from the same market era.",
+    archiveStatus: NOT_VERIFIED,
+    lastReviewed: NOT_REVIEWED,
+    accessLevel: "Public (demonstration)",
+    confidenceLevel: example("Moderate (performance memory reconstructed from recollection)"),
+    multipleVersions: example("Version 1.1 — chorus segmentation adjusted after performer review."),
+    disputedDetails: example("Some lyrical lines vary between contributor and secondary listeners from the same market era."),
     title: "Market Song Remembered in Lagos",
     summary:
       "A remembered call-and-response fragment from roadside trading, documented as both performance and economic signal.",
     location: "Lagos Island, Nigeria",
     language: "Yoruba and Nigerian Pidgin",
     era: "Mid 1970s recollected in 2000s",
-    contributor: "Narrated and sung by Elder Fatai A. in TIRO oral archive session",
-    sourceAuthority:
-      "Elder Fatai A. and the Lagos Island trading community the song originates from",
-    consentStatus: "Granted with performance context restrictions",
-    consentWithdrawal:
-      "Elder Fatai A. may request withdrawal or restriction at any time by contacting TIRO with record ID TIR-MEM-0003. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
-    provenance:
-      "Captured in a supervised oral-history studio session; melodic phrases reviewed with contributor for contextual accuracy.",
-    rightsUsage:
+    contributor: "No real performer. A real record names the performer as they choose to be identified.",
+    sourceAuthority: example(
+      "The performer, and the community the song comes from. For a song, authority may be shared or collective, and the record would say so.",
+    ),
+    consentStatus: NO_CONSENT,
+    consentWithdrawal: example(
+      "The performer may request withdrawal or restriction at any time by contacting TIRO with this record's ID. TIRO will cease public access and distribution within its systems; a preservation copy may be retained per the terms disclosed at consent.",
+    ),
+    provenance: example("Captured in a supervised oral-history session; melodic phrases reviewed with the performer for contextual accuracy."),
+    rightsUsage: example(
       "Playback permitted for scholarship and educational exhibition. Standalone commercial music sampling is not authorized.",
+    ),
     media: {
       type: "video",
-      caption:
-        "Performance documentation placeholder for market song cadence and gesture.",
-      duration: "02:11",
-      credit: "TIRO Studio Documentation (Demo Placeholder)",
+      caption: "Placeholder for a video record. No recording exists.",
+      credit: "None (demonstration placeholder)",
     },
     transcript: `The song began as invitation, then warning, then humor. A seller could signal low stock, better price, or fresh goods only by changing rhythm and tone.
 

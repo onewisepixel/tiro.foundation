@@ -10,6 +10,8 @@
 // and components receive projections, never these objects: restricted and
 // undiscoverable records below deliberately carry "canary" strings, and
 // projection.test.ts proves none of them ever leaves the projection layer.
+// "server-only" makes any client import of this module a build error.
+import "server-only";
 import type { EvidenceState, UseCategory, UseGrant } from "@/lib/livingTrace/evidence";
 
 export type Visibility =
@@ -52,6 +54,11 @@ export type InternalRecord = {
     reference: string;
     notice: string;
     mayContact: boolean;
+    // Whether the rights authority permits acknowledging, inside another
+    // record's relationship, that an account from this record exists. Never
+    // projected itself; it only decides whether a "withheld" placeholder
+    // may appear. Absent means no acknowledgement at all.
+    acknowledgeAccountsInRelationships?: boolean;
   };
 };
 
@@ -66,14 +73,29 @@ export type InternalGraphNode = {
   recordId?: string;
 };
 
+// One party's claim within a relationship. Several accounts on one edge
+// keep several provenances; they are never merged.
+export type InternalAccount = {
+  id: string;
+  position: string;
+  assertedBy: string;
+  kind: "source" | "interpretation";
+  evidence: EvidenceState;
+  // Graph node holding the account. Its backing record's visibility
+  // decides whether this account may be shown, acknowledged, or omitted.
+  inNode: string | null;
+};
+
 export type InternalGraphEdge = {
   id: string;
   from: string;
   to: string;
   relation: string;
   evidence: EvidenceState;
-  basis: string;
-  assertedBy: string;
+  summary: string;
+  recordedBy: string;
+  provenance?: true;
+  accounts: InternalAccount[];
 };
 
 const NOT_GRANTED_EXCEPT_DEMO_FIELDS: Record<UseCategory, UseGrant> = {
@@ -156,6 +178,7 @@ export const INTERNAL_RECORDS: InternalRecord[] = [
       notice:
         "This material is held for preservation and is not available for public access. Its rights authority has authorized only this notice: no title, description, or other details.",
       mayContact: true,
+      acknowledgeAccountsInRelationships: true,
     },
   },
   {
@@ -204,32 +227,90 @@ export const INTERNAL_RECORDS: InternalRecord[] = [
     aiProcessing: "Disabled.",
     internalNotes: "CANARY-INTERNAL-0004: internal notes are never projected.",
   },
+  {
+    id: "DEMO-LT-0005",
+    visibility: "public",
+    title: "A third account, from an unrelated source",
+    summary:
+      "A specimen from a third synthetic source. It shares a language with the first record and may or may not refer to the same place; the archive does not decide that for it. It contains no testimony.",
+    source: {
+      label: "Synthetic source S-03",
+      note: "Not a real person. A separate origin: nothing in this record derives from Sources S-01 or S-02.",
+    },
+    capacities: [
+      { capacity: "Source authority", value: "Demonstration only. No authority is claimed.", evidence: "unknown" },
+      { capacity: "Legal rights holder", value: "Not assessed.", evidence: "unknown" },
+    ],
+    context: [
+      { field: "Language", value: { value: "Not specified", evidence: "unknown" } },
+      { field: "Place", value: { value: "Not specified", evidence: "unknown", note: "Whether this is the place in Record A is an open question, shown as such." } },
+    ],
+    publicationStatus: "Published (demonstration fields only)",
+    custodyStatus: "Not ingested. No archival object exists.",
+    uses: NOT_GRANTED_EXCEPT_DEMO_FIELDS,
+    withdrawal: SYNTHETIC_WITHDRAWAL,
+    provenance: [{ at: "2026-10-16", event: "Specimen created as a design study", actor: "TIRO design (Living Trace v0.2)", evidence: "recorded" }],
+    media: { kind: "none", note: "No audio attached." },
+    transcript: { note: "No transcript. A synthetic record has no source media." },
+    aiProcessing: "Disabled.",
+    internalNotes: "CANARY-INTERNAL-0005: internal notes are never projected.",
+  },
 ];
 
-// The relationship graph behind Proof "Discover". Nodes for restricted or
-// undiscoverable records, and any edge touching them, exist here so the
-// projection can be tested against them. A visitor never receives them.
+// The relationship graph behind Discover. Every edge exists to show one
+// distinct behavior of the grammar; none is added for visual density.
+// Nodes for restricted or undiscoverable records, every edge touching
+// them, and every account they hold exist here so the projection can be
+// tested against them. A visitor never receives them.
 export const INTERNAL_NODES: InternalGraphNode[] = [
   { id: "origin-s01", kind: "origin", label: "Source S-01" },
+  { id: "origin-s02", kind: "origin", label: "Source S-02" },
+  { id: "origin-s03", kind: "origin", label: "Source S-03" },
   { id: "rec-a", kind: "record", label: "Record A", recordId: "DEMO-LT-0001" },
+  { id: "rec-b", kind: "record", label: "Record B", recordId: "DEMO-LT-0004" },
+  { id: "rec-c", kind: "record", label: "Record C", recordId: "DEMO-LT-0005" },
+  { id: "der-t", kind: "derivative", label: "Translation of A" },
+  { id: "note-1", kind: "interpretation", label: "Curatorial note" },
+  { id: "event-1", kind: "event", label: "Event described" },
   { id: "lang-1", kind: "language", label: "Language" },
   { id: "place-1", kind: "place", label: "Place" },
-  { id: "context-1", kind: "context", label: "Context note" },
-  { id: "rec-b", kind: "record", label: "Record B", recordId: "DEMO-LT-0004" },
-  { id: "origin-s02", kind: "origin", label: "Source S-02" },
   { id: "rec-r", kind: "record", label: "CANARY-GRAPH-RESTRICTED-NODE", recordId: "DEMO-LT-0002" },
   { id: "rec-u", kind: "record", label: "CANARY-GRAPH-UNDISCOVERABLE-NODE", recordId: "DEMO-LT-0003" },
 ];
 
-export const INTERNAL_EDGES: InternalGraphEdge[] = [
-  {
-    id: "e-origin-a",
-    from: "origin-s01",
-    to: "rec-a",
+const SOURCE_FIELD = "Record source field (synthetic)";
+
+function sourceLink(id: string, origin: string, record: string, recordId: string): InternalGraphEdge {
+  return {
+    id,
+    from: origin,
+    to: record,
     relation: "Source of the account",
     evidence: "recorded",
-    basis: "The record's own source field. For a real record: the consent receipt reference (kept restricted) and the source's chosen attribution.",
-    assertedBy: "Record DEMO-LT-0001",
+    summary: `Record ${recordId} names this source in its own source field. For a real record, the consent receipt behind it stays restricted.`,
+    recordedBy: `Record ${recordId}`,
+    provenance: true,
+    accounts: [{ id: `${id}:1`, position: "This source gave the account.", assertedBy: SOURCE_FIELD, kind: "source", evidence: "recorded", inNode: record }],
+  };
+}
+
+export const INTERNAL_EDGES: InternalGraphEdge[] = [
+  sourceLink("p-s01-a", "origin-s01", "rec-a", "DEMO-LT-0001"),
+  sourceLink("p-s02-b", "origin-s02", "rec-b", "DEMO-LT-0004"),
+  sourceLink("p-s03-c", "origin-s03", "rec-c", "DEMO-LT-0005"),
+  {
+    // A derivative keeps its source: its chain runs T <- A <- S-01.
+    id: "p-a-t",
+    from: "rec-a",
+    to: "der-t",
+    relation: "Translated as",
+    evidence: "recorded",
+    summary: "A translation is a derivative of Record A, attributed to its translator and kept beside the source. It is not a new source.",
+    recordedBy: "Synthetic translator X-01 (illustrative role)",
+    provenance: true,
+    accounts: [
+      { id: "p-a-t:1", position: "Translated from Record A.", assertedBy: "Synthetic translator X-01 (illustrative role)", kind: "source", evidence: "recorded", inNode: "der-t" },
+    ],
   },
   {
     id: "e-a-lang",
@@ -237,8 +318,25 @@ export const INTERNAL_EDGES: InternalGraphEdge[] = [
     to: "lang-1",
     relation: "Spoken in",
     evidence: "attested",
-    basis: "Language as identified by the source. In this specimen the value is 'not specified'; the link shows where that claim would come from.",
-    assertedBy: "Synthetic source S-01",
+    summary: "The language as the source identifies it. In this specimen the value is not specified; the link shows where the claim would come from.",
+    recordedBy: "Record DEMO-LT-0001",
+    accounts: [
+      { id: "e-a-lang:1", position: "The account was given in this language.", assertedBy: "Synthetic source S-01", kind: "source", evidence: "attested", inNode: "rec-a" },
+      // Undiscoverable source: omitted without a trace.
+      { id: "e-a-lang:u", position: "CANARY-ACCOUNT-UNDISCOVERABLE", assertedBy: "CANARY-ACCOUNT-UNDISCOVERABLE-BY", kind: "source", evidence: "attested", inNode: "rec-u" },
+    ],
+  },
+  {
+    id: "e-c-lang",
+    from: "rec-c",
+    to: "lang-1",
+    relation: "Spoken in",
+    evidence: "attested",
+    summary: "A second record in the same language. Sharing a language connects the records; it does not make one account confirm the other.",
+    recordedBy: "Record DEMO-LT-0005",
+    accounts: [
+      { id: "e-c-lang:1", position: "The account was given in this language.", assertedBy: "Synthetic source S-03", kind: "source", evidence: "attested", inNode: "rec-c" },
+    ],
   },
   {
     id: "e-a-place",
@@ -246,61 +344,110 @@ export const INTERNAL_EDGES: InternalGraphEdge[] = [
     to: "place-1",
     relation: "Refers to",
     evidence: "attested",
-    basis: "A place named within the account. A real record cites the transcript passage.",
-    assertedBy: "Synthetic source S-01",
+    summary: "A place named in the account. A second account from a restricted source also names it; its rights authority permits acknowledging only that it exists.",
+    recordedBy: "Record DEMO-LT-0001",
+    accounts: [
+      { id: "e-a-place:1", position: "The account names this place.", assertedBy: "Synthetic source S-01", kind: "source", evidence: "attested", inNode: "rec-a" },
+      // Restricted source with acknowledgement authorized: shown only as
+      // "withheld", with no position, claimant, or reference.
+      { id: "e-a-place:r", position: "CANARY-ACCOUNT-RESTRICTED", assertedBy: "CANARY-ACCOUNT-RESTRICTED-BY", kind: "source", evidence: "attested", inNode: "rec-r" },
+    ],
   },
   {
-    id: "e-a-context",
+    id: "e-a-event",
     from: "rec-a",
-    to: "context-1",
-    relation: "Contextualized by",
-    evidence: "inferred",
-    basis: "A curatorial note: TIRO's interpretation, kept separate from the testimony and labeled as such.",
-    assertedBy: "TIRO curator (illustrative role)",
+    to: "event-1",
+    relation: "Describes",
+    evidence: "attested",
+    summary: "Record A gives an account of this event.",
+    recordedBy: "Record DEMO-LT-0001",
+    accounts: [{ id: "e-a-event:1", position: "Describes the event.", assertedBy: "Synthetic source S-01", kind: "source", evidence: "attested", inNode: "rec-a" }],
   },
   {
-    id: "e-context-b",
-    from: "context-1",
-    to: "rec-b",
-    relation: "Variant of",
-    evidence: "contested",
-    basis: "Two accounts describe the same event differently. Both are kept and attributed; neither corrects the other.",
-    assertedBy: "TIRO curator (illustrative role)",
-  },
-  {
-    id: "e-origin-b",
-    from: "origin-s02",
-    to: "rec-b",
-    relation: "Source of the account",
-    evidence: "recorded",
-    basis: "The record's own source field. A variant account keeps its own origin; it is never re-attributed to the first source.",
-    assertedBy: "Record DEMO-LT-0004",
-  },
-  {
-    id: "e-b-place",
+    id: "e-b-event",
     from: "rec-b",
+    to: "event-1",
+    relation: "Describes",
+    evidence: "attested",
+    summary: "Record B gives its own account of the same event.",
+    recordedBy: "Record DEMO-LT-0004",
+    accounts: [{ id: "e-b-event:1", position: "Describes the event.", assertedBy: "Synthetic source S-02", kind: "source", evidence: "attested", inNode: "rec-b" }],
+  },
+  {
+    // Two independently sourced accounts that disagree. Each keeps its own
+    // origin and chain; the curator who noted the disagreement is
+    // recorded separately and decides nothing.
+    id: "c-ab-when",
+    from: "rec-a",
+    to: "rec-b",
+    relation: "Differ on when the event happened",
+    evidence: "contested",
+    summary: "The two accounts place the event at different times. Both are kept and attributed; neither corrects the other.",
+    recordedBy: "TIRO curator (illustrative role): noted that the accounts differ, without deciding between them",
+    accounts: [
+      { id: "c-ab-when:a", position: "Places the event earlier.", assertedBy: "Synthetic source S-01", kind: "source", evidence: "attested", inNode: "rec-a" },
+      { id: "c-ab-when:b", position: "Places the event later.", assertedBy: "Synthetic source S-02", kind: "source", evidence: "attested", inNode: "rec-b" },
+    ],
+  },
+  {
+    id: "i-a-note",
+    from: "rec-a",
+    to: "note-1",
+    relation: "Interpreted in",
+    evidence: "inferred",
+    summary: "A curatorial reading of Record A: TIRO's interpretation, kept apart from the account and labeled as such.",
+    recordedBy: "TIRO curator (illustrative role)",
+    accounts: [
+      { id: "i-a-note:1", position: "Reads the account as part of a wider pattern.", assertedBy: "TIRO curator (illustrative role)", kind: "interpretation", evidence: "inferred", inNode: null },
+    ],
+  },
+  {
+    // Incomplete evidence: a question, not a claim. No one has asserted it.
+    id: "u-c-place",
+    from: "rec-c",
     to: "place-1",
     relation: "Same place as Record A?",
     evidence: "unknown",
-    basis: "No evidence establishes this. The link is drawn only to show that the question is open.",
-    assertedBy: "No one: unresolved",
+    summary: "No evidence establishes whether Record C refers to the same place. The link is drawn only to show that the question is open.",
+    recordedBy: "TIRO curator (illustrative role): recorded the open question",
+    accounts: [],
   },
+  // ---- Never projected: endpoints or supporting accounts are not public.
   {
-    id: "e-a-r",
+    id: "x-a-r",
     from: "rec-a",
     to: "rec-r",
     relation: "CANARY-GRAPH-RESTRICTED-EDGE",
     evidence: "attested",
-    basis: "CANARY-GRAPH-RESTRICTED-BASIS",
-    assertedBy: "CANARY",
+    summary: "CANARY-GRAPH-RESTRICTED-SUMMARY",
+    recordedBy: "CANARY",
+    accounts: [],
   },
   {
-    id: "e-b-u",
+    id: "x-b-u",
     from: "rec-b",
     to: "rec-u",
     relation: "CANARY-GRAPH-UNDISCOVERABLE-EDGE",
     evidence: "attested",
-    basis: "CANARY-GRAPH-UNDISCOVERABLE-BASIS",
-    assertedBy: "CANARY",
+    summary: "CANARY-GRAPH-UNDISCOVERABLE-SUMMARY",
+    recordedBy: "CANARY",
+    accounts: [],
+  },
+  {
+    // Both ends are public, but the disagreement is only evidenced by an
+    // undiscoverable account. Showing "contested" with one visible account
+    // would misstate it, and acknowledging the other would disclose it, so
+    // the whole relationship is withheld.
+    id: "x-b-place-contested",
+    from: "rec-b",
+    to: "place-1",
+    relation: "CANARY-CONTESTED-VIA-UNDISCOVERABLE",
+    evidence: "contested",
+    summary: "CANARY-CONTESTED-VIA-UNDISCOVERABLE-SUMMARY",
+    recordedBy: "CANARY",
+    accounts: [
+      { id: "x-b-place-contested:b", position: "Names the place.", assertedBy: "Synthetic source S-02", kind: "source", evidence: "attested", inNode: "rec-b" },
+      { id: "x-b-place-contested:u", position: "CANARY-ACCOUNT-UNDISCOVERABLE-2", assertedBy: "CANARY", kind: "source", evidence: "attested", inNode: "rec-u" },
+    ],
   },
 ];

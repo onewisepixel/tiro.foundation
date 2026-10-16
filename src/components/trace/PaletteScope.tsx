@@ -11,11 +11,13 @@ export default function PaletteScope({ children }: { children: React.ReactNode }
   return (
     <div data-palette={candidate ? "living-trace" : undefined}>
       <div className="sticky top-[57px] z-30 border-b border-[var(--tiro-border)] bg-[var(--tiro-bg)]">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-[var(--lt-gutter)] py-3 md:px-6">
-          <p className="lt-label">
-            Palette: <span className="text-[var(--tiro-text)]">{candidate ? "Candidate (not adopted)" : "Current brand"}</span>
+        {/* One fixed line structure in every font (no wrapping), so the page
+            below never shifts when the label face swaps in. */}
+        <div className="mx-auto flex h-[52px] max-w-6xl items-center justify-between gap-3 px-[var(--lt-gutter)] md:px-6">
+          <p className="lt-label min-w-0 truncate whitespace-nowrap">
+            Palette: <span className="text-[var(--tiro-text)]">{candidate ? "Candidate, not adopted" : "Current brand"}</span>
           </p>
-          <div role="group" aria-label="Palette" className="flex">
+          <div role="group" aria-label="Palette" className="flex shrink-0">
             <button
               type="button"
               aria-pressed={!candidate}

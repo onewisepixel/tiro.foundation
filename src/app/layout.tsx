@@ -10,17 +10,28 @@ import "./globals.css";
 // down the whole build. These are the exact same files/weights/styles
 // Google Fonts served for these families (latin subset only, matching the
 // previous config) downloaded once and committed, so the build is hermetic.
+//
+// Performance (Living Trace 0.2, measured with Lighthouse mobile): every
+// file of every family used to be preloaded on every page (10 files,
+// ~227 KB), competing with HTML and CSS for the throttled connection and
+// delaying the Spectral headline that is the LCP element site-wide. Only
+// the faces actually rendered are declared now: no Spectral 500/600 or
+// Space Mono 700 is used anywhere in src/ (the files remain in
+// src/fonts/ if a future design needs them). Only the faces needed for
+// first paint are preloaded: Spectral 400 roman and italic (headlines)
+// and Karla (body). Space Mono and Space Grotesk are small UI labels and
+// swap in without a preload.
 const spectral = localFont({
   src: [
     { path: "../fonts/spectral-400-normal.woff2", weight: "400", style: "normal" },
-    { path: "../fonts/spectral-500-normal.woff2", weight: "500", style: "normal" },
-    { path: "../fonts/spectral-600-normal.woff2", weight: "600", style: "normal" },
     { path: "../fonts/spectral-400-italic.woff2", weight: "400", style: "italic" },
-    { path: "../fonts/spectral-500-italic.woff2", weight: "500", style: "italic" },
-    { path: "../fonts/spectral-600-italic.woff2", weight: "600", style: "italic" },
   ],
   variable: "--font-display",
   display: "swap",
+  // A metric-adjusted serif fallback: the headline (the LCP element) no
+  // longer reflows when Spectral swaps in (measured CLS 0.021 -> see
+  // docs/design/living-trace.md).
+  adjustFontFallback: "Times New Roman",
 });
 
 // Karla ships as a single variable-font file for weights 400/500/600 — Google
@@ -38,12 +49,10 @@ const karla = localFont({
 });
 
 const spaceMono = localFont({
-  src: [
-    { path: "../fonts/space-mono-400-normal.woff2", weight: "400", style: "normal" },
-    { path: "../fonts/space-mono-700-normal.woff2", weight: "700", style: "normal" },
-  ],
+  src: [{ path: "../fonts/space-mono-400-normal.woff2", weight: "400", style: "normal" }],
   variable: "--font-code",
   display: "swap",
+  preload: false,
 });
 
 const spaceGrotesk = localFont({
@@ -52,6 +61,7 @@ const spaceGrotesk = localFont({
   style: "normal",
   variable: "--font-logo",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {

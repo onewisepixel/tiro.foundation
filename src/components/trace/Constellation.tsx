@@ -1,236 +1,633 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo, useState } from "react";
-import { EVIDENCE, toneColor } from "@/lib/livingTrace/evidence";
-import { sourceChain, type GraphNode, type ProjectedGraph } from "@/lib/livingTrace/graph";
+import { useEffect, useId, useMemo, useState } from "react";
+import { EVIDENCE, EVIDENCE_ORDER, toneColor, type EvidenceState } from "@/lib/livingTrace/evidence";
+import {
+  chainsToOrigins,
+  edgeProvenance,
+  provenanceFootprint,
+  type AccountTrace,
+  type GraphAccount,
+  type GraphEdge,
+  type GraphNode,
+  type ProjectedGraph,
+} from "@/lib/livingTrace/graph";
+import { layoutGraph, tracePath, traceMidpoint, type Layout } from "@/lib/livingTrace/layout";
 import { EvidenceStroke } from "./EvidenceTag";
+import Reveal from "./Reveal";
 
 // Constellation — plural records, navigable, not merged.
 //
 // Receives an already-projected graph (src/lib/livingTrace/projection.ts):
-// nothing a visitor may not know ever reaches this component. Two equal
-// ways in: the drawing (pointer) and the relationship list (keyboard,
-// screen reader, and anyone who prefers text). Both drive one inspector
-// that states the link's type, its evidence, who asserted it, and the
-// chain of traces back to its origin.
+// nothing a visitor may not know ever reaches this component. Three equal
+// ways in: the drawing (pointer and touch), the relationship list, and the
+// inspector's own links (keyboard and screen reader). Selecting a
+// relationship shows each of its accounts with its own provenance chain;
+// selecting a node shows its sources and relationships. The drawing never
+// implies more than the data: a path is emphasized as provenance only
+// where every step is a source link.
 
-type Point = { x: number; y: number };
-type Layout = { width: number; height: number; at: Record<string, Point> };
+type Selection = { type: "edge"; id: string } | { type: "node"; id: string } | null;
 
-// Composed per breakpoint rather than scaled: the wide layout reads left
-// to right, the narrow one top to bottom. Keyed by projected node id;
-// any unknown node falls back to a ring so new data never breaks layout.
-const WIDE: Layout = {
-  width: 760,
-  height: 420,
-  at: {
-    "origin-s01": { x: 70, y: 210 },
-    "rec-a": { x: 250, y: 110 },
-    "lang-1": { x: 520, y: 62 },
-    "place-1": { x: 210, y: 360 },
-    "context-1": { x: 420, y: 236 },
-    "rec-b": { x: 600, y: 330 },
-    "origin-s02": { x: 706, y: 206 },
-  },
+const KIND_LABEL: Record<GraphNode["kind"], string> = {
+  origin: "Origin",
+  record: "Record",
+  derivative: "Derivative",
+  interpretation: "Interpretation",
+  place: "Place",
+  language: "Language",
+  event: "Event",
 };
 
-const NARROW: Layout = {
-  width: 360,
-  height: 560,
-  at: {
-    "origin-s01": { x: 46, y: 46 },
-    "rec-a": { x: 150, y: 140 },
-    "lang-1": { x: 300, y: 70 },
-    "place-1": { x: 60, y: 330 },
-    "context-1": { x: 230, y: 268 },
-    "rec-b": { x: 214, y: 442 },
-    "origin-s02": { x: 318, y: 520 },
-  },
-};
+// Patterned lines (dashed, dotted) cannot use the stroke-dash draw
+// technique without losing their pattern, so they arrive by fading.
+const isSolid = (state: EvidenceState) => EVIDENCE[state].dash === "none";
 
-function position(layout: Layout, nodes: GraphNode[], id: string): Point {
-  const known = layout.at[id];
-  if (known) {
-    return known;
+function NodeGlyph({ node, x, y, dim, selected }: { node: GraphNode; x: number; y: number; dim: boolean; selected: boolean }) {
+  const o = dim ? 0.5 : 1;
+  const ring = selected ? (
+    <circle cx={x} cy={y} r={node.kind === "origin" ? 27 : 17} fill="none" stroke="var(--tiro-accent)" strokeWidth="1.25" />
+  ) : null;
+  switch (node.kind) {
+    case "origin":
+      return (
+        <g opacity={o}>
+          {ring}
+          {/* Resonance: a faint ring around each origin, never around anything else. */}
+          <circle cx={x} cy={y} r="20" fill="none" stroke="var(--tiro-accent)" strokeWidth="1" opacity="0.3" />
+          <circle cx={x} cy={y} r="11" fill="var(--lt-graph-bg)" stroke="var(--tiro-accent)" strokeWidth="1.6" />
+          <circle cx={x} cy={y} r="3.6" fill="var(--tiro-accent)" />
+        </g>
+      );
+    case "record":
+      return (
+        <g opacity={o}>
+          {ring}
+          <circle cx={x} cy={y} r="11" fill="var(--lt-graph-bg)" stroke="var(--tiro-border-strong)" strokeWidth="1" />
+          <circle cx={x} cy={y} r="6.5" fill="var(--tiro-text)" />
+        </g>
+      );
+    case "derivative":
+      return (
+        <g opacity={o}>
+          {ring}
+          <circle cx={x} cy={y} r="8" fill="var(--lt-graph-bg)" stroke="var(--tiro-text-soft)" strokeWidth="1.25" />
+          <circle cx={x} cy={y} r="2.6" fill="var(--tiro-text-soft)" />
+        </g>
+      );
+    case "interpretation":
+      // Square-cornered and hollow: an interpretation is not a source.
+      return (
+        <g opacity={o}>
+          {ring}
+          <rect x={x - 6} y={y - 6} width="12" height="12" transform={`rotate(45 ${x} ${y})`} fill="var(--lt-graph-bg)" stroke="var(--tiro-mineral)" strokeWidth="1.25" />
+        </g>
+      );
+    default:
+      return (
+        <g opacity={o}>
+          {ring}
+          <circle cx={x} cy={y} r="6" fill="var(--lt-graph-bg)" stroke="var(--tiro-mineral)" strokeWidth="1.5" />
+        </g>
+      );
   }
-  const index = nodes.findIndex((n) => n.id === id);
-  const angle = (index / Math.max(nodes.length, 1)) * Math.PI * 2;
-  return { x: layout.width / 2 + Math.cos(angle) * layout.width * 0.35, y: layout.height / 2 + Math.sin(angle) * layout.height * 0.35 };
 }
 
-// A gentle curve: a trace, not a wire.
-function curve(a: Point, b: Point): string {
-  const mx = (a.x + b.x) / 2;
-  const my = (a.y + b.y) / 2;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const bend = 0.18;
-  return `M ${a.x} ${a.y} Q ${mx - dy * bend} ${my + dx * bend} ${b.x} ${b.y}`;
-}
-
-function NodeMark({ node, p, dim }: { node: GraphNode; p: Point; dim: boolean }) {
-  const opacity = dim ? 0.45 : 1;
-  if (node.kind === "origin") {
+function EdgeStrands({ edge, layout, className, style }: { edge: GraphEdge; layout: Layout; className: string; style?: React.CSSProperties }) {
+  const a = layout.at[edge.from];
+  const b = layout.at[edge.to];
+  const def = EVIDENCE[edge.evidence];
+  const color = toneColor(def.tone);
+  if (edge.evidence === "contested") {
+    // Two strands: two accounts, kept side by side.
     return (
-      <g opacity={opacity}>
-        <circle cx={p.x} cy={p.y} r="11" fill="var(--tiro-bg)" stroke="var(--tiro-accent)" strokeWidth="1.5" />
-        <circle cx={p.x} cy={p.y} r="3.6" fill="var(--tiro-accent)" />
-      </g>
+      <>
+        {[-2.6, 2.6].map((offset) => (
+          <path
+            key={offset}
+            d={tracePath(a, b, layout.orientation, offset)}
+            className={`lt-trace ${className}`}
+            style={style}
+            data-evidence="contested"
+            stroke={color}
+            strokeDasharray={def.dash}
+          />
+        ))}
+      </>
     );
   }
-  if (node.kind === "record") {
-    return (
-      <g opacity={opacity}>
-        <circle cx={p.x} cy={p.y} r="7" fill="var(--tiro-text)" />
-        <circle cx={p.x} cy={p.y} r="11" fill="none" stroke="var(--tiro-border-strong)" strokeWidth="1" />
-      </g>
-    );
-  }
-  return <circle cx={p.x} cy={p.y} r="5" fill="var(--tiro-bg)" stroke="var(--tiro-mineral)" strokeWidth="1.5" opacity={opacity} />;
+  return (
+    <path
+      d={tracePath(a, b, layout.orientation)}
+      pathLength={isSolid(edge.evidence) ? 1 : undefined}
+      className={`lt-trace ${className}`}
+      style={style}
+      data-evidence={edge.evidence}
+      stroke={color}
+      strokeDasharray={isSolid(edge.evidence) ? undefined : def.dash}
+    />
+  );
 }
 
 function Drawing({
   graph,
   layout,
-  selected,
-  chain,
+  selection,
+  footprint,
+  hidden,
   onSelect,
   className,
 }: {
   graph: ProjectedGraph;
   layout: Layout;
-  selected: string | null;
-  chain: Set<string>;
-  onSelect: (id: string) => void;
+  selection: Selection;
+  footprint: { edges: Set<string>; nodes: Set<string>; order: Map<string, number> };
+  hidden: Set<EvidenceState>;
+  onSelect: (s: Selection) => void;
   className: string;
 }) {
-  const at = (id: string) => position(layout, graph.nodes, id);
-  const lit = (edgeId: string) => selected === null || chain.has(edgeId);
-  const litNodes = new Set<string>();
-  for (const e of graph.edges) {
-    if (lit(e.id)) {
-      litNodes.add(e.from);
-      litNodes.add(e.to);
-    }
-  }
+  const wide = layout.orientation === "wide";
+  const active = selection !== null;
+  const selectedEdge = selection?.type === "edge" ? graph.edges.find((e) => e.id === selection.id) : undefined;
+
+  // Arrival order when the region is revealed: source links first, then
+  // attested relationships, then interpretation, disagreement, and open
+  // questions. The order restates the grammar: sources before readings.
+  const arrival = (edge: GraphEdge) => (edge.provenance ? 0 : edge.evidence === "attested" ? 1 : 2);
 
   return (
-    // Pointer shortcut only; the relationship list below is the complete,
-    // accessible equivalent, so the drawing itself is hidden from AT.
+    // The drawing is a pointer and touch shortcut. The relationship list
+    // and inspector are its complete accessible equivalent, so the SVG is
+    // hidden from assistive technology.
     <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className={className} aria-hidden="true" focusable="false">
+      {/* Bands: the direction of the argument, from origin outward. */}
+      {layout.bands.map((band) =>
+        wide ? (
+          <g key={band.key}>
+            <line x1={band.pos} x2={band.pos} y1="34" y2={layout.height - 12} stroke="var(--tiro-border)" strokeDasharray="1 6" />
+            <text x={band.pos} y="18" textAnchor="middle" fill="var(--tiro-text-muted)" style={{ font: "500 11px var(--font-code)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
+              {band.label}
+            </text>
+          </g>
+        ) : (
+          <text key={band.key} x="8" y={band.pos - 34} fill="var(--tiro-text-muted)" style={{ font: "500 10px var(--font-code)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+            {band.label}
+          </text>
+        ),
+      )}
+
       {graph.edges.map((edge) => {
-        const a = at(edge.from);
-        const b = at(edge.to);
-        const def = EVIDENCE[edge.evidence];
-        const d = curve(a, b);
-        const isSelected = edge.id === selected;
-        const color = toneColor(def.tone);
-        const opacity = lit(edge.id) ? 1 : 0.22;
+        const filtered = hidden.has(edge.evidence);
+        const lit = !active ? !filtered : footprint.edges.has(edge.id);
+        const emphasized = active && footprint.edges.has(edge.id);
+        const hop = footprint.order.get(edge.id) ?? 0;
+        const a = layout.at[edge.from];
+        const b = layout.at[edge.to];
+        const solid = isSolid(edge.evidence);
         return (
-          <g key={edge.id} opacity={opacity} style={{ transition: "opacity var(--lt-dur-base) ease" }}>
-            {edge.evidence === "contested" ? (
-              <>
-                <path d={d} className="lt-trace" data-evidence="contested" stroke={color} strokeDasharray={def.dash} transform="translate(0,-2.2)" />
-                <path d={d} className="lt-trace" data-evidence="contested" stroke={color} strokeDasharray={def.dash} transform="translate(0,2.2)" />
-              </>
-            ) : (
-              <path
-                // Re-keyed on selection so the chain re-draws from its origin.
-                key={isSelected || chain.has(edge.id) ? `${edge.id}-on-${selected}` : edge.id}
-                d={d}
-                pathLength={def.dash === "none" ? 1 : undefined}
-                className={`lt-trace ${def.dash === "none" && chain.has(edge.id) ? "lt-draw" : ""}`}
-                data-evidence={edge.evidence}
-                stroke={color}
-                strokeWidth={isSelected ? 2.5 : undefined}
-                strokeDasharray={def.dash === "none" ? undefined : def.dash}
-              />
-            )}
+          <g key={edge.id} opacity={lit ? 1 : filtered ? 0.06 : 0.3} style={{ transition: "opacity var(--lt-dur-base) ease" }}>
+            <EdgeStrands
+              // Re-keyed on selection so the chain redraws from its origin.
+              key={emphasized ? `${edge.id}@${selection?.id}` : edge.id}
+              edge={edge}
+              layout={layout}
+              className={emphasized ? (solid ? "lt-draw" : "lt-fade-in") : solid ? "lt-on-reveal-draw" : "lt-on-reveal-fade"}
+              style={{ "--lt-delay": `${emphasized ? hop * 260 : arrival(edge) * 420}ms`, strokeWidth: emphasized ? 2.25 : undefined } as React.CSSProperties}
+            />
             {/* Generous invisible hit area for pointer and touch. */}
-            <path d={d} stroke="transparent" strokeWidth="22" fill="none" style={{ cursor: "pointer" }} onClick={() => onSelect(edge.id)} />
+            <path
+              d={tracePath(a, b, layout.orientation)}
+              stroke="transparent"
+              strokeWidth="24"
+              fill="none"
+              style={{ cursor: "pointer" }}
+              onClick={() => onSelect({ type: "edge", id: edge.id })}
+            />
           </g>
         );
       })}
+
       {graph.nodes.map((node) => {
-        const p = at(node.id);
-        const dim = selected !== null && !litNodes.has(node.id);
-        const labelAbove = p.y > layout.height * 0.55;
+        const p = layout.at[node.id];
+        const dim = active && !footprint.nodes.has(node.id);
+        const isSelected = selection?.type === "node" && selection.id === node.id;
+        const anchor = wide ? (node.kind === "origin" ? "end" : "start") : p.x < 70 ? "start" : p.x > layout.width - 70 ? "end" : "middle";
+        const lx = wide ? (node.kind === "origin" ? p.x - 30 : p.x + 20) : p.x;
+        const ly = wide ? p.y + 4 : p.y + 30;
         return (
-          <g key={node.id}>
-            <NodeMark node={node} p={p} dim={dim} />
+          <g key={node.id} className="lt-on-reveal-fade" style={{ "--lt-delay": "200ms", cursor: "pointer" } as React.CSSProperties} onClick={() => onSelect({ type: "node", id: node.id })}>
+            <circle cx={p.x} cy={p.y} r="22" fill="transparent" />
+            <NodeGlyph node={node} x={p.x} y={p.y} dim={dim} selected={isSelected} />
             <text
-              x={p.x}
-              y={labelAbove ? p.y - 20 : p.y + 28}
-              textAnchor={p.x < 60 ? "start" : p.x > layout.width - 60 ? "end" : "middle"}
+              x={lx}
+              y={ly}
+              textAnchor={anchor}
               fill={dim ? "var(--tiro-text-subtle)" : "var(--tiro-text-soft)"}
-              style={{ font: "500 13px var(--font-code)", letterSpacing: "0.14em", textTransform: "uppercase" }}
+              style={{ font: `500 ${wide ? 12 : 11}px var(--font-code)`, letterSpacing: "0.12em", textTransform: "uppercase", transition: "fill var(--lt-dur-base) ease" }}
             >
               {node.label}
             </text>
           </g>
         );
       })}
+
+      {/* The selected relationship names itself on the drawing. */}
+      {selectedEdge && wide
+        ? (() => {
+            const m = traceMidpoint(layout.at[selectedEdge.from], layout.at[selectedEdge.to], layout.orientation);
+            const text = selectedEdge.relation;
+            const w = text.length * 7.1 + 20;
+            return (
+              <g key={`label-${selectedEdge.id}`} className="lt-fade-in" style={{ "--lt-delay": "300ms" } as React.CSSProperties}>
+                <rect x={m.x - w / 2} y={m.y - 13} width={w} height="26" fill="var(--lt-graph-bg)" stroke="var(--tiro-accent)" strokeWidth="1" />
+                <text x={m.x} y={m.y + 4.5} textAnchor="middle" fill="var(--tiro-text)" style={{ font: "400 13px var(--font-body)" }}>
+                  {text}
+                </text>
+              </g>
+            );
+          })()
+        : null}
     </svg>
+  );
+}
+
+function hopLabel(graph: ProjectedGraph, id: string) {
+  const hop = graph.edges.find((e) => e.id === id);
+  if (!hop) {
+    return null;
+  }
+  const label = (nodeId: string) => graph.nodes.find((n) => n.id === nodeId)?.label ?? nodeId;
+  return { from: label(hop.from), to: label(hop.to), relation: hop.relation, evidence: hop.evidence };
+}
+
+function TraceDetail({ graph, trace }: { graph: ProjectedGraph; trace: AccountTrace }) {
+  switch (trace.state) {
+    case "withheld":
+      return null;
+    case "interpretation":
+      return (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
+          An interpretation, not testimony. It has no source chain of its own; it rests on the record it reads.
+        </p>
+      );
+    case "no-source":
+      return <p className="mt-2 text-xs leading-relaxed text-[var(--tiro-text-muted)]">No source for this claim is on record. Shown as missing, not filled in.</p>;
+    case "incomplete":
+    case "traced":
+      return (
+        <>
+          <ol className="mt-2 space-y-1.5">
+            {trace.chain.map((id, i) => {
+              const hop = hopLabel(graph, id);
+              return hop ? (
+                <li key={id} className="flex items-start gap-2 text-xs">
+                  <span className="w-4 shrink-0 font-[family-name:var(--font-code)] text-[var(--tiro-text-muted)]">{i + 1}</span>
+                  <span className="text-[var(--tiro-text-soft)]">
+                    {hop.from} → {hop.to}
+                    <span className="block text-[var(--tiro-text-muted)]">
+                      {hop.relation} · {EVIDENCE[hop.evidence].label}
+                    </span>
+                  </span>
+                </li>
+              ) : null;
+            })}
+          </ol>
+          {trace.state === "traced" && trace.chain.length === 0 ? (
+            <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">Held by the origin itself.</p>
+          ) : null}
+          {trace.state === "incomplete" ? (
+            <p className="mt-2 text-xs leading-relaxed text-[var(--tiro-contested)]">The chain stops before an origin. Its provenance is incomplete.</p>
+          ) : null}
+        </>
+      );
+  }
+}
+
+function AccountCard({ graph, account, index, traces }: { graph: ProjectedGraph; account: GraphAccount; index: number; traces: AccountTrace[] }) {
+  const mine = traces.filter((t) => t.accountId === account.id);
+  if (account.state === "withheld") {
+    return (
+      <li className="lt-boundary p-3">
+        <p className="lt-label">Account {index + 1} · Restricted source</p>
+        <p className="mt-1.5 text-sm leading-relaxed text-[var(--tiro-text-soft)]">
+          Its rights authority permits acknowledging that this account exists, and nothing else: not its content, its
+          claimant, or its source.
+        </p>
+      </li>
+    );
+  }
+  const origin = mine.find((t) => t.state === "traced");
+  const originLabel = origin && origin.state === "traced" ? graph.nodes.find((n) => n.id === origin.origin)?.label : null;
+  return (
+    <li className="border border-[var(--tiro-border)] p-3">
+      <p className="lt-label">
+        Account {index + 1}
+        {originLabel ? ` · from ${originLabel}` : account.kind === "interpretation" ? " · interpretation" : ""}
+      </p>
+      <p className="mt-1.5 text-sm text-[var(--tiro-text)]">{account.position}</p>
+      <p className="mt-1 text-xs text-[var(--tiro-text-muted)]">Claimed by: {account.assertedBy}</p>
+      {mine.map((trace, i) => (
+        <TraceDetail key={i} graph={graph} trace={trace} />
+      ))}
+    </li>
+  );
+}
+
+function EdgeInspector({ graph, edge, H, onSelect }: { graph: ProjectedGraph; edge: GraphEdge; H: "h2" | "h3"; onSelect: (s: Selection) => void }) {
+  const prov = edgeProvenance(graph, edge.id);
+  const node = (id: string) => graph.nodes.find((n) => n.id === id)!;
+  const sourceAccounts = edge.accounts.filter((a) => a.state === "attributed" && a.kind === "source").length;
+  return (
+    <>
+      <p className="lt-label mt-5">Relationship</p>
+      <p className="mt-1 font-[family-name:var(--font-display)] text-2xl leading-snug">{edge.relation}</p>
+      <p className="mt-2 flex flex-wrap items-center gap-x-2 text-sm">
+        <NodeButton node={node(edge.from)} onSelect={onSelect} />
+        <span aria-hidden="true" className="text-[var(--tiro-text-muted)]">
+          →
+        </span>
+        <span className="sr-only">to</span>
+        <NodeButton node={node(edge.to)} onSelect={onSelect} />
+      </p>
+
+      <p className="lt-label mt-5">Evidence</p>
+      <p className="mt-1.5 flex items-center gap-2 text-sm text-[var(--tiro-text)]">
+        <EvidenceStroke evidence={edge.evidence} /> {EVIDENCE[edge.evidence].label}
+      </p>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">{edge.summary}</p>
+
+      <H className="lt-label mt-6 text-[var(--tiro-text)]">
+        {edge.accounts.length === 0 ? "Accounts" : `Accounts (${edge.accounts.length})`}
+      </H>
+      {edge.accounts.length === 0 ? (
+        <p className="mt-2 text-sm leading-relaxed text-[var(--tiro-text-muted)]">No one has made this claim. It is recorded as an open question.</p>
+      ) : (
+        <ol className="mt-2 space-y-2.5">
+          {edge.accounts.map((account, i) => (
+            <AccountCard key={account.id} graph={graph} account={account} index={i} traces={prov.traces} />
+          ))}
+        </ol>
+      )}
+      {sourceAccounts > 1 && prov.independent !== null ? (
+        <p className="mt-3 text-sm leading-relaxed text-[var(--tiro-text-soft)]">
+          {prov.independent
+            ? `${sourceAccounts} accounts from ${prov.origins.length} separate origins. The archive keeps each; it does not decide between them.`
+            : "These accounts share an origin, so they are not independent corroboration."}
+        </p>
+      ) : null}
+
+      <p className="lt-label mt-6">Recorded by</p>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">{edge.recordedBy}</p>
+    </>
+  );
+}
+
+function NodeButton({ node, onSelect }: { node: GraphNode; onSelect: (s: Selection) => void }) {
+  return (
+    <button type="button" className="tiro-link !text-[var(--tiro-text)]" onClick={() => onSelect({ type: "node", id: node.id })}>
+      {node.label}
+    </button>
+  );
+}
+
+function NodeInspector({ graph, node, H, onSelect }: { graph: ProjectedGraph; node: GraphNode; H: "h2" | "h3"; onSelect: (s: Selection) => void }) {
+  const incident = graph.edges.filter((e) => e.from === node.id || e.to === node.id);
+  const origins = node.kind === "record" || node.kind === "derivative" ? chainsToOrigins(graph, node.id) : [];
+  const label = (id: string) => graph.nodes.find((n) => n.id === id)?.label ?? id;
+  return (
+    <>
+      <p className="lt-label mt-5">{KIND_LABEL[node.kind]}</p>
+      <p className="mt-1 font-[family-name:var(--font-display)] text-2xl leading-snug">{node.label}</p>
+      {node.href ? (
+        <Link href={node.href} className="tiro-link mt-2 inline-block text-sm">
+          Open the specimen record
+        </Link>
+      ) : null}
+      {node.kind === "record" || node.kind === "derivative" ? (
+        <>
+          <p className="lt-label mt-5">Traced to</p>
+          {origins.length ? (
+            <ul className="mt-1 space-y-1 text-sm text-[var(--tiro-text-soft)]">
+              {origins.map((o) => (
+                <li key={o.origin}>
+                  {label(o.origin)} <span className="text-xs text-[var(--tiro-text-muted)]">({o.chain.length} source link{o.chain.length === 1 ? "" : "s"})</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-sm text-[var(--tiro-text-muted)]">No source link is on record.</p>
+          )}
+        </>
+      ) : null}
+      {node.kind === "place" || node.kind === "language" || node.kind === "event" ? (
+        <p className="mt-3 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+          Shared context. Records that meet here are connected, not corroborated.
+        </p>
+      ) : null}
+      <H className="lt-label mt-6 text-[var(--tiro-text)]">Relationships ({incident.length})</H>
+      <ul className="mt-1">
+        {incident.map((e) => (
+          <li key={e.id}>
+            <button type="button" className="lt-row-button !py-2" onClick={() => onSelect({ type: "edge", id: e.id })}>
+              <span className="pt-1">
+                <EvidenceStroke evidence={e.evidence} width={22} />
+              </span>
+              <span className="text-sm text-[var(--tiro-text-soft)]">
+                {e.relation}
+                <span className="block text-xs text-[var(--tiro-text-muted)]">
+                  {label(e.from)} → {label(e.to)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
 type ConstellationProps = {
   graph: ProjectedGraph;
   initialEdgeId?: string;
-  // Heading level for the inspector/list titles in the host page.
   headingLevel?: 2 | 3;
+  // Read ?edge= from the address on mount and keep it in sync, so a
+  // selected relationship can be linked to.
+  syncUrl?: boolean;
 };
 
-export default function Constellation({ graph, initialEdgeId, headingLevel = 3 }: ConstellationProps) {
-  const [selected, setSelected] = useState<string | null>(initialEdgeId ?? graph.edges[0]?.id ?? null);
+export default function Constellation({ graph, initialEdgeId, headingLevel = 3, syncUrl = false }: ConstellationProps) {
+  const [selection, setSelection] = useState<Selection>(initialEdgeId ? { type: "edge", id: initialEdgeId } : null);
+  const [hidden, setHidden] = useState<Set<EvidenceState>>(new Set());
   const baseId = useId();
   const H = headingLevel === 2 ? "h2" : "h3";
 
+  const wide = useMemo(() => layoutGraph(graph, "wide"), [graph]);
+  const narrow = useMemo(() => layoutGraph(graph, "narrow"), [graph]);
   const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
-  const chainInfo = useMemo(() => (selected ? sourceChain(graph, selected) : { chain: [], reachesOrigin: false }), [graph, selected]);
-  const chain = useMemo(() => new Set(chainInfo.chain), [chainInfo]);
-  const edge = graph.edges.find((e) => e.id === selected) ?? null;
 
-  const nodeLink = (id: string) => {
-    const node = nodeById.get(id);
-    if (!node) {
-      return null;
+  useEffect(() => {
+    if (!syncUrl) {
+      return;
     }
-    return node.href ? (
-      <Link href={node.href} className="tiro-link !text-[var(--tiro-text)]">
-        {node.label}
-      </Link>
-    ) : (
-      <span className="text-[var(--tiro-text)]">{node.label}</span>
-    );
+    const edge = new URLSearchParams(window.location.search).get("edge");
+    // Only an edge that exists in the projected graph may be preselected.
+    if (edge && graph.edges.some((e) => e.id === edge)) {
+      // Mount-only read of the address bar, which the server cannot see
+      // on a statically generated page.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelection({ type: "edge", id: edge });
+    }
+  }, [syncUrl, graph.edges]);
+
+  const select = (next: Selection) => {
+    setSelection(next);
+    if (syncUrl && typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (next?.type === "edge") {
+        url.searchParams.set("edge", next.id);
+      } else {
+        url.searchParams.delete("edge");
+      }
+      window.history.replaceState(window.history.state, "", url);
+    }
+  };
+
+  const footprint = useMemo(() => {
+    const order = new Map<string, number>();
+    if (!selection) {
+      return { edges: new Set<string>(), nodes: new Set<string>(), order };
+    }
+    if (selection.type === "edge") {
+      const fp = provenanceFootprint(graph, selection.id);
+      // Hop order for the redraw: each chain from its origin, then the edge.
+      for (const trace of edgeProvenance(graph, selection.id).traces) {
+        if (trace.state === "traced" || trace.state === "incomplete") {
+          trace.chain.forEach((id, i) => order.set(id, Math.min(order.get(id) ?? i, i)));
+        }
+      }
+      order.set(selection.id, Math.max(0, ...[...order.values()].map((v) => v + 1)));
+      return { ...fp, order };
+    }
+    const edges = new Set<string>();
+    const nodes = new Set<string>([selection.id]);
+    for (const e of graph.edges) {
+      if (e.from === selection.id || e.to === selection.id) {
+        edges.add(e.id);
+        nodes.add(e.from);
+        nodes.add(e.to);
+      }
+    }
+    for (const c of chainsToOrigins(graph, selection.id)) {
+      c.chain.forEach((id, i) => {
+        edges.add(id);
+        order.set(id, i);
+        const hop = graph.edges.find((e) => e.id === id)!;
+        nodes.add(hop.from);
+        nodes.add(hop.to);
+      });
+    }
+    return { edges, nodes, order };
+  }, [graph, selection]);
+
+  const counts = useMemo(() => {
+    const m = new Map<EvidenceState, number>();
+    for (const e of graph.edges) {
+      m.set(e.evidence, (m.get(e.evidence) ?? 0) + 1);
+    }
+    return m;
+  }, [graph.edges]);
+
+  const visibleEdges = graph.edges.filter((e) => !hidden.has(e.evidence));
+  const selectedEdge = selection?.type === "edge" ? graph.edges.find((e) => e.id === selection.id) : undefined;
+  const selectedNode = selection?.type === "node" ? nodeById.get(selection.id) : undefined;
+
+  const toggle = (state: EvidenceState) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(state)) {
+        next.delete(state);
+      } else {
+        next.add(state);
+      }
+      return next;
+    });
   };
 
   return (
-    // Narrow screens: drawing, then inspector, then list, so a selection is
-    // never off-screen. Wide screens: inspector in its own sticky column.
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.7fr)_minmax(18rem,1fr)] lg:grid-rows-[auto_1fr] lg:items-start">
-        <figure className="lg:col-start-1 lg:row-start-1">
-          <Drawing graph={graph} layout={WIDE} selected={selected} chain={chain} onSelect={setSelected} className="hidden h-auto w-full sm:block" />
-          <Drawing graph={graph} layout={NARROW} selected={selected} chain={chain} onSelect={setSelected} className="block h-auto w-full sm:hidden" />
-          <figcaption className="lt-label mt-3">
-            Synthetic demonstration graph, not archival data. Restricted records and their relationships are never drawn.
+    <div className="lt-constellation grid gap-x-10 gap-y-10 xl:grid-cols-[minmax(0,1fr)_25rem]" style={{ "--lt-graph-bg": "var(--tiro-bg-deep)" } as React.CSSProperties}>
+      <div className="min-w-0">
+        <div role="group" aria-label="Show relationships by evidence" className="mb-6 flex flex-wrap items-center gap-2">
+          <span className="lt-label mr-2">Evidence</span>
+          {EVIDENCE_ORDER.filter((s) => counts.has(s)).map((state) => (
+            <button
+              key={state}
+              type="button"
+              aria-pressed={!hidden.has(state)}
+              onClick={() => toggle(state)}
+              className="inline-flex items-center gap-2 border border-[var(--tiro-border)] px-2.5 py-1.5 text-xs text-[var(--tiro-text-muted)] transition-colors aria-pressed:border-[var(--tiro-border-strong)] aria-pressed:text-[var(--tiro-text)] hover:border-[var(--tiro-accent)]"
+            >
+              <EvidenceStroke evidence={state} width={20} />
+              {EVIDENCE[state].label}
+              <span className="font-[family-name:var(--font-code)] text-[10px] text-[var(--tiro-text-muted)]">{counts.get(state)}</span>
+            </button>
+          ))}
+        </div>
+
+        <figure>
+          <Reveal>
+            <Drawing graph={graph} layout={wide} selection={selection} footprint={footprint} hidden={hidden} onSelect={select} className="hidden h-auto w-full md:block" />
+            <Drawing graph={graph} layout={narrow} selection={selection} footprint={footprint} hidden={hidden} onSelect={select} className="block h-auto w-full md:hidden" />
+          </Reveal>
+          <figcaption className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <span className="lt-label">Synthetic demonstration graph · not archival data</span>
+            {selection ? (
+              <button type="button" className="tiro-link text-xs" onClick={() => select(null)}>
+                Clear selection
+              </button>
+            ) : null}
           </figcaption>
         </figure>
+      </div>
 
-      <div className="lg:col-start-1 lg:row-start-2">
-        <H id={`${baseId}-list`} className="lt-label mb-2 text-[var(--tiro-text)]">
-          Relationships ({graph.edges.length}). Select one to inspect.
+      <section
+        id={`${baseId}-inspector`}
+        aria-live="polite"
+        aria-labelledby={`${baseId}-inspector-title`}
+        className="border border-[var(--tiro-border-strong)] bg-[var(--tiro-raised)] p-5 md:p-6 xl:sticky xl:top-20 xl:row-span-2 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto"
+      >
+        <H id={`${baseId}-inspector-title`} className="lt-label text-[var(--tiro-accent)]">
+          Inspector
         </H>
-        <ul aria-labelledby={`${baseId}-list`} className="border-b border-[var(--tiro-border)]">
-          {graph.edges.map((e) => (
+        {selectedEdge ? (
+          <EdgeInspector graph={graph} edge={selectedEdge} H={H} onSelect={select} />
+        ) : selectedNode ? (
+          <NodeInspector graph={graph} node={selectedNode} H={H} onSelect={select} />
+        ) : (
+          <p className="mt-4 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+            Select a relationship or a point, in the drawing or the list, to see its accounts, who made each claim, and the
+            chain of sources behind it.
+          </p>
+        )}
+        <p className="mt-8 border-t border-[var(--tiro-border)] pt-4 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
+          A path through this graph counts as provenance only where every step is a source link. Being connected is not being
+          corroborated. Restricted records, and relationships that depend on them, are never drawn.
+        </p>
+      </section>
+
+      <div className="min-w-0">
+        <H id={`${baseId}-list`} className="lt-label mb-2 text-[var(--tiro-text)]">
+          Relationships ({visibleEdges.length === graph.edges.length ? graph.edges.length : `${visibleEdges.length} of ${graph.edges.length} shown`})
+        </H>
+        <ul aria-labelledby={`${baseId}-list`} className="grid border-b border-[var(--tiro-border)] md:grid-cols-2 md:gap-x-8">
+          {visibleEdges.map((e) => (
             <li key={e.id}>
               <button
                 type="button"
                 className="lt-row-button"
-                aria-pressed={selected === e.id}
+                aria-pressed={selection?.type === "edge" && selection.id === e.id}
                 aria-controls={`${baseId}-inspector`}
-                onClick={() => setSelected(e.id)}
+                onClick={() => select({ type: "edge", id: e.id })}
               >
                 <span className="pt-1.5">
                   <EvidenceStroke evidence={e.evidence} />
@@ -239,6 +636,7 @@ export default function Constellation({ graph, initialEdgeId, headingLevel = 3 }
                   {nodeById.get(e.from)?.label} <span className="text-[var(--tiro-text-muted)]">→</span> {nodeById.get(e.to)?.label}
                   <span className="block text-xs text-[var(--tiro-text-muted)]">
                     {e.relation} · {EVIDENCE[e.evidence].label}
+                    {e.accounts.length > 1 ? ` · ${e.accounts.length} accounts` : ""}
                   </span>
                 </span>
               </button>
@@ -246,61 +644,6 @@ export default function Constellation({ graph, initialEdgeId, headingLevel = 3 }
           ))}
         </ul>
       </div>
-
-      <section
-        id={`${baseId}-inspector`}
-        aria-live="polite"
-        aria-labelledby={`${baseId}-inspector-title`}
-        className="border border-[var(--tiro-border-strong)] bg-[var(--tiro-raised)] p-5 md:p-6 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
-      >
-        <H id={`${baseId}-inspector-title`} className="lt-label text-[var(--tiro-accent)]">
-          Relationship inspector
-        </H>
-        {edge ? (
-          <>
-            <p className="lt-label mt-5">Link type</p>
-            <p className="mt-1 font-[family-name:var(--font-display)] text-2xl leading-snug">{edge.relation}</p>
-            <p className="mt-2 text-sm text-[var(--tiro-text-muted)]">
-              {nodeLink(edge.from)} <span aria-hidden="true">→</span>
-              <span className="sr-only">to</span> {nodeLink(edge.to)}
-            </p>
-
-            <p className="lt-label mt-5">Evidence status</p>
-            <p className="mt-1.5 flex items-center gap-2 text-sm text-[var(--tiro-text)]">
-              <EvidenceStroke evidence={edge.evidence} /> {EVIDENCE[edge.evidence].label}
-            </p>
-            <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">{EVIDENCE[edge.evidence].meaning}</p>
-
-            <p className="lt-label mt-5">Basis</p>
-            <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-soft)]">{edge.basis}</p>
-            <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">Asserted by: {edge.assertedBy}</p>
-
-            <p className="lt-label mt-5">Source chain</p>
-            {chainInfo.reachesOrigin ? (
-              <ol className="mt-2 space-y-2">
-                {chainInfo.chain.map((id, index) => {
-                  const hop = graph.edges.find((e) => e.id === id)!;
-                  return (
-                    <li key={id} className="flex items-start gap-2.5 text-sm">
-                      <span className="lt-label w-5 shrink-0 pt-0.5">{String(index + 1).padStart(2, "0")}</span>
-                      <span className="text-[var(--tiro-text-soft)]">
-                        {nodeLink(hop.from)} → {nodeLink(hop.to)}
-                        <span className="block text-xs text-[var(--tiro-text-muted)]">
-                          {hop.relation} · {EVIDENCE[hop.evidence].label}
-                        </span>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-            ) : (
-              <p className="mt-1 text-sm text-[var(--tiro-text-muted)]">No path back to an origin is on record for this link.</p>
-            )}
-          </>
-        ) : (
-          <p className="mt-4 text-sm text-[var(--tiro-text-muted)]">Select a relationship to see its type, evidence, and source chain.</p>
-        )}
-      </section>
     </div>
   );
 }
