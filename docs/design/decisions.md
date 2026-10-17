@@ -104,3 +104,43 @@ The demonstration/evidenced separation (a synthetic object never becomes evidenc
 
 For the proposed Nigerian pilot, **community review is not postponed** until the technical model is final. The model must accommodate participating communities' decision-making practices rather than presuppose them.
 
+## 2026-10-16 — disposition of Memory Record & Relationship Contract 0.2
+
+| Item | Status |
+| --- | --- |
+| Conceptual architecture | **Accepted for formal multidisciplinary review** |
+| Founder positions 12–26 | Recorded; specialist review pending |
+| Contract consistency | **Clarifications required** (review issues RI-1 to RI-7 below) |
+| Institutional adoption | **Not authorized** |
+| Production implementation | **Deferred** |
+
+No Contract 0.3 until reviewers have responded. Their findings are consolidated into 0.3; the review packet is `docs/proposals/contract-0.2-review/`. Memory Project Experience 1.0 may proceed in parallel with strictly synthetic material and the established Living Trace grammar.
+
+Recognized as improvements from the worked cases: version-specific authorization; time-bounded cache validity; context-dependent disclosure.
+
+### Review issues
+
+| ID | Priority | Section | Issue |
+| --- | --- | --- | --- |
+| RI-1 | Critical | §7.3 | **Restricted-record gates.** The rule requires the anchor record to pass publication checks before any disclosure, yet acknowledges claims in restricted records. Define distinct gates for existence, association, and content without a route around record restrictions. |
+| RI-2 | Critical | §7.3, §13 | **Level ambiguity.** "No level implies another", yet the tests imply content alone yields attribution. Specify whether content requires explicit authorization of all three levels. One document may carry several affirmative scopes; none may be inferred. |
+| RI-3 | Critical | §7.6, case F | **Collective authority vs independent records.** One community's restriction on Place V suppresses R9, an independently sourced record, which may contradict P14. Distinguish restrictions on TIRO-held associations from a narrowly justified, independently reviewed **safety** restriction on a location itself. |
+| RI-4 | High | §7.1, cases B–E | **Staff access.** Cases show staff seeing everything while the rule requires every interest. Define a separate, minimal, audited **administrative-review basis** for legitimate custody duties; staff status alone grants nothing. |
+| RI-5 | High | §6.1, §8 | **Characterization versions and concurrent reads.** An approved characterization must pin the exact versions of its supporting claims. Engineering must show whether register-last yields a consistent snapshot when content, authorizations, and register are separate stores. |
+| RI-6 | High | §5.3 | **Source independence.** Disjoint recorded origins show different provenance, not independent testimony (two narrators may repeat one unrecorded upstream account). Distinguish *source-distinct* from *verified independent*, and preserve uncertainty. |
+| RI-7 | High | §8 | **Negative dependencies.** A cached decision can depend on objects that did not exist when it was built (a new dispute, a newly established subject interest, a new claim on a relationship). Account for changes to collection membership, relationship indexes, authority sets, and authorization scopes, and show by controlled concurrency tests that a register read does not make separate content reads atomic. |
+
+RI-3 principle: TIRO protects community authority without building a system in which one party can unilaterally suppress an independent historical account held under another party's authority. Sensitive locations need not always be disclosed, but a broader safety restriction needs its own documented justification and review, never an automatic extension of ownership or cultural authority.
+
+### Provisional founder positions on pilot-shaping questions (for reviewers to confirm or challenge)
+
+| # | Question | Provisional position |
+| --- | --- | --- |
+| 27 | Evidence of community authority (contract §14 Q1) | For the Nigerian pilot: documented consultation with the relevant community, recording how representatives are selected, the boundaries of their mandates, how dissent is handled, and who may withdraw or challenge an authorization. No agreement is permanently irrevocable because its initial representatives were recognized. No single governance form (council, elder, association, family) is presumed. **Requires actual community participation, not simulated review.** |
+| 28 | Interpretation as a ninth use category (§14 Q6) | **Not yet.** Model `interpretive-enrichment` as a separately authorized scope within `derivatives` for the first production proposal. A generic derivatives grant does **not** authorize it. `ethos.txt` is not amended until legal and stewardship review, including whether annotation, commentary, translation, and adaptation need different treatment. |
+| 29 | Context references without inference (§14 Q10) | **Explicit, curator-reviewed references.** A field naming a place, person, language, or sensitive event carries structured references to those entities (and text spans where appropriate), so a disclosure change re-evaluates dependent fields without model inference. Unreviewed unstructured content is never assumed free of identifying information: it needs review before publication, or the field is suppressed when safety cannot otherwise be established. |
+
+### Standing caution
+
+The contract's coherence does not establish real-world authority or operational readiness. Those require engagement with people, evidence, institutional decisions, and specialist review.
+
