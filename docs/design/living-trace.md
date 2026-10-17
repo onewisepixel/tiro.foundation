@@ -1,6 +1,6 @@
 # The Living Trace — design language 0.2 (implementation reference)
 
-Status: **Provisionally approved as TIRO's design direction** (founder review, 2026-10-16; see `decisions.md`). Not adopted doctrine, not a production archival specification.
+Status: **Frozen at 0.2.1 as the provisional design foundation and development baseline** (founder reviews, 2026-10-16; see `decisions.md`). Not adopted doctrine, not a production archival specification. Release gate outstanding: manual accessibility testing (`accessibility-manual-test.md`).
 Revision date: 2026-10-16 (0.2.1 Consolidation). Supersedes the 0.1 version of this file. Evidence: `screens/0.1/`, `screens/0.2/`, `screens/0.2.1/`.
 Sources: `docs/TIRO_Living_Trace_Claude_Execution_Brief.md`, `docs/TIRO_Living_Trace_Visual_Direction.pdf`, and the 0.2 implementation directive.
 Authority: Display semantics only. Defers to `docs/manifestov0-2.txt`, `/community-rights`, `docs/ethos.txt`, and `docs/501c3.txt`. Nothing here changes the mark, the manifesto, the rights policy, the backend, or legal status.
@@ -26,6 +26,18 @@ Measured (Lighthouse mobile, simulated, median of 3):
 - `/living-trace`: CLS 0.002.
 
 As predicted in the review, deferral did **not** move simulated LCP. Its benefit is a lighter first render and less hydration. The remaining gap to 2.5 s is the framework runtime (~145 KB JS on every page; `/about`, which has no Discover, measures 2.64 s).
+
+### Retired demonstration slugs
+
+`docs/memory.txt` is a historical brief and is deliberately left unedited. It still names the original demonstration slugs, which were replaced in 0.2.1:
+
+| `docs/memory.txt` slug (retired) | Current slug | Record ID |
+| --- | --- | --- |
+| `lagos-port-harcourt-migration` | `demo-audio-record` | DEMO-MEM-0001 (was TIR-MEM-0001) |
+| `rain-season-enugu` | `demo-image-record` | DEMO-MEM-0002 (was TIR-MEM-0002) |
+| `market-song-lagos` | `demo-video-record` | DEMO-MEM-0003 (was TIR-MEM-0003) |
+
+The old paths return temporary (307) redirects (`next.config.ts`).
 
 ## 1. What 0.2 is
 

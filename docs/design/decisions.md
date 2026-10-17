@@ -31,3 +31,29 @@ Removing unused 3D dependencies reduces dependency complexity; it does not by it
 ### Out of scope until the contracts are settled
 
 Real archival relationships are not integrated yet. First, settle the record and relationship contracts; then connect to the production system behind permission-aware APIs.
+
+## 2026-10-16 — review of Living Trace 0.2.1
+
+**Verdict.** 0.2.1 achieved its consolidation objective. Living Trace is **frozen at 0.2.1** as the provisional foundation and development baseline. Main design effort moves to **Memory Project Experience 1.0**.
+
+| # | Matter | Decision |
+| --- | --- | --- |
+| 7 | Manual accessibility testing | **Release gate.** Run `accessibility-manual-test.md` (VoiceOver, TalkBack, NVDA, keyboard, reflow, reduced motion), record results, and fix defects. Automated results do not establish assistive-technology usability. It may run alongside planning. |
+| 8 | Simulated LCP (2.81 s vs 2.5 s) | **Tracked technical debt, not a rewrite.** No Next.js architecture change to recover ~310 ms. Measure realistic network conditions and production user experience before investing. Idle loading of Discover stands, because it preserves keyboard access. |
+| 9 | Example metadata in demonstration records | Acceptable as disclosed example metadata. **Requirement for Memory Project Experience 1.0:** a demonstrated relationship must be visually distinct from an evidenced one, and an evidenced relationship must never be inferred from shared example metadata. |
+| 10 | `docs/memory.txt` old slugs | Preserve the historical brief unedited. The replacements are documented in `living-trace.md` §0. |
+| 11 | Backend readiness | Keep the backend's unresolved live-drill evidence separate from the design project. A compelling frontend is **not** evidence that intake, permissions, and restoration are ready to receive entrusted material. |
+
+### Next, in order
+
+1. **Close the accessibility gate** (decision 7).
+2. **Draft the Memory Record & Relationship Contract** as a proposal for review, not a backend migration. Scope: records, attributed claims, independent provenance, disputed accounts, permission scopes, disclosure boundaries, withdrawal propagation, and version history (extends decision 1).
+3. **Memory Project Experience 1.0.** Design the explorer around moving from an authorized record into its context and relationships, always keeping the origin and authority of each claim. Prototype with synthetic data before production integration.
+
+### Central design question for Memory Project Experience 1.0
+
+> How does a visitor encounter a single memory and discover its relationship to the wider human record without losing sight of the individual who entrusted it?
+
+### Principle carried forward
+
+Every design element should communicate something true about the information it represents, including what the visitor is not entitled to know.
