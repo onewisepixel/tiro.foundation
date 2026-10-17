@@ -10,6 +10,10 @@ const RETIRED_DEMO_SLUGS: Record<string, string> = {
 };
 
 const nextConfig: NextConfig = {
+  // Only scripts/flight-deck/dev.mjs sets this, so the Flight Deck local
+  // demo can run beside an ordinary `npm run dev` (Next allows one dev
+  // server per build directory). Builds and deployments use ".next".
+  distDir: process.env.FLIGHT_DECK_DIST_DIR || ".next",
   async redirects() {
     return Object.entries(RETIRED_DEMO_SLUGS).map(([from, to]) => ({
       source: `/memories/${from}`,
@@ -32,6 +36,13 @@ const nextConfig: NextConfig = {
     // addresses separately.
     staleTimes: {
       dynamic: 0,
+    },
+    // Flight Deck 0.1: no Server Action in this app accepts files or long
+    // text (the /pilot form is a few short fields; drafts are a few KB at
+    // most). Down from the 1 MB default so an oversized body is refused
+    // before it is parsed.
+    serverActions: {
+      bodySizeLimit: "64kb",
     },
   },
 };

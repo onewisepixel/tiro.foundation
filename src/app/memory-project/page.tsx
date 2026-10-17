@@ -38,6 +38,9 @@ export default function MemoryProjectPage() {
             <Link href="/nodes" className="tiro-link self-center text-sm">
               Explore the Node Index
             </Link>
+            <Link href="/pilot" className="tiro-link self-center text-sm">
+              A pilot is forming: start a conversation
+            </Link>
           </div>
         </div>
       </section>

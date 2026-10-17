@@ -51,3 +51,8 @@ cdk.context.json
 # listing backfill progress/logs (backend/src/scripts/backfillPublicListingItems.ts)
 listing-backfill-*.state.json
 listing-backfill-*.log.jsonl
+
+# Flight Deck local demo: synthetic local store and dry-run outbox
+/.flight-deck/
+/.next-flight-deck/
+!.env.example

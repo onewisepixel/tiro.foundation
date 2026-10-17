@@ -1,0 +1,179 @@
+{
+  "at": "2026-10-17T03:05:07.930Z",
+  "base": "http://localhost:3100",
+  "seconds": 29,
+  "passed": 34,
+  "failed": 0,
+  "results": [
+    {
+      "name": "unauthenticated /flight-deck redirects to sign-in",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "local store reset to synthetic seed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "/pilot states it is not collecting material",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "/pilot has no file input or drag-and-drop",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "/pilot updates opt-in is unchecked by default",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "submission without privacy acknowledgement is refused server-side",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "entries survive a validation error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error is announced and invalid field is marked",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "valid submission shows an accessible confirmation",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "repeat submission gets the identical response (no enumeration)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Now: new inquiry is visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Now: shows next actions, blockers, approvals",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "relationship: safe context shown (note, notice version, unverified authority)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "relationship: repeat submission linked to one record",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "relationship: no newsletter permission without opt-in",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "draft with [placeholders] cannot be sent for review",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "approval recorded for the exact version",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "draft shows the approved fingerprint",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no provider: message held as 'ready to send by hand', never 'sent'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "manual send recorded as an attestation by a named person",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a single follow-up reminder was registered",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stage advanced to Contacted",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "digest generated locally, delivery off, no addresses",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "representative review session completed without a spreadsheet",
+      "ok": true,
+      "detail": "7s of automated interaction"
+    },
+    {
+      "name": "approved draft offers manual send",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "editing after approval revokes it (no send controls, approval invalidated)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "reviewer sees no edit form",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "operator sees no approval controls",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Now board has no horizontal overflow at 390px",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Approvals has no horizontal overflow at 390px",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Relationship detail has no horizontal overflow at 390px",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "/pilot has no horizontal overflow at 390px",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "first Tab focuses the skip link",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every visible /pilot form control has a label",
+      "ok": true,
+      "detail": "0 unlabeled"
+    }
+  ]
+}

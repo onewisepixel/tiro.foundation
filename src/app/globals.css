@@ -694,3 +694,239 @@ html[data-bfcache-pending="true"] body {
     }
   }
 }
+
+/* ======================================================================
+   Forms and Flight Deck (0.1)
+   Additive. Built only from the existing TIRO tokens above. The private
+   Flight Deck is an operational instrument: dense, legible, no motion
+   beyond focus and hover. Every state is carried by a word (and usually a
+   glyph), never by colour alone.
+   ====================================================================== */
+@layer components {
+  .tiro-field-label {
+    display: block;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    color: var(--tiro-text);
+  }
+
+  .tiro-field-hint {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--tiro-text-muted);
+  }
+
+  .tiro-field-error {
+    display: flex;
+    gap: 0.45rem;
+    margin-top: 0.4rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--tiro-contested);
+  }
+
+  .tiro-input {
+    display: block;
+    width: 100%;
+    margin-top: 0.5rem;
+    border: 1px solid var(--tiro-border-strong);
+    border-radius: 0;
+    background: var(--tiro-bg);
+    color: var(--tiro-text);
+    padding: 0.7rem 0.85rem;
+    font: inherit;
+    font-size: 1rem;
+    line-height: 1.45;
+  }
+
+  .tiro-input:hover {
+    border-color: var(--tiro-text-subtle);
+  }
+
+  .tiro-input:focus-visible {
+    outline: 2px solid var(--tiro-accent);
+    outline-offset: 1px;
+  }
+
+  .tiro-input[aria-invalid="true"] {
+    border-color: var(--tiro-contested);
+    border-width: 2px;
+  }
+
+  textarea.tiro-input {
+    resize: vertical;
+    min-height: 7rem;
+  }
+
+  .tiro-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--tiro-text-soft);
+  }
+
+  .tiro-check input {
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+    accent-color: var(--tiro-accent);
+  }
+
+  .tiro-button-primary {
+    background: var(--tiro-accent);
+    border-color: var(--tiro-accent);
+    color: var(--tiro-bg);
+  }
+
+  .tiro-button-primary:hover {
+    background: var(--tiro-accent);
+    filter: brightness(1.08);
+    color: var(--tiro-bg);
+  }
+
+  .tiro-button:disabled,
+  .tiro-button[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .fd-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid var(--tiro-border-strong);
+    background: var(--tiro-surface);
+    padding: 0.5rem 0.85rem;
+    font-family: var(--font-code);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--tiro-text);
+    min-height: 2.5rem;
+    transition: background-color var(--lt-dur-quick) ease, border-color var(--lt-dur-quick) ease;
+  }
+
+  .fd-button:hover {
+    background: var(--tiro-surface-strong);
+    border-color: var(--tiro-accent);
+  }
+
+  .fd-button[data-tone="primary"] {
+    background: var(--tiro-accent);
+    border-color: var(--tiro-accent);
+    color: var(--tiro-bg);
+  }
+
+  .fd-button[data-tone="danger"] {
+    border-color: var(--tiro-contested);
+    color: var(--tiro-contested);
+    background: transparent;
+  }
+
+  .fd-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .fd-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--tiro-border-strong);
+    padding: 0.15rem 0.5rem;
+    font-family: var(--font-code);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--tiro-text-soft);
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .fd-badge[data-tone="attention"] {
+    border-color: var(--tiro-accent);
+    color: var(--tiro-accent);
+  }
+
+  .fd-badge[data-tone="blocked"] {
+    border-color: var(--tiro-contested);
+    color: var(--tiro-contested);
+  }
+
+  .fd-badge[data-tone="done"] {
+    border-color: var(--tiro-mineral-line);
+    color: var(--tiro-mineral);
+  }
+
+  .fd-panel {
+    border: 1px solid var(--tiro-border);
+    background: var(--tiro-surface);
+    padding: 1.1rem;
+  }
+
+  @media (min-width: 768px) {
+    .fd-panel {
+      padding: 1.5rem;
+    }
+  }
+
+  .fd-row {
+    display: block;
+    border-top: 1px solid var(--tiro-border);
+    padding: 0.85rem 0;
+  }
+
+  .fd-row:first-child {
+    border-top: none;
+  }
+
+  a.fd-row:hover {
+    background: var(--tiro-surface);
+  }
+
+  .fd-pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--tiro-text);
+  }
+
+  .fd-hash {
+    font-family: var(--font-code);
+    font-size: 0.7rem;
+    overflow-wrap: anywhere;
+    color: var(--tiro-text-muted);
+  }
+
+  .fd-nav a[aria-current="page"] {
+    color: var(--tiro-accent);
+    border-bottom-color: var(--tiro-accent);
+  }
+
+  @media print {
+    header,
+    footer,
+    .fd-nav,
+    .fd-noprint {
+      display: none !important;
+    }
+  }
+}
+
+/* Flight Deck only: key/value rows wrap long labels on narrow screens
+   (the shared .tiro-kv keeps its key on one line elsewhere). */
+#flight-deck .tiro-kv .k {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+#flight-deck .tiro-kv .v {
+  overflow-wrap: anywhere;
+}

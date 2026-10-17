@@ -6,6 +6,8 @@ const eslintConfig = [
   // meant to pass this project's lint rules. Flat config doesn't read
   // .gitignore automatically, so this needs its own entry.
   { ignores: ["infra/cdk.out/**"] },
+  // Build output of the Flight Deck local demo server (scripts/flight-deck/dev.mjs).
+  { ignores: [".next-flight-deck/**", ".flight-deck/**"] },
   // staff-ui/ is intentionally plain, dependency-free browser script (no
   // build step, no ES modules — functions are shared across files via
   // global <script> tags on purpose) run outside the Next.js/TypeScript

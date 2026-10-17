@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Contact — The Tiro Foundation",
@@ -26,6 +27,14 @@ export default function ContactPage() {
           >
             custodians@tiro.foundation
           </a>
+
+          <p className="mt-6 max-w-xl text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+            Interested in TIRO&apos;s pilot?{" "}
+            <Link href="/pilot" className="tiro-link">
+              Read what it is and is not
+            </Link>{" "}
+            before writing. We are not collecting recordings, stories, or other material yet.
+          </p>
 
           <hr className="tiro-rule my-10 w-16" />
 
