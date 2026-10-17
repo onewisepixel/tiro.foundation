@@ -9,7 +9,7 @@ Owner: TIRO founder / Steward.
 
 | # | Question (from `living-trace.md` §8) | Decision | Status |
 | --- | --- | --- | --- |
-| 1 | Live-archive relationship schema | **Defer implementation.** A schema *proposal* may be designed. The backend is not modified until authority, provenance, access, and revocation semantics are formally reviewed. | Proposal 0.1 drafted for review: `docs/proposals/memory-record-relationship-contract.md`. Backend unchanged. |
+| 1 | Live-archive relationship schema | **Defer implementation.** A schema *proposal* may be designed. The backend is not modified until authority, provenance, access, and revocation semantics are formally reviewed. | 0.1 conceptually approved, not adopted. **0.2 Review Candidate** at `docs/proposals/memory-record-relationship-contract.md`, awaiting formal review (its §14). Backend unchanged. |
 | 2 | Acknowledging restricted accounts | **Default deny.** Not enabled in production without explicit, separately scoped authorization covering both the fact of existence and which relationship metadata may be disclosed. | Implemented in 0.2.1: claim-level grants (existence + association), default deny; a withheld claim never decides a relationship's evidence state |
 | 3 | Fictional first-person stories | **Replace them.** Keep the demonstration interfaces; remove invented documentary testimony and cultural practices attributed to real communities. | Implemented in 0.2.1: structural specimens; old slugs redirect (307); node pages' unfounded themes and related nodes removed. `docs/memory.txt` (historical brief) still lists the old slugs and was left unedited. |
 | 4 | Old design explorations | **Archive with superseded banners.** Preserve the design history; make obsolete claims conspicuous when the HTML files are opened directly. | Implemented in 0.2.1 |
@@ -57,3 +57,50 @@ Real archival relationships are not integrated yet. First, settle the record and
 ### Principle carried forward
 
 Every design element should communicate something true about the information it represents, including what the visitor is not entitled to know.
+
+## 2026-10-16 — review of Memory Record & Relationship Contract 0.1
+
+**Verdict.** The conceptual architecture is **approved for continued development**: records preserve material, claims preserve assertions, relationships organize claims, and disclosure is decided per audience. Contract 0.1 is **not adopted** as a normative specification. Next: **Contract 0.2 — Review Candidate** (no schema implementation). Memory Project Experience 1.0 may begin **in parallel, with synthetic data only**; the prototype's convenience must not determine the production permission model. Live archival integration remains deferred.
+
+### Founder positions on the contract's open questions
+
+These direct the next revision. Provisions on legal rights, collective authority, and formal stewardship procedure remain **subject to the designated reviewers** (below).
+
+| # | Question (Contract 0.1 §9) | Decision | Formal review needed |
+| --- | --- | --- | --- |
+| 12 | Who may grant claim disclosure? | **All applicable authority must be established for the specific disclosure.** Claimant, source authority, legal rights holders, and affected subjects may hold distinct interests. No one gains authority over others' interests by submitting a record. **Collective authority:** do not assume one representative. An elder, council, family representative, or other body may hold authority only as established through the community's legitimate process and documented for the particular material and use. **Disputed authority:** hold the affected disclosure until adequately resolved. TIRO's review may evaluate evidence, facilitate resolution, and impose protective restrictions; it cannot manufacture consent or expand a mandate. Authority over entrusted material is **distinct from** a power to suppress independently sourced historical information. | Stewardship / community; legal |
+| 13 | Rights of subjects | **Independent protection.** A source's consent cannot by itself authorize disclosing information that identifies someone else. Requires applicable consent or another documented lawful basis, plus privacy and sensitivity review. | Legal; stewardship |
+| 14 | Who may record disagreement? | Authorized curators may document disagreement **internally**. **Public** disclosure requires additional review; dual control for sensitive disputes. Sources have a correction and challenge process. Publication never discloses claims or conflicts outside their authorized scope. | Stewardship; archivist |
+| 15 | TIRO's own interpretation without source authorization | **No, not by default for entrusted material.** Interpretation is not necessarily a legal derivative work (annotation, translation, scholarship, and adaptation differ legally). TIRO's operational standard is stricter than copyright: source-linked interpretive enrichment needs explicit authorization for its purpose and publication scope, attribution, provenance, review, and a correction/challenge mechanism. Responsible scholarship stays possible; custody never becomes unrestricted interpretive authority. Interpretation stays explicitly separate from testimony. | Legal; stewardship |
+| 16 | Machine-generated claims in v1 | **Defer.** No model-generated claim enters the entrusted archive before processing permissions, model/vendor review, and human accountability exist. Synthetic testing remains permissible. | Engineering/security; legal |
+| 17 | May incomplete provenance explain itself? | **Not by default.** Show "Provenance incomplete" without the reason. A more specific explanation needs separate authorization for what it reveals. | — |
+| 18 | Attribution withdrawn | **Protect against indirect identification.** Removing a name is not enough if remaining relationships, places, or dates still reveal the person. Reassess the whole projected context and restrict where necessary. | Stewardship; legal (privacy) |
+| 19 | Public version history | **None by default.** Access only for authorized personnel with legitimate duties. Public corrections or version summaries need separate disclosure approval. | Archivist |
+| 20 | Geographic precision | The applicable source or community authority sets the permitted disclosure scope, subject to legal and stewardship review. Sensitive associations and locations may be withheld **independently** of a record's general publication status. | Stewardship; legal |
+
+### Structural corrections required for Contract 0.2
+
+| # | Correction |
+| --- | --- |
+| 21 | **One authorization rule for every claim.** Remove the public-record exception (0.1 §5.3): a public record never automatically authorizes the claims within it. |
+| 22 | **No silent downgrade of a contested relationship.** If visible claims no longer support the authorized characterization, suppress the relationship rather than reclassify it. An independently supportable assertion may be represented separately, with its own authorization. |
+| 23 | **Protect the synthetic backend boundary.** `FixtureRecord` requires `isSynthetic: true`; adding an evidence class must not suggest converting fixture infrastructure into a real archive. A production domain and migration need their own reviewed design when readiness is established. |
+| 24 | **Specify grant enforcement and revocation consistency.** The grant records authority, verified representative capacity, permission evidence, purpose, audience, channel, relationship scope, version, expiry, and revocation. Define how one consistent decision is reached across stores, and how a change to any source invalidates every dependent cached relationship. A single per-record version is insufficient unless every dependency is tracked. |
+| 25 | **Clarify provenance.** Traverse by each relationship type's declared semantics, not by arrow direction. Distinguish the source of testimony from the author of a translation or interpretation. |
+| 26 | **Response windows are proposed.** `ethos.txt` §12 windows are acceptance targets pending adoption, not service guarantees. |
+
+### Preserve explicitly
+
+The demonstration/evidenced separation (a synthetic object never becomes evidence by editing its status); provenance independence (shared place ≠ corroboration; two descendants of one original ≠ two sources); history without indefinite retention.
+
+### Review responsibilities
+
+| Reviewer | Principal responsibility |
+| --- | --- |
+| Stewardship / community representatives | Authority, collective consent, contested cultural claims, subject dignity, withdrawal |
+| Archivist / records specialist | Provenance, archival description, source independence, corrections, retention, version history |
+| Engineering / security | Authorization boundaries, dependency tracking, revocation races, storage isolation, information leakage |
+| Qualified legal counsel | Copyright, privacy, data protection, collective rights where applicable, retention obligations, international transfers |
+
+For the proposed Nigerian pilot, **community review is not postponed** until the technical model is final. The model must accommodate participating communities' decision-making practices rather than presuppose them.
+
