@@ -21,13 +21,16 @@
 // src/app/memories/layout.tsx), not here — this header alone is
 // necessary but not sufficient.
 //
-// 2. Flight Deck (private operations). Outside a local-demo request
-// (src/lib/flightDeck/config.ts) every /flight-deck path, including its
-// server actions and export routes, answers 404 before any page code runs.
-// This is the outer gate only: every page, action and route handler
-// checks again on the server (src/lib/flightDeck/runtime.ts).
+// 2. Flight Deck (private operations). Unless this is a local-demo request
+// or a fully configured production request on the configured host
+// (src/lib/flightDeck/config.ts requestMode), every /flight-deck path,
+// including its server actions, auth callbacks, machine endpoints and
+// export routes, answers 404 before any page code runs. This is the outer
+// gate only: every page, action and route handler checks again on the
+// server, including the founder's recorded "console" gate in production
+// (src/lib/flightDeck/runtime.ts).
 import { NextResponse, type NextRequest } from "next/server";
-import { localDemoActive } from "@/lib/flightDeck/config";
+import { requestMode } from "@/lib/flightDeck/config";
 
 const PRIVATE_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store",
@@ -41,7 +44,7 @@ const PRIVATE_HEADERS: Record<string, string> = {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (pathname === "/flight-deck" || pathname.startsWith("/flight-deck/")) {
-    if (!localDemoActive(process.env, request.headers.get("host"))) {
+    if (!requestMode(process.env, request.headers.get("host"))) {
       return new NextResponse("Not found", { status: 404, headers: { ...PRIVATE_HEADERS, "Content-Type": "text/plain; charset=utf-8" } });
     }
     const response = NextResponse.next();

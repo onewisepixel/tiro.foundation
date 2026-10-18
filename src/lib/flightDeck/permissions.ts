@@ -42,6 +42,12 @@ export function contactEligibility(tx: OpsTx, prospect: Prospect, purpose: Conta
   if (isSuppressed(tx, prospect.emailKey, purpose)) {
     return { ok: false, reason: "suppressed" };
   }
+  // An open exception (deletion request, complaint, sensitive material,
+  // doubtful contact...) holds ordinary outreach until it is resolved.
+  // Correspondence about the case itself is handled inside the case.
+  if (tx.list("cases", (c) => c.prospectId === prospect.id && c.status !== "resolved" && c.holdsOutreach).length) {
+    return { ok: false, reason: "case-open" };
+  }
   const perms = tx.list("permissions", (p) => p.prospectId === prospect.id);
   const find = (pred: (p: CommunicationPermission) => boolean) => perms.find((p) => pred(p) && usable(p, tx.nowIso));
   let permission: CommunicationPermission | undefined;
@@ -95,7 +101,7 @@ export function applySuppression(
       createdAt: tx.nowIso,
       updatedAt: tx.nowIso,
       version: 1,
-      synthetic: true,
+      synthetic: tx.synthetic,
     });
   if (!existing) {
     audit(tx, actor, "suppression-added", "suppression", suppression.id, basis);

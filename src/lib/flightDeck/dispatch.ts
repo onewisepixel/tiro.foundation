@@ -21,7 +21,7 @@ import type { DispatchJob, OutreachDraft } from "./types";
 const LEASE_MS = 5 * 60 * 1000;
 const BACKOFF_BASE_MS = 60 * 1000;
 
-const base = (tx: OpsTx) => ({ createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: true });
+const base = (tx: OpsTx) => ({ createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: tx.synthetic });
 
 function weekAgo(tx: OpsTx) {
   return new Date(tx.now.getTime() - 7 * 86_400_000).toISOString();

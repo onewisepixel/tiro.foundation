@@ -63,7 +63,7 @@ export function createOutreachDraft(tx: OpsTx, actor: Actor, input: unknown, ori
     createdAt: tx.nowIso,
     updatedAt: tx.nowIso,
     version: 1,
-    synthetic: true,
+    synthetic: tx.synthetic,
   });
   audit(tx, actor, "draft-created", "outreach", draft.id, origin === "template" ? "from-template" : null);
   return draft;
@@ -138,7 +138,7 @@ export function createContentDraft(tx: OpsTx, actor: Actor, input: unknown, orig
     createdAt: tx.nowIso,
     updatedAt: tx.nowIso,
     version: 1,
-    synthetic: true,
+    synthetic: tx.synthetic,
   });
   audit(tx, actor, "draft-created", "content", draft.id, origin === "template" ? "from-template" : null);
   return draft;

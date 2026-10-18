@@ -1,7 +1,7 @@
-# Flight Deck 0.1: privacy and launch gates
+# Flight Deck: privacy and launch gates
 
 Status: **Proposal for founder and legal review. Nothing here is a finalized legal policy.** The public form must stay closed until every gate in §5 is met and recorded.
-Revision date: 2026-10-16.
+Revision date: 2026-10-17 (0.2: free-text note removed; gates updated).
 
 ## 1. Data inventory (prospective contacts only)
 
@@ -11,7 +11,7 @@ Revision date: 2026-10-16.
 | Email address | Form, or a published business contact | Reply | Operations store; keyed hash in suppressions | Same; the hash in a suppression is kept while the opt-out must be honoured |
 | Participation interest (self-described) | Form | Route the inquiry | Operations store | Same |
 | Organization, broad region (optional) | Form, or manual | Context | Operations store | Same |
-| Short note, ≤ 500 characters (optional) | Form | Understand the inquiry | Operations store | Same |
+| Topics to talk about, chosen from a fixed list of six (optional). 0.2 removed the free-text note | Form | Prepare the conversation | Operations store | Same |
 | Notice and form versions, timestamps, referral tag | System | Prove what was shown and agreed | Operations store | Same as the permission it supports |
 | Contact permission (purpose, basis, exact wording, version, time, state) | Form, or founder review | Show the basis for every message | Operations store | Life of the relationship, plus a short evidential period to be set by counsel |
 | Interaction summaries | Staff | Continuity | Operations store | Same as the prospect |
@@ -22,9 +22,9 @@ Revision date: 2026-10-16.
 
 Not collected, by design: recordings, stories, testimony, files, images, identity documents, cultural material, precise location, birth dates, ethnicity, or any special-category data. The form instructs people not to send these, and the server refuses files and links.
 
-## 2. Proposed privacy notice (draft text, version `pilot-privacy-draft-0.1`)
+## 2. Proposed privacy notice (draft text, version `pilot-privacy-draft-0.2`)
 
-The exact text is in `src/lib/flightDeck/pilotCopy.ts` and is shown on `/pilot` **only** while the form is open (local demo). It covers: what is collected; what it is used for; what submitting is *not* (not consent to collect, preserve, or publish; not public naming; not confirmation of authority); where it is kept and who sees it (provider and location to be named before launch); how long it is kept (proposed); and choices (access, correction, deletion, stop contact; updates unsubscribe does not block a reply). Each permission stores the exact checkbox wording and this version string, so a changed notice requires a new version.
+The exact text is in `src/lib/flightDeck/pilotCopy.ts` and is shown on `/pilot` **only** while the form is open (local demo). It covers: what is collected; what it is used for; what submitting is *not* (not consent to collect, preserve, or publish; not public naming; not confirmation of authority); where it is kept and who sees it (provider and location to be named before launch); how long it is kept (proposed); what happens to material sent anyway (deleted, not kept, and the person told); and choices (access, correction, deletion, stop contact; updates unsubscribe does not block a reply). Each permission stores the exact checkbox wording and this version string, so a changed notice requires a new version.
 
 ## 3. Questions for legal review
 
@@ -44,17 +44,27 @@ Data location and transfer path; sub-processors; encryption at rest and in trans
 
 ## 5. Gates before real forms or real contacts
 
-All must be met, with dated evidence, before `FLIGHT_DECK_PUBLIC_FORM_ENABLED` can mean anything in production, or before a real contact is entered:
+All must be met, with dated evidence, before a real contact is entered or the public form is opened. Software now enforces the last two lines: the admin script refuses the console gate without an active founder operator, and refuses the public-form gate while the notice version contains "draft".
 
-- [ ] Production identity provider selected, configured with MFA, and reviewed (`integrations.md` §Identity).
-- [ ] Production operations store selected, provisioned in a TIRO-controlled account, with encryption, backups, a tested restore, and the email-hash pepper held in a secret manager.
-- [ ] A production adapter for the store contract implemented and passing the same test suite.
-- [ ] Durable rate limiting in place.
-- [ ] Privacy notice reviewed by counsel, controller named, version bumped, and published.
-- [ ] Retention periods approved; a deletion runbook tested end to end.
+Built in 0.2 (prepared, tested locally, not provisioned):
+- [x] A production adapter for the store contract (PostgreSQL), passing the integration suite against real PostgreSQL.
+- [x] Durable, shared rate limiting (PostgreSQL).
+- [x] Identity adapter for a dedicated Cognito pool with named operators, server-side sessions, and revocation.
+- [x] Exception procedures (sensitive material, opt-out, deletion, access, complaints, incidents) as tracked cases.
+- [x] Restore ledger and replay procedure.
+
+Requiring decisions, accounts, or spending:
+- [ ] Database provider and region chosen (`integrations.md` §4); provisioned in a TIRO-controlled account with TLS, encryption, backups with a stated retention window, and a successful restore drill.
+- [ ] Cognito pool deployed from the template, MFA enrolment tested, founder operator added and signed in once.
+- [ ] Secrets in Secrets Manager and injected by the host; `check-config` reports complete.
+- [ ] Restore-ledger object store provisioned (versioned, write-once).
+- [ ] Worker schedule enabled and the alarm subscribed; status endpoint monitored.
+- [ ] Privacy notice reviewed by counsel, controller named, version bumped without "draft", and published.
+- [ ] Retention periods approved; a deletion request run end to end on staging.
 - [ ] Communications rules reviewed for introductions and follow-ups; message footers approved.
-- [ ] Email provider chosen if acknowledgements are wanted, with SPF/DKIM/DMARC for tiro.foundation, a dry run, and a transactional-only template approved.
-- [ ] Manual accessibility test of `/pilot` and `/flight-deck` performed and recorded (`docs/design/accessibility-manual-test.md` protocol).
-- [ ] Founder launch approval recorded, naming the operators.
+- [ ] Manual accessibility test of `/pilot` and `/flight-deck` performed and recorded (`manual-tests.md`).
+- [ ] Human-paced founder review timed and recorded (`manual-tests.md`).
+- [ ] Founder records the console gate (`record-gate console`), naming the operators.
+- [ ] Separately, in writing: the founder authorizes opening the public form, then records the public-form gate.
 
 None of these is met today. **This is not collection readiness**: real testimony remains subject to the separate gates in `collection-readiness-future.md` and `docs/ethos.txt` §6.1.

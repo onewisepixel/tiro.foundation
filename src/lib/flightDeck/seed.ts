@@ -1,5 +1,5 @@
 // Synthetic fixtures for the local demo. Every person, organization,
-// address, and note here is invented and labeled as such; addresses use
+// address, and topic choice here is invented and labeled as such; addresses use
 // the reserved .invalid domain so nothing could ever be delivered to them.
 // Nothing is read from backend/ or any archival fixture.
 //
@@ -11,7 +11,8 @@ import { queueDispatch, recordManualSend } from "./dispatch";
 import { DEMO_IDENTITIES } from "./identities";
 import { recordInterest } from "./intake";
 import { createManualProspect, createTask, recordInteraction, reviewPermissionBasis, transitionStage, withdraw } from "./prospects";
-import { MemoryOperationsStore, type OpsState, type OpsTx } from "./store";
+import { emptyState, MemoryOperationsStore, type OpsState, type OpsTx } from "./store";
+import type { PublicTopic } from "./pilotCopy";
 import { CONTENT_TEMPLATES, MESSAGE_TEMPLATES } from "./templates";
 import { newId } from "./ids";
 
@@ -21,7 +22,7 @@ const [FOUNDER, OPERATOR] = DEMO_IDENTITIES;
 // drafts pass the "no unfilled placeholders" review gate honestly.
 const SYNTHETIC_FILL: Record<string, string> = {
   "Founder name": "Demo Founder",
-  "One or two sentences responding to what they actually said.": "(Synthetic reply text responding to their synthetic note.)",
+  "One or two sentences responding to what they actually said.": "(Synthetic reply text responding to the topics they chose.)",
   "proposed times or a scheduling link approved for use": "(two synthetic time options)",
   "specific public work, with where you saw it": "published guidance on language documentation ethics (synthetic, seen on its public page)",
   "one sentence on the specific relevance": "(Synthetic sentence on why this work is relevant.)",
@@ -30,9 +31,9 @@ const SYNTHETIC_FILL: Record<string, string> = {
 
 const fill = (text: string, values: Record<string, string>) => text.replace(/\[([^\]]+)\]/g, (m, k: string) => values[k] ?? SYNTHETIC_FILL[k] ?? m);
 
-export async function buildSeedState(now: Date = new Date()): Promise<OpsState> {
+export async function buildSeedState(now: Date = new Date(), opts: { pepper?: string } = {}): Promise<OpsState> {
   let clock = new Date(now);
-  const store = new MemoryOperationsStore(() => clock);
+  const store = new MemoryOperationsStore(() => clock, emptyState(now, { synthetic: true, pepper: opts.pepper }));
   const at = (daysAgo: number, hour = 10) => {
     const d = new Date(now);
     d.setUTCDate(d.getUTCDate() - daysAgo);
@@ -41,7 +42,7 @@ export async function buildSeedState(now: Date = new Date()): Promise<OpsState> 
   };
   const run = <T>(fn: (tx: OpsTx) => T) => store.transaction(fn);
   const byName = (tx: OpsTx, name: string) => tx.list("prospects", (p) => p.displayName === name)[0];
-  const inquiry = (name: string, local: string, category: "interested-contributor" | "community-partner" | "specialist-volunteer", extra: { organization?: string; region?: string; note?: string; updates?: boolean; referral?: string } = {}) =>
+  const inquiry = (name: string, local: string, category: "interested-contributor" | "community-partner" | "specialist-volunteer", extra: { organization?: string; region?: string; topics?: PublicTopic[]; updates?: boolean; referral?: string } = {}) =>
     run((tx) =>
       recordInterest(tx, {
         displayName: name,
@@ -49,7 +50,7 @@ export async function buildSeedState(now: Date = new Date()): Promise<OpsState> 
         category,
         organization: extra.organization ?? null,
         region: extra.region ?? null,
-        note: extra.note ?? null,
+        topics: extra.topics ?? [],
         updatesOptIn: extra.updates ? "yes" : null,
         referral: extra.referral ?? null,
       }),
@@ -76,7 +77,7 @@ export async function buildSeedState(now: Date = new Date()): Promise<OpsState> 
       createdAt: tx.nowIso,
       updatedAt: tx.nowIso,
       version: 1,
-      synthetic: true,
+      synthetic: tx.synthetic,
     });
     for (const t of CONTENT_TEMPLATES) {
       createContentDraft(tx, FOUNDER, { campaignId: c.id, title: t.title, channel: t.channel, originCategory: t.originCategory, sourceReference: t.sourceReference, assetDescription: t.assetDescription, assetPermission: t.originCategory === "evidence" ? "Founder's own screenshots of TIRO's public site; no third-party material." : null, body: t.body, scheduledFor: null }, "template");
@@ -86,15 +87,15 @@ export async function buildSeedState(now: Date = new Date()): Promise<OpsState> 
 
   // ---- Nine to six days ago: inquiries arrive through the real intake path ----
   at(9, 9);
-  await inquiry("Synthetic Prospect A-04", "a04", "specialist-volunteer", { region: "Example region", note: "Synthetic note: has worked on oral-history transcription and would like to talk." });
+  await inquiry("Synthetic Prospect A-04", "a04", "specialist-volunteer", { region: "Example region", topics: ["language-and-translation", "volunteering"] });
   at(8, 14);
-  await inquiry("Synthetic Prospect A-05", "a05", "community-partner", { organization: "Example Community Association (synthetic)", region: "Example region", note: "Synthetic note: asks how communities would be consulted.", updates: true });
+  await inquiry("Synthetic Prospect A-05", "a05", "community-partner", { organization: "Example Community Association (synthetic)", region: "Example region", topics: ["community-consultation"], updates: true });
   at(8, 16);
-  await inquiry("Synthetic Prospect A-06", "a06", "community-partner", { region: "Example region", note: "Synthetic note: says they speak for a community; nothing about that is verified." });
+  await inquiry("Synthetic Prospect A-06", "a06", "community-partner", { region: "Example region", topics: ["community-consultation", "how-a-pilot-works"] });
   at(7, 11);
   await inquiry("Synthetic Prospect A-07", "a07", "interested-contributor", { updates: true });
   at(6, 15);
-  await inquiry("Synthetic Prospect A-08", "a08", "specialist-volunteer", { organization: "Example University Language Lab (synthetic)", note: "Synthetic note: translator, interested in consultation." });
+  await inquiry("Synthetic Prospect A-08", "a08", "specialist-volunteer", { organization: "Example University Language Lab (synthetic)", topics: ["language-and-translation"] });
 
   // Triage and replies, a few days back.
   at(6, 17);
@@ -185,12 +186,12 @@ export async function buildSeedState(now: Date = new Date()): Promise<OpsState> 
   await run((tx) => tx.updateSettings(tx.settings().version, { lastReviewAt: tx.nowIso }));
 
   at(1, 11);
-  await inquiry("Synthetic Prospect A-01", "a01", "interested-contributor", { region: "Example region", note: "Synthetic note: would like to understand what a pilot involves before deciding anything.", referral: "linkedin" });
+  await inquiry("Synthetic Prospect A-01", "a01", "interested-contributor", { region: "Example region", topics: ["how-a-pilot-works"], referral: "linkedin" });
   at(1, 13);
-  await inquiry("Synthetic Prospect A-02", "a02", "community-partner", { organization: "Example Community Association (synthetic)", note: "Synthetic note: asks whether TIRO works with existing community archives.", updates: true });
+  await inquiry("Synthetic Prospect A-02", "a02", "community-partner", { organization: "Example Community Association (synthetic)", topics: ["archival-practice"], updates: true });
   at(1, 18);
   // A-02 submits again: the repeat is linked, with no second acknowledgement.
-  await inquiry("Synthetic Prospect A-02", "a02", "community-partner", { note: "Synthetic note: second submission, same address." });
+  await inquiry("Synthetic Prospect A-02", "a02", "community-partner", { topics: ["archival-practice", "something-else"] });
 
   at(0, 8);
   await run((tx) => {

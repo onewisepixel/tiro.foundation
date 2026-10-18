@@ -4,12 +4,13 @@ import { audit, requireCapability, type Actor } from "./access";
 import { GateError, invalidateApprovals } from "./approvals";
 import { EMAIL_PATTERN, emailKey, newId, normalizeEmail } from "./ids";
 import { applySuppression } from "./permissions";
+import { markAutomaticStep } from "./cases";
 import { isoDate, must, nullable, obj, oneOf, str } from "./schema";
 import { StoreError, type OpsTx } from "./store";
 import { BLOCK_REASONS, PARTICIPATION_INTERESTS, PRIORITIES, STAGES, TASK_TYPES, type Stage, type SuppressionScope } from "./types";
 import { canTransition, requiresFounder } from "./workflow";
 
-const base = (tx: OpsTx) => ({ createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: true });
+const base = (tx: OpsTx) => ({ createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: tx.synthetic });
 const https = str({ max: 500, pattern: /^https:\/\/[^\s]+$/, code: "https-url-required" });
 
 // ---------- Manually researched or referred prospects ----------
@@ -363,12 +364,20 @@ export function eraseProspect(tx: OpsTx, actor: Actor, prospectId: string, keepS
     }
     tx.remove("submissions", s.id);
   }
+  // Cases stay as accountability records, without the person: the link
+  // is cleared and any "erase" step is marked done.
+  for (const c of tx.list("cases", (x) => x.prospectId === p.id)) {
+    markAutomaticStep(tx, actor, c, "erase-record");
+    const fresh = tx.require("cases", c.id);
+    tx.update("cases", c.id, fresh.version, { prospectId: null });
+  }
   for (const c of ["tasks", "affiliations", "permissions"] as const) {
     for (const row of tx.list(c, (r) => (r as { prospectId: string | null }).prospectId === p.id)) {
       tx.remove(c, (row as { id: string }).id);
     }
   }
   tx.remove("prospects", p.id);
+  tx.insert("erasures", { id: newId("ers"), prospectId: p.id, erasedAt: tx.nowIso, ...base(tx) });
   audit(tx, actor, "prospect-erased", "prospect", p.id, keepSuppression ? "suppression-kept" : null);
 }
 

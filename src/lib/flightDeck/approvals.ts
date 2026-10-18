@@ -185,7 +185,7 @@ export function decide(
     createdAt: tx.nowIso,
     updatedAt: tx.nowIso,
     version: 1,
-    synthetic: true,
+    synthetic: tx.synthetic,
   });
   if (outcome === "approved") {
     setStatus(tx, type, id, type === "campaign" ? "approved" : statusAfterApproval(tx, type, id));

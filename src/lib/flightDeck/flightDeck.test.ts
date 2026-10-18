@@ -34,14 +34,13 @@ function harness(start = Date.parse("2026-10-16T09:00:00.000Z")) {
   return { store, tokens, limiter, advance, ctx, token, get now() { return now; } };
 }
 
-function form(token: string, overrides: Record<string, string | Blob> = {}): [string, string | Blob][] {
+function form(token: string, overrides: Record<string, string | Blob> = {}, topics: string[] = ["how-a-pilot-works", "community-consultation"]): [string, string | Blob][] {
   const fields: Record<string, string | Blob> = {
     displayName: "Test Person (synthetic)",
     email: "Person@Example.invalid",
     category: "interested-contributor",
     organization: "",
     region: "",
-    note: "Synthetic note.",
     noticeAck: "yes",
     replyConsent: "yes",
     noticeVersion: PRIVACY_NOTICE_VERSION,
@@ -49,7 +48,7 @@ function form(token: string, overrides: Record<string, string | Blob> = {}): [st
     website: "",
     ...overrides,
   };
-  return Object.entries(fields);
+  return [...Object.entries(fields), ...topics.map((t) => ["topics", t] as [string, string])];
 }
 
 const read = <T>(store: MemoryOperationsStore, fn: (tx: OpsTx) => T) => store.transaction(fn);
@@ -104,24 +103,47 @@ test("6: local demo cannot be enabled on a real deployment", async (t) => {
 
 // ---------- Public intake (1, 2, 3, 4) ----------
 
-test("1: the public form refuses files, unknown fields, oversized bodies and links", async () => {
+test("1: the public form refuses files, free text, unknown fields, and oversized bodies", async () => {
   const h = harness();
   const file = new Blob(["fake audio"], { type: "audio/mpeg" });
   for (const entries of [
     [...form(h.token()), ["attachment", file]] as [string, string | Blob][],
-    form(h.token(), { note: file }),
+    form(h.token(), { organization: file }),
+    // 0.2: the free-text note no longer exists; sending one is refused.
+    form(h.token(), { note: "A personal account of something sensitive." }),
     [...form(h.token()), ["story", "A long story"]] as [string, string | Blob][],
     [...form(h.token()), ["recordId", "DEMO-MEM-0001"]] as [string, string | Blob][],
-    form(h.token(), { note: "x".repeat(5000) }),
+    form(h.token(), { organization: "x".repeat(5000) }),
   ]) {
     const r = await processInterest(entries as never, h.ctx());
     assert.ok(r.status === "refused" || r.status === "invalid", JSON.stringify(r));
   }
-  const tooLong = await processInterest(form(h.token(), { note: "y".repeat(501) }), h.ctx());
-  assert.equal(tooLong.status, "invalid");
-  const link = await processInterest(form(h.token(), { note: "See https://drive.example/recording" }), h.ctx());
-  assert.equal(link.status, "invalid");
+  // Topics come only from the fixed list: no free text through that door.
+  assert.equal((await processInterest(form(h.token(), {}, ["a story about my grandmother"]), h.ctx())).status, "invalid");
+  assert.equal((await processInterest(form(h.token(), {}, ["how-a-pilot-works", "how-a-pilot-works"]), h.ctx())).status, "invalid");
+  assert.equal((await processInterest(form(h.token(), {}, Array(9).fill("volunteering")), h.ctx())).status, "invalid");
+  assert.equal((await processInterest(form(h.token(), { organization: "y".repeat(161) }), h.ctx())).status, "invalid");
   assert.equal((await read(h.store, (tx) => tx.list("prospects"))).length, 0, "nothing stored");
+  // Valid topics are stored as codes.
+  assert.equal((await processInterest(form(h.token(), {}, ["archival-practice", "something-else"]), h.ctx())).status, "received");
+  const [sub] = await read(h.store, (tx) => tx.list("submissions"));
+  assert.deepEqual(sub.topics, ["archival-practice", "something-else"]);
+  assert.ok(!("note" in sub));
+});
+
+test("storage failure: the form says nothing was stored, and nothing half-saved", async () => {
+  const h = harness();
+  const failing: typeof h.store = Object.create(h.store);
+  let calls = 0;
+  failing.transaction = async () => {
+    calls++;
+    throw new Error("connection terminated");
+  };
+  const r = await processInterest(form(h.token()), { ...h.ctx(), store: failing });
+  assert.equal(r.status, "refused");
+  assert.match((r as { message: string }).message, /nothing was stored/);
+  assert.ok(calls >= 1);
+  assert.equal((await read(h.store, (tx) => tx.list("prospects"))).length, 0);
 });
 
 test("4: no submission without the privacy acknowledgement; the exact notice version is stored", async () => {

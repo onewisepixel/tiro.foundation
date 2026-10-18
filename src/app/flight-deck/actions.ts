@@ -9,13 +9,15 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { audit, requireCapability } from "@/lib/flightDeck/access";
 import { decide, GateError, submitForReview } from "@/lib/flightDeck/approvals";
-import { queueDispatch, recordManualPublication, recordManualSend, retryJob, runDueJobs } from "@/lib/flightDeck/dispatch";
+import { queueDispatch, recordManualPublication, recordManualSend, retryJob } from "@/lib/flightDeck/dispatch";
 import { archiveDraft, createContentDraft, createOutreachDraft, editCampaign, editContentDraft, editOutreachDraft, setCampaignState } from "@/lib/flightDeck/drafts";
 import { demoIdentity } from "@/lib/flightDeck/identities";
 import { liftSuppression } from "@/lib/flightDeck/permissions";
 import { createManualProspect, createTask, editProspect, eraseProspect, recordInteraction, resolveTask, reviewPermissionBasis, transitionStage, withdraw } from "@/lib/flightDeck/prospects";
-import { getRuntime } from "@/lib/flightDeck/runtime";
-import { buildSeedState } from "@/lib/flightDeck/seed";
+import { getConsoleRuntime, PROD_SESSION_COOKIE } from "@/lib/flightDeck/runtime";
+import { completeStep, openCase, redactField, resolveCase } from "@/lib/flightDeck/cases";
+import { runWorkerTick } from "@/lib/flightDeck/worker";
+import { signOutUrl } from "@/lib/flightDeck/oidc";
 import { issueSession, SESSION_COOKIE, SESSION_TTL_MS } from "@/lib/flightDeck/session";
 import { CONTENT_TEMPLATES, MESSAGE_TEMPLATES } from "@/lib/flightDeck/templates";
 import { act } from "./guard";
@@ -43,8 +45,12 @@ const utc = (fd: FormData, name: string): string | null => {
 
 // ---------- Session (local demo only) ----------
 
+// Local demo only: choose a test identity. Production sign-in goes
+// through Cognito (/flight-deck/auth/login); this action does not exist
+// for it.
 export async function signIn(formData: FormData) {
-  if (!(await getRuntime())) {
+  const rt = await getConsoleRuntime();
+  if (!rt || rt.mode !== "local-demo") {
     notFound();
   }
   const identity = demoIdentity(s(formData, "userId"));
@@ -64,7 +70,17 @@ export async function signIn(formData: FormData) {
 }
 
 export async function signOut() {
-  (await cookies()).delete({ name: SESSION_COOKIE, path: "/flight-deck" });
+  const rt = await getConsoleRuntime();
+  const jar = await cookies();
+  if (rt?.mode === "production" && rt.identity && rt.cognito) {
+    const token = jar.get(PROD_SESSION_COOKIE)?.value;
+    if (token) {
+      await rt.identity.revokeSession(token, new Date());
+    }
+    jar.delete({ name: PROD_SESSION_COOKIE, path: "/" });
+    redirect(signOutUrl(rt.cognito));
+  }
+  jar.delete({ name: SESSION_COOKIE, path: "/flight-deck" });
   redirect("/flight-deck/sign-in");
 }
 
@@ -353,14 +369,6 @@ export async function campaignStateAction(formData: FormData) {
 
 // ---------- Operations ----------
 
-export async function runJobsAction(formData: FormData) {
-  await act(formData, async ({ rt, actor }) => {
-    requireCapability(actor, "dispatch");
-    await runDueJobs(rt.store, rt.providers, actor);
-    return "jobs-run";
-  });
-}
-
 export async function retryJobAction(formData: FormData) {
   await act(formData, ({ rt, actor }) => rt.store.transaction((tx) => retryJob(tx, actor, s(formData, "id"))));
 }
@@ -394,8 +402,96 @@ export async function resetSeedAction(formData: FormData) {
     if (s(formData, "confirm") !== "RESET") {
       throw new GateError("confirm-required");
     }
-    await rt.store.replace(await buildSeedState());
-    rt.limiter.clear();
+    // Only the local demo has a reset; production has no such path.
+    if (!rt.resetToSeed) {
+      throw new GateError("access-denied");
+    }
+    await rt.resetToSeed();
     return { notice: "reset", to: "/flight-deck" };
+  });
+}
+
+// ---------- Exceptions (0.2) ----------
+
+export async function openCaseAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    const c = await rt.store.transaction((tx) =>
+      openCase(tx, actor, {
+        kind: s(formData, "kind"),
+        prospectId: opt(formData, "prospectId"),
+        receivedVia: s(formData, "receivedVia"),
+        summary: s(formData, "summary"),
+        optOutScope: opt(formData, "optOutScope"),
+        pauseOutbound: s(formData, "pauseOutbound") === "yes" ? "yes" : null,
+      }),
+    );
+    return { notice: "case-opened", to: `/flight-deck/cases/${c.id}` };
+  });
+}
+
+export async function caseStepAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    await rt.store.transaction((tx) => completeStep(tx, actor, s(formData, "id"), num(formData, "version"), s(formData, "step")));
+    return "case-step";
+  });
+}
+
+export async function resolveCaseAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    await rt.store.transaction((tx) => resolveCase(tx, actor, s(formData, "id"), num(formData, "version"), s(formData, "outcome")));
+    return "case-resolved";
+  });
+}
+
+export async function redactAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    const target = s(formData, "target");
+    if (target !== "prospect" && target !== "interaction") {
+      throw new GateError("validation-failed");
+    }
+    await rt.store.transaction((tx) => redactField(tx, actor, s(formData, "caseId"), target, s(formData, "targetId"), s(formData, "field")));
+    return "redacted";
+  });
+}
+
+// ---------- Operators and worker (0.2) ----------
+
+export async function runWorkerAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    requireCapability(actor, "dispatch");
+    await runWorkerTick({ store: rt.store, providers: rt.providers, purgeRateLimits: rt.purgeRateLimits, acquireLock: rt.acquireWorkerLock, ledgerSink: rt.ledgerSink });
+    return "worker-ran";
+  });
+}
+
+export async function operatorAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    requireCapability(actor, "settings");
+    if (!rt.identity) {
+      throw new GateError("access-denied");
+    }
+    const id = s(formData, "id");
+    const op = s(formData, "op");
+    if (id === actor.id && op !== "revoke") {
+      throw new GateError("cannot-deactivate-self");
+    }
+    const now = new Date();
+    if (op === "deactivate") {
+      await rt.identity.deactivateOperator(id, now);
+      await rt.store.transaction((tx) => audit(tx, actor, "operator-deactivated", "operator", id, null));
+      return "operator-deactivated";
+    }
+    if (op === "revoke") {
+      await rt.identity.revokeAllSessions(id, now);
+      await rt.store.transaction((tx) => audit(tx, actor, "sessions-revoked", "operator", id, null));
+      return "sessions-revoked";
+    }
+    const role = s(formData, "role");
+    if (op === "role" && (role === "founder" || role === "operator" || role === "reviewer")) {
+      await rt.identity.setRole(id, role);
+      await rt.store.transaction((tx) => audit(tx, actor, "operator-role-changed", "operator", id, role));
+      return "saved";
+    }
+    throw new GateError("validation-failed");
   });
 }

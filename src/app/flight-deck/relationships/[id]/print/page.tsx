@@ -69,7 +69,7 @@ export default async function PrintProspect({ params }: { params: Promise<{ id: 
       <ul className="list-disc pl-5">
         {data.submissions.map((s) => (
           <li key={s.id}>
-            {when(s.submittedAt)}: {s.note ?? "(no note)"} <span className="text-[var(--tiro-text-muted)]">[notice {s.noticeVersion}]</span>
+            {when(s.submittedAt)}: topics {s.topics.length ? s.topics.join(", ") : "(none chosen)"} <span className="text-[var(--tiro-text-muted)]">[notice {s.noticeVersion}]</span>
           </li>
         ))}
       </ul>

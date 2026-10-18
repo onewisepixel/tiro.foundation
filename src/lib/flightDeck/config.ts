@@ -1,18 +1,19 @@
 // Flight Deck runtime mode and feature flags. Everything defaults to OFF.
 //
-// There are exactly two modes:
+// Three modes:
 //
 //   disabled    The default everywhere. /flight-deck answers 404, the
 //               public /pilot form shows an honest "not open yet" state and
 //               accepts nothing, and no adapter is constructed.
-//   local-demo  Synthetic fixtures in an isolated local file store, with
+//   local-demo  Synthetic fixtures (a local file, or a local Postgres) and
 //               test identities, for development on one machine.
-//
-// There is no production mode in 0.1. A production mode requires a
-// selected identity provider, a provisioned operations store, a reviewed
-// privacy notice, and recorded launch approval
-// (docs/flight-deck/privacy-launch-gates.md); until those exist the code
-// has nothing to switch on, so no environment variable can turn it on.
+//   production  Cognito sign-in, a Postgres operations store, durable rate
+//               limiting, and the scheduled worker. Exists only when EVERY
+//               required setting below is present and well-formed. Even
+//               then, nothing opens on configuration alone: the console
+//               needs the founder's recorded "console" gate, and the public
+//               form needs its own recorded gate, its own flag, and a
+//               privacy notice that is no longer a draft (runtime.ts).
 //
 // Local demo is refused unless ALL of these hold, so a stray variable on a
 // deployed host cannot enable it:
@@ -45,9 +46,99 @@ const PLATFORM_MARKERS = [
   "CODESPACES",
 ];
 
-export type ModeDecision = { mode: "local-demo" } | { mode: "disabled"; reason: string };
+export type ModeDecision = { mode: "local-demo" } | { mode: "production" } | { mode: "disabled"; reason: string };
+
+// ---------- Production configuration ----------
+
+export type ProductionConfig = {
+  databaseUrl: string;
+  databaseCa: string | null;
+  pepper: string;
+  sessionSecret: string;
+  workerToken: string;
+  monitorToken: string;
+  cognito: {
+    region: string;
+    userPoolId: string;
+    clientId: string;
+    clientSecret: string;
+    domain: string;
+    publicOrigin: string;
+    requiredGroup: string;
+  };
+};
+
+const PLACEHOLDER = /<|>|placeholder|changeme|change-me|example|xxx|todo|secret-here/i;
+const secret = (v: string | undefined) => !!v && v.length >= 32 && !PLACEHOLDER.test(v);
+const httpsOrigin = (v: string | undefined) => !!v && /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(v) && !PLACEHOLDER.test(v);
+
+// Every problem, not just the first, so a deployment check can list them.
+// Values are never echoed: only the names of what is missing or invalid.
+export function productionConfigProblems(env: FlightDeckEnv): string[] {
+  const problems: string[] = [];
+  const db = env.FLIGHT_DECK_DATABASE_URL;
+  if (!db || !/^postgres(ql)?:\/\//.test(db) || PLACEHOLDER.test(db)) {
+    problems.push("FLIGHT_DECK_DATABASE_URL");
+  } else if (!/[?&]sslmode=(verify-full|verify-ca|require)\b/.test(db)) {
+    problems.push("FLIGHT_DECK_DATABASE_URL (TLS required: sslmode=verify-full)");
+  }
+  for (const name of ["FLIGHT_DECK_EMAIL_HASH_PEPPER", "FLIGHT_DECK_SESSION_SECRET", "FLIGHT_DECK_WORKER_TOKEN", "FLIGHT_DECK_MONITOR_TOKEN", "FLIGHT_DECK_COGNITO_CLIENT_SECRET"]) {
+    if (!secret(env[name])) {
+      problems.push(`${name} (at least 32 random characters)`);
+    }
+  }
+  const distinct = ["FLIGHT_DECK_EMAIL_HASH_PEPPER", "FLIGHT_DECK_SESSION_SECRET", "FLIGHT_DECK_WORKER_TOKEN", "FLIGHT_DECK_MONITOR_TOKEN"].map((n) => env[n]).filter(Boolean);
+  if (new Set(distinct).size !== distinct.length) {
+    problems.push("secrets must all be different");
+  }
+  if (!/^[a-z]{2}(-gov)?-[a-z]+-\d$/.test(env.FLIGHT_DECK_COGNITO_REGION ?? "")) {
+    problems.push("FLIGHT_DECK_COGNITO_REGION");
+  }
+  if (!/^[a-z]{2}(-gov)?-[a-z]+-\d_[A-Za-z0-9]{1,55}$/.test(env.FLIGHT_DECK_COGNITO_USER_POOL_ID ?? "") || !(env.FLIGHT_DECK_COGNITO_USER_POOL_ID ?? "").startsWith(`${env.FLIGHT_DECK_COGNITO_REGION}_`)) {
+    problems.push("FLIGHT_DECK_COGNITO_USER_POOL_ID");
+  }
+  if (!/^[a-z0-9]{20,128}$/i.test(env.FLIGHT_DECK_COGNITO_CLIENT_ID ?? "")) {
+    problems.push("FLIGHT_DECK_COGNITO_CLIENT_ID");
+  }
+  if (!httpsOrigin(env.FLIGHT_DECK_COGNITO_DOMAIN)) {
+    problems.push("FLIGHT_DECK_COGNITO_DOMAIN (https origin)");
+  }
+  if (!httpsOrigin(env.FLIGHT_DECK_PUBLIC_ORIGIN)) {
+    problems.push("FLIGHT_DECK_PUBLIC_ORIGIN (https origin)");
+  }
+  return problems;
+}
+
+export function productionConfig(env: FlightDeckEnv): ProductionConfig | null {
+  if (productionConfigProblems(env).length) {
+    return null;
+  }
+  return {
+    databaseUrl: env.FLIGHT_DECK_DATABASE_URL!,
+    databaseCa: env.FLIGHT_DECK_DATABASE_CA_PEM ?? null,
+    pepper: env.FLIGHT_DECK_EMAIL_HASH_PEPPER!,
+    sessionSecret: env.FLIGHT_DECK_SESSION_SECRET!,
+    workerToken: env.FLIGHT_DECK_WORKER_TOKEN!,
+    monitorToken: env.FLIGHT_DECK_MONITOR_TOKEN!,
+    cognito: {
+      region: env.FLIGHT_DECK_COGNITO_REGION!,
+      userPoolId: env.FLIGHT_DECK_COGNITO_USER_POOL_ID!,
+      clientId: env.FLIGHT_DECK_COGNITO_CLIENT_ID!,
+      clientSecret: env.FLIGHT_DECK_COGNITO_CLIENT_SECRET!,
+      domain: env.FLIGHT_DECK_COGNITO_DOMAIN!.replace(/\/+$/, ""),
+      publicOrigin: env.FLIGHT_DECK_PUBLIC_ORIGIN!.replace(/\/+$/, ""),
+      requiredGroup: env.FLIGHT_DECK_COGNITO_REQUIRED_GROUP || "flight-deck",
+    },
+  };
+}
 
 export function decideMode(env: FlightDeckEnv): ModeDecision {
+  if (env.FLIGHT_DECK_MODE === "production") {
+    if (env.NODE_ENV !== "production") {
+      return { mode: "disabled", reason: "production-mode-requires-production-build" };
+    }
+    return productionConfigProblems(env).length ? { mode: "disabled", reason: "production-config-incomplete" } : { mode: "production" };
+  }
   if (env.FLIGHT_DECK_MODE !== "local-demo") {
     return { mode: "disabled", reason: env.FLIGHT_DECK_MODE ? "unknown-mode" : "not-configured" };
   }
@@ -75,9 +166,23 @@ export function localDemoActive(env: FlightDeckEnv, host: string | null | undefi
   return decideMode(env).mode === "local-demo" && isLoopbackHost(host);
 }
 
-// Channel flags. In 0.1 each is additionally capped by mode: in local-demo
-// a flag can only ever select the dry-run local outbox, never a network
-// provider, because no network provider is implemented.
+// The mode that applies to this request, or null (feature absent).
+// Production requests must arrive on the configured public host.
+export function requestMode(env: FlightDeckEnv, host: string | null | undefined): "local-demo" | "production" | null {
+  const d = decideMode(env);
+  if (d.mode === "local-demo") {
+    return isLoopbackHost(host) ? "local-demo" : null;
+  }
+  if (d.mode === "production") {
+    const expected = new URL(env.FLIGHT_DECK_PUBLIC_ORIGIN!).host.toLowerCase();
+    return host?.trim().toLowerCase() === expected ? "production" : null;
+  }
+  return null;
+}
+
+// Channel flags. In local demo a flag can only ever select the dry-run
+// outbox. In production, email and social stay disabled whatever the flag
+// says: no live provider is implemented (docs/flight-deck/integrations.md).
 export type ChannelFlags = {
   publicForm: boolean;
   outboundEmail: boolean;
@@ -96,14 +201,18 @@ export function channelFlags(env: FlightDeckEnv): ChannelFlags {
   };
 }
 
-// The public form accepts a submission only when it can be persisted
-// safely: in local demo (synthetic, local file) when its flag is on.
-// Everywhere else it renders the closed state and the action refuses.
+// Local demo: the form opens with its flag (synthetic store). Production
+// additionally needs the recorded public-form gate (runtime.ts
+// isPublicFormOpen), and never while the notice is a draft.
 export function publicFormOpen(env: FlightDeckEnv, host: string | null | undefined): boolean {
   return localDemoActive(env, host) && channelFlags(env).publicForm;
 }
 
 // Versions of the public copy a submitter is shown. Stored on every
 // submission and permission so the exact wording can be reproduced.
-export const PILOT_FORM_VERSION = "pilot-eoi-0.1";
-export const PRIVACY_NOTICE_VERSION = "pilot-privacy-draft-0.1";
+export const PILOT_FORM_VERSION = "pilot-eoi-0.2";
+export const PRIVACY_NOTICE_VERSION = "pilot-privacy-draft-0.2";
+
+// The production form cannot open while the notice is a draft. Replacing
+// the notice with reviewed text means giving it a version without "draft".
+export const privacyNoticeIsDraft = () => PRIVACY_NOTICE_VERSION.includes("draft");

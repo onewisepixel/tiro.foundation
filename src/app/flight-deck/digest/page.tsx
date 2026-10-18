@@ -9,10 +9,12 @@ import { requirePage } from "../guard";
 export default async function DigestPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt } = await requirePage();
   const params = await searchParams;
+  const since = await rt.store.read((tx) => tx.settings().lastReviewAt ?? new Date(tx.now.getTime() - 7 * 86_400_000).toISOString());
+  const events = await rt.store.auditSince(since);
   const { b, lastReview, exceptions, conversations } = await rt.store.read((tx) => ({
-    b: buildBriefing(tx, { operatorIds: OPERATOR_IDS }),
+    b: buildBriefing(tx, { operatorIds: OPERATOR_IDS, events }),
     lastReview: tx.settings().lastReviewAt,
-    exceptions: tx.list("tasks", (t) => t.status === "open" && ["permission-review", "retention-review"].includes(t.type)).length + tx.list("prospects", (p) => p.stage === "needs-review").length,
+    exceptions: tx.list("tasks", (t) => t.status === "open" && ["permission-review", "retention-review"].includes(t.type)).length + tx.list("prospects", (p) => p.stage === "needs-review").length + tx.list("cases", (c) => c.status !== "resolved").length,
     conversations: tx.list("prospects", (p) => p.stage === "conversation-scheduled" || p.stage === "consultation-underway").length,
   }));
   const text = digestText(b);

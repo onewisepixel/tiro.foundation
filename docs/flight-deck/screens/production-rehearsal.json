@@ -1,0 +1,142 @@
+{
+  "at": "2026-10-17T22:55:03.040Z",
+  "passed": 27,
+  "failed": 0,
+  "results": [
+    {
+      "name": "the database refuses connections without TLS",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "admin: production configuration is complete",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "admin: migrations apply over verified TLS",
+      "ok": true,
+      "detail": "applied: 0001_operations_core, 0002_rate_limits, 0003_identity_and_activation; already applied: 0"
+    },
+    {
+      "name": "admin: database marked as real data",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "admin: the console gate is refused before any founder exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "admin: named founder operator added",
+      "ok": true,
+      "detail": "added operator usr_… (founder); they must also exist in the Cognito pool and the \"flight-deck\" group"
+    },
+    {
+      "name": "admin: the public-form gate is refused while the privacy notice is a draft",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "before the console gate, /flight-deck is 404",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a request on any other host is 404",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "machine endpoints are 404 before the gate",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "/pilot form stays closed in production with its flag on (draft notice, no gate)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "admin: console gate recorded with a founder present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "after the gate, sign-in offers Cognito only (no test identities)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no session: the console redirects to sign-in",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a forged session cookie is refused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a local-demo session cookie means nothing in production",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "login redirects to Cognito with PKCE S256, state and nonce",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the sign-in transaction cookie is __Host-, Secure, HttpOnly",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a callback without the matching transaction is refused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "status without a token is 401",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "status before any worker run reports an action-level alert (503)",
+      "ok": true,
+      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":null,\"alerts\":[{\"key\":\"ledger-missing\",\"severity\":\"warning\"},{\"key\":\"worker-stale\",\"severity\":\"action\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false}"
+    },
+    {
+      "name": "worker with no token or the monitor token is 401",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a scheduled worker tick runs against the production database",
+      "ok": true,
+      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_f2NTVccq5J7LnPxQ\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+    },
+    {
+      "name": "status after the tick is healthy (200); the missing ledger is a warning",
+      "ok": true,
+      "detail": "{\"ok\":true,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[{\"key\":\"ledger-missing\",\"severity\":\"warning\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false}"
+    },
+    {
+      "name": "the status body carries no names, addresses, or ids",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the database is marked real, holds one worker run, and its connections use TLS",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no audit event contains an address or a name",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

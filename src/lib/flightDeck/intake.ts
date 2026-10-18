@@ -1,15 +1,17 @@
 // Public expression-of-interest intake.
 //
-// Accepts a small set of text fields and nothing else: any file, any
-// unexpected field, or an oversized body is refused before validation.
+// Accepts a small set of short text fields and a fixed topic selection,
+// and nothing else: any file, any unexpected field (including the free-text
+// note removed in 0.2), or an oversized body is refused before validation.
+// There is no field in which to write an account, a story, or testimony.
 // Responses never reveal whether an address is already known, and a
 // repeated submission never starts a second acknowledgement or sequence.
 import { audit, PUBLIC, SYSTEM } from "./access";
 import { HONEYPOT_FIELD, LIMITS, type FormTokens, type RateLimiter } from "./abuse";
 import { EMAIL_PATTERN, emailKey, newId, normalizeEmail, sha256 } from "./ids";
 import { activeSuppressions } from "./permissions";
-import { CONSENT_WORDING, NOTE_MAX, PUBLIC_CATEGORIES } from "./pilotCopy";
-import { nullable, obj, oneOf, str, type Issue } from "./schema";
+import { CONSENT_WORDING, PUBLIC_CATEGORIES, PUBLIC_TOPICS, type PublicTopic } from "./pilotCopy";
+import { arrayOf, nullable, obj, oneOf, str, type Issue } from "./schema";
 import type { OperationsStore, OpsTx } from "./store";
 import { PILOT_FORM_VERSION, PRIVACY_NOTICE_VERSION } from "./config";
 
@@ -19,7 +21,7 @@ export const FORM_FIELDS = [
   "category",
   "organization",
   "region",
-  "note",
+  "topics",
   "noticeAck",
   "replyConsent",
   "updatesOptIn",
@@ -39,7 +41,7 @@ const InterestFormSchema = obj({
   category: oneOf(PUBLIC_CATEGORIES.map((c) => c.value) as ["interested-contributor", "community-partner", "specialist-volunteer"]),
   organization: optionalText(160),
   region: optionalText(80),
-  note: optionalText(NOTE_MAX, true),
+  topics: arrayOf(oneOf(PUBLIC_TOPICS.map((t) => t.value) as [PublicTopic, ...PublicTopic[]]), { max: PUBLIC_TOPICS.length }),
   noticeAck: oneOf(["yes"] as const),
   replyConsent: oneOf(["yes"] as const),
   updatesOptIn: nullable(oneOf(["yes"] as const)),
@@ -62,7 +64,7 @@ const FIELD_MESSAGES: Record<string, Record<string, string>> = {
   category: { "not-allowed-value": "Please choose the kind of interest that fits best." },
   organization: { "too-long": "Please keep this under 160 characters." },
   region: { "too-long": "Please keep this under 80 characters." },
-  note: { "too-long": `Please keep the note under ${NOTE_MAX} characters.`, "contains-link": "Please remove links from the note. We are not collecting material yet." },
+  topics: { "not-allowed-value": "Please choose from the listed topics.", "too-many-items": "Please choose from the listed topics." },
   noticeAck: { "not-allowed-value": "Please confirm you have read the privacy notice." },
   replyConsent: { "not-allowed-value": "We need your permission to reply by email. Without it we cannot respond." },
 };
@@ -72,8 +74,6 @@ function messageFor(issue: Issue): [string, string] {
   const message = FIELD_MESSAGES[field]?.[issue.code] ?? (FIELD_MESSAGES[field] ? "Please check this field." : "Please check the form and try again.");
   return [field in FIELD_MESSAGES ? field : "form", message];
 }
-
-const LINK_PATTERN = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|org|net|io|ng|uk|edu|gov|info|me|co|ly|app|drive|link)\b\/?)/i;
 
 export type IntakeContext = {
   store: OperationsStore;
@@ -89,16 +89,26 @@ function blankToNull(v: unknown) {
   return typeof v === "string" && v.trim() === "" ? null : v ?? null;
 }
 
+// Best effort: an aggregate counter must never turn a refusal into an
+// error page, so a storage failure here is swallowed.
 async function count(store: OperationsStore, event: Parameters<OpsTx["upsertCounter"]>[0]["event"], category: string | null = null, referral: string | null = null) {
-  await store.transaction((tx) => {
-    const day = tx.nowIso.slice(0, 10);
-    tx.upsertCounter({ id: `${day}:${event}:${category ?? "-"}:${referral ?? "-"}`, day, event, category: category as never, referral, count: 1 });
-  });
+  try {
+    await store.transaction((tx) => {
+      const day = tx.nowIso.slice(0, 10);
+      tx.upsertCounter({ id: `${day}:${event}:${category ?? "-"}:${referral ?? "-"}`, day, event, category: category as never, referral, count: 1 });
+    });
+  } catch {
+    // counted nowhere; the outcome returned to the person is unchanged
+  }
 }
 
+const UNAVAILABLE = "The form could not be saved just now, and nothing was stored. Please try again later, or write to custodians@tiro.foundation.";
+
 export async function processInterest(entries: Iterable<RawEntry>, ctx: IntakeContext): Promise<IntakeResult> {
-  // 1. Shape: text fields only, each at most once, nothing undeclared.
+  // 1. Shape: text fields only; each at most once except the repeatable
+  // topic selection; nothing undeclared.
   const raw: Record<string, unknown> = {};
+  const topics: string[] = [];
   let total = 0;
   for (const [key, value] of entries) {
     if (key.startsWith("$ACTION")) {
@@ -107,6 +117,11 @@ export async function processInterest(entries: Iterable<RawEntry>, ctx: IntakeCo
     if (typeof value !== "string") {
       await count(ctx.store, "rejected-attachment");
       return { status: "refused", message: "This form accepts text only. Files and attachments are not accepted." };
+    }
+    if (key === "topics") {
+      topics.push(value);
+      total += value.length;
+      continue;
     }
     if (!(FORM_FIELDS as readonly string[]).includes(key) || key in raw) {
       await count(ctx.store, "rejected-invalid");
@@ -146,7 +161,7 @@ export async function processInterest(entries: Iterable<RawEntry>, ctx: IntakeCo
     category: raw.category ?? "",
     organization: blankToNull(raw.organization),
     region: blankToNull(raw.region),
-    note: blankToNull(raw.note),
+    topics: [...new Set(topics)].length === topics.length ? topics : ["duplicate"],
     noticeAck: raw.noticeAck ?? "",
     replyConsent: raw.replyConsent ?? "",
     updatesOptIn: blankToNull(raw.updatesOptIn),
@@ -160,8 +175,6 @@ export async function processInterest(entries: Iterable<RawEntry>, ctx: IntakeCo
       const [field, message] = messageFor(issue);
       fieldErrors[field] ??= message;
     }
-  } else if (parsed.value.note && LINK_PATTERN.test(parsed.value.note)) {
-    fieldErrors.note = FIELD_MESSAGES.note["contains-link"];
   }
   if (Object.keys(fieldErrors).length || !parsed.ok) {
     await count(ctx.store, "rejected-invalid");
@@ -185,8 +198,14 @@ export async function processInterest(entries: Iterable<RawEntry>, ctx: IntakeCo
     return { status: "received" };
   }
 
-  // 4. Persist, in one transaction.
-  await ctx.store.transaction((tx) => recordInterest(tx, { ...form, email, referral }));
+  // 4. Persist, in one transaction. If storage fails, say so: nothing is
+  // half-saved (the transaction is all or nothing) and nothing is retried
+  // behind the person's back.
+  try {
+    await ctx.store.transaction((tx) => recordInterest(tx, { ...form, email, referral }));
+  } catch {
+    return { status: "refused", message: UNAVAILABLE };
+  }
   return { status: "received" };
 }
 
@@ -196,7 +215,7 @@ type ValidInterest = {
   category: "interested-contributor" | "community-partner" | "specialist-volunteer";
   organization: string | null;
   region: string | null;
-  note: string | null;
+  topics: PublicTopic[];
   updatesOptIn: "yes" | null;
   referral: string | null;
 };
@@ -209,7 +228,7 @@ function addDays(iso: string, days: number) {
 
 export function recordInterest(tx: OpsTx, form: ValidInterest) {
   const key = emailKey(form.email, tx.pepper);
-  const base = { createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: true };
+  const base = { createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: tx.synthetic };
   const existing = tx.list("prospects", (p) => p.emailKey === key)[0] ?? null;
   const suppressed = activeSuppressions(tx, key).length > 0;
 
@@ -258,7 +277,7 @@ export function recordInterest(tx: OpsTx, form: ValidInterest) {
     formVersion: PILOT_FORM_VERSION,
     noticeVersion: PRIVACY_NOTICE_VERSION,
     category: form.category,
-    note: form.note,
+    topics: form.topics,
     referral: form.referral,
     outcome: existing ? "accepted-repeat" : "accepted",
     submittedAt: tx.nowIso,

@@ -207,3 +207,69 @@ export function optOutConfirmationMessage(displayName: string, scope: "all" | "o
     ].join("\n"),
   };
 }
+
+// Replies used inside exception cases (cases.ts). Plain, short, and
+// honest about what was done. They are copied and sent by hand from
+// custodians@tiro.foundation and recorded as a case step; they never pass
+// through ordinary outreach, which a case holds.
+export const CASE_TEMPLATES: Partial<Record<import("./types").CaseKind, { subject: string; body: string }>> = {
+  "sensitive-disclosure": {
+    subject: "We have removed what you sent",
+    body: [
+      "Dear [name],",
+      "",
+      "Thank you for writing. We are not collecting stories, recordings, documents, or other material at this stage, so we have deleted what you sent without keeping, copying, or sharing it. We have kept only a note that something was received and removed.",
+      "",
+      "Nothing about this affects your inquiry. If you would like to talk about how a future pilot might work, we are glad to, without any material changing hands.",
+      "",
+      "The Tiro Foundation (TIRO)",
+      "custodians@tiro.foundation",
+    ].join("\n"),
+  },
+  "opt-out": {
+    subject: "Confirmed: you will not receive further messages",
+    body: [
+      "Dear [name],",
+      "",
+      "This confirms that TIRO will not contact you again [about outreach / with updates / at all]. You do not need to do anything else.",
+      "",
+      "We keep only a protected record that you opted out, so that we do not contact you by mistake. To ask us to delete anything else we hold, reply to this message.",
+      "",
+      "The Tiro Foundation (TIRO)",
+    ].join("\n"),
+  },
+  "deletion-request": {
+    subject: "Your details have been deleted",
+    body: [
+      "Dear [name],",
+      "",
+      "As you asked, we have deleted the details we held about you: your inquiry, our notes of any conversation, and any draft messages. We keep only a protected record that you asked not to be contacted, which cannot be read back into your email address.",
+      "",
+      "[If applicable: copies held in our encrypted backups expire automatically within [N] days.]",
+      "",
+      "The Tiro Foundation (TIRO)",
+    ].join("\n"),
+  },
+  "access-request": {
+    subject: "A copy of the details we hold about you",
+    body: [
+      "Dear [name],",
+      "",
+      "As you asked, attached is everything TIRO holds about you in its operations records: your inquiry, the permissions you gave, and our notes of any contact. It does not include anything about anyone else.",
+      "",
+      "If anything is wrong, tell us and we will correct it.",
+      "",
+      "The Tiro Foundation (TIRO)",
+    ].join("\n"),
+  },
+  complaint: {
+    subject: "We have received your concern",
+    body: [
+      "Dear [name],",
+      "",
+      "Thank you for telling us. We are looking into what happened and will reply properly by [date]. In the meantime we will not contact you about anything else.",
+      "",
+      "The Tiro Foundation (TIRO)",
+    ].join("\n"),
+  },
+};

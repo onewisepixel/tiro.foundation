@@ -82,7 +82,7 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
           <div className="fd-panel">
             <p className="lt-label mb-4 text-[var(--tiro-accent)]">We are inviting</p>
             <p className="text-base leading-relaxed text-[var(--tiro-text-soft)]">
-              Conversations and consultation. A name, an email address, the kind of interest you have, and, if you like, a few sentences about why.
+              Conversations and consultation. A name, an email address, the kind of interest you have, and, if you like, which topics you would like to talk about.
             </p>
           </div>
           <div className="fd-panel">
@@ -172,7 +172,7 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
                 custodians@tiro.foundation
               </a>
               <p className="mt-4 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-                A short note about your interest is enough. Please do not attach or send stories, recordings, or other material.
+                A line saying what kind of conversation interests you is enough. Please do not attach or send stories, recordings, or other material; if anything like that reaches us, we delete it and tell you.
               </p>
             </div>
           )}

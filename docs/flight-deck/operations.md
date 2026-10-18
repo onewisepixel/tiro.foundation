@@ -1,67 +1,62 @@
-# Flight Deck 0.1: operating model
+# Flight Deck: operating model and runbook (0.2)
 
-Status: **Proposed working practice for founder review.** Describes how the software is meant to be used; it is not adopted policy.
-Revision date: 2026-10-16.
+Status: **Proposed working practice for founder review.** Supersedes the 0.1 version of this file.
+Revision date: 2026-10-17.
 
-The design target is about four hours of founder attention a week. The software prepares, reminds, and records; people decide.
+The design target is about four hours of founder attention a week. The software prepares, reminds, records, and keeps going on a schedule; people decide.
 
-## 1. Running the local demo
+## 1. Local demo
 
 ```
-npm run dev:flight-deck            # http://localhost:3100/flight-deck  and  /pilot
-npm run dev:flight-deck -- --outbox   # also write dry-run messages to .flight-deck/outbox/
+npm run dev:flight-deck              # http://localhost:3100/flight-deck and /pilot (JSON file store)
+npm run dev:flight-deck -- --pg      # the same, on a local PostgreSQL (the production adapter)
+npm run dev:flight-deck -- --outbox  # also write dry-run messages to .flight-deck/outbox/
 ```
 
-Choose a test identity (founder, operator, reviewer). The first visit loads synthetic fixtures; **Health → Reset to synthetic seed** restores them. Everything shown is invented and labeled; addresses use the reserved `.invalid` domain. The launcher runs beside an ordinary `npm run dev`.
+Choose a test identity. Health → Reset to synthetic seed restores the fixtures. Everything shown is invented; addresses use the reserved `.invalid` domain.
 
 ## 2. The weekly cycle
 
-Open **Now** first. Within a minute and a half it answers: what progressed since the last review, the five most pressing actions (by lateness, then the priority you set, then due date; never by any judgment about a person), what awaits approval, which replies are waiting, which commitments are due within two days, what is blocked by a gate, and what continues without you.
+Open **Now** first: alerts (worker, failed jobs, overdue cases), the five most pressing actions (lateness, then your priority, then due date; never a judgment about a person; exceptions come before ordinary work at the same lateness), approvals waiting, replies, commitments due within two days, blockers, and what continues without you. Then **Weekly review**: the four blocks (approvals 30 min, conversations 90 min, exceptions and permissions 60 min, progress and strategy 60 min), the digest, and *Mark this week's review complete*.
 
-Then open **Weekly review** (`/flight-deck/digest`) and work through four blocks:
+## 3. What runs without you
 
-| Block | About | Where |
-| --- | --- | --- |
-| Approve or revise content and outreach | 30 min | Approvals |
-| Conversations with interested people and prospective partners | 90 min | Relationships (conversation scheduled / consultation) |
-| Resolve permission, consultation, and operational exceptions | 60 min | Blocked list, Health, permission-review and retention tasks |
-| Progress review and strategic choices | 60 min | Now, Campaigns, digest |
+With the schedule enabled, every five minutes the worker runs due jobs (none are sent without a provider, so approved messages become "ready to send by hand"), opens retention and expired-approval tasks, raises overdue cases, and writes the restore ledger. It does not decide anything. Opt-outs take effect the moment they are recorded, by anyone. If the worker stops, the status endpoint and the CloudWatch alarm say so, and Now shows the alert next time anyone looks.
 
-Copy the digest if you want a record, then **Mark this week's review complete** so the next briefing starts from that moment. Digest delivery by email is off until a provider and a schedule are approved.
+## 4. Everyday flows
 
-## 3. Everyday flows
+As in 0.1 (inquiry → triage → reply from template, placeholders filled → review → approve exact version → send by hand and record; researched contact → basis reviewed → one approved first message; at most one follow-up), plus:
 
-**A new inquiry.** It appears on Now with a triage task. Read the note on the relationship page, move it to *Ready for triage* or *Needs review* (naming the gate), and draft a reply from the template. Fill every `[placeholder]`: drafts with placeholders cannot go to review. Send for review, approve the exact version, then either queue it (held, because no provider exists) or copy it, send it from custodians@tiro.foundation, and **record as sent by hand**. A single follow-up reminder is created automatically.
+- **Anything unusual is a case** (Exceptions): material sent by mistake, opt-outs, deletion and access requests, complaints, mistaken submissions, lost messages, doubtful contacts, incidents. See `exception-procedures.md`. Most cases hold outreach to the person until resolved.
+- **The public form asks only for short details and fixed topic choices**: there is nowhere to type an account. Anything sent another way is handled under exception procedure 1.
 
-**A researched institution.** Add it under Relationships with the https page where the public business contact was found, the date, and why contact is legitimate. A founder or reviewer must accept that basis (including any communications-law review) before a first message can go to review. One message, individually approved. No lists, no scraping, no automated DMs.
+## 5. People and access (production)
 
-**A reply arrives.** Record it as an inbound interaction. Mark the sender verified only if it plainly comes from the address on record; otherwise a task asks you to confirm before acting. A reply never commits TIRO to collecting or partnering.
+- **Adding an operator**: create them in the Cognito pool (they enrol MFA on first sign-in), add them to the `flight-deck` group, then `npm run flight-deck:admin -- add-operator --email … --name … --role operator`.
+- **Removing access**: Health → Operators → Deactivate. Every session ends immediately; also disable them in Cognito.
+- **Changing a role**: Health → Operators. Takes effect on their next request.
+- **Lost device / suspected compromise**: Deactivate (or *Sign out everywhere*), reset MFA in Cognito, open an incident case.
 
-**No reply.** One follow-up at most (the software refuses a second). Then close.
+## 6. Restore drill and real restore
 
-**Content.** Drafts carry their origin (evidence, demonstration, abstraction) and source. Evidence needs a recorded asset permission. Campaign-linked posts publish only while the campaign is active and within its weekly limit. Without a connected platform, copy the approved text, post it by hand, and record it with the post's link.
+Quarterly, and before launch:
 
-## 4. Consent, opt-out, deletion
+1. Restore the provider's latest backup (or a point in time) into a **new** database; never over the live one.
+2. Point a staging copy of Flight Deck at it; confirm it opens (`fd_meta` must say real data).
+3. Run `npm run flight-deck:admin -- replay-ledger <latest ledger> --operator <founder id>`: re-applies every erasure and opt-out recorded since the backup.
+4. Check: erased people are absent; suppressed addresses are blocked (Relationships, Health); counts match expectations.
+5. For a real restore, only then switch the application's database URL, and record the drill or restore as an incident case.
 
-- **Permission to write is not consent to collect.** Every screen that shows a permission says so.
-- **Opt-out takes effect immediately** (relationship page → *They asked us to stop*): queued jobs are cancelled, drafts are held even if approved, and open reply/follow-up tasks are cancelled. Scope choices: all contact, outreach only, or updates only. An updates unsubscribe does not block a reply to the person's own inquiry.
-- **Deletion is a separate, deliberate step** (founder only; type ERASE). It removes the person's details, submissions, notes, interactions, tasks, and drafts. Keeping the opt-out record stores only a keyed hash so they are not contacted again. Audit events keep only opaque ids.
-- **Subject access**: *Export JSON* or *Printable summary* on the relationship page. Both are audited.
-- **Someone who opted out writes again**: they get the same public response, no acknowledgement is queued, and a high-priority review task appears. Lift a suppression only if they ask.
+Anything erased or opted out within one worker interval of the failure may need re-entering by hand from the exception cases. `export-snapshot` / `import-snapshot` provide a provider-independent logical copy for drills (it contains personal data on a real database: store it encrypted and delete it afterwards).
 
-## 5. Pausing
+## 7. Secrets rotation
 
-**Health → Pause all outbound activity** stops every dispatch and manual attestation at once. Anyone may pause; only the founder may resume. Individual campaigns can also be paused.
+Worker and monitor tokens: rotate in Secrets Manager, redeploy the app, and update the EventBridge connection or monitor. The session secret: rotating it signs everyone out of in-progress sign-ins and invalidates open form tokens (people reload the page). The **email-hash pepper must not be rotated** without a planned re-keying of suppressions; losing it means opted-out addresses are no longer recognized.
 
-## 6. Escalation and founder unavailability
+## 8. Pausing and incidents
 
-- An operator can prepare everything, keep relationships current, and pause, but cannot approve, resume, or delete. With the founder away, prepared work waits in Approvals; nothing leaves.
-- A named reviewer can approve in the founder's absence, if the founder decides to appoint one (a decision in `acceptance.md` §7). The approval records a second reviewer when one is chosen.
-- Escalate a task to mark it high priority on the founder's Now board.
-- If anything looks wrong (a message sent in error, a suspected breach, a complaint), pause all outbound first, then investigate from Activity and Health.
+Health → Pause all outbound activity (anyone; founder resumes). For anything that went wrong, open an incident case: it can pause at the same time, and walks through containment, assessment, a notification decision, and resumption.
 
-## 7. Recovery
+## 9. When the founder is unavailable
 
-- **Held or failed job**: Health shows the code. Fix the cause (approval, permission, campaign), then *Retry*; the same idempotency key is reused, so a retry cannot duplicate a message.
-- **"Changed since you opened it"**: reload and redo the step; nothing was saved.
-- **Local store damaged**: the store refuses to load a file it does not recognize. Reset to the synthetic seed. (A production store needs backups and restore tests; see `integrations.md`.)
+Operators keep relationships current, prepare drafts, open and work cases, and record opt-outs (effective immediately). Nothing leaves without an approval, and approvals expire after 14 days unused (the worker turns expired ones into re-review tasks). Founder-only items wait and surface as alerts: resuming after a pause, erasure, resolving complaints, sensitive disclosures, and incidents. A named second reviewer, once appointed, can approve in the founder's absence.

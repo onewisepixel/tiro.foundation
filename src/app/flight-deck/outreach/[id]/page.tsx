@@ -9,7 +9,7 @@ import { contactEligibility } from "@/lib/flightDeck/permissions";
 import { archiveDraftAction, editOutreachAction, manualSendAction, queueDispatchAction, submitForReviewAction } from "../../actions";
 import { requirePage } from "../../guard";
 
-const ELIGIBILITY: Record<string, string> = { "no-address": "No address on record", withdrawn: "Withdrawn: no contact permitted", suppressed: "Opted out of this kind of message", "permission-pending-review": "Contact basis not yet reviewed", "permission-expired": "Permission expired", "no-permission": "No permission for this kind of message" };
+const ELIGIBILITY: Record<string, string> = { "case-open": "An open case holds outreach to this person", "no-address": "No address on record", withdrawn: "Withdrawn: no contact permitted", suppressed: "Opted out of this kind of message", "permission-pending-review": "Contact basis not yet reviewed", "permission-expired": "Permission expired", "no-permission": "No permission for this kind of message" };
 
 export default async function OutreachDraftPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();

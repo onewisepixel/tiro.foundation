@@ -9,6 +9,7 @@ const HREF: Record<string, (id: string) => string> = {
   content: (id) => `/flight-deck/content/${id}`,
   campaign: () => "/flight-deck/campaigns",
   job: () => "/flight-deck/health",
+  case: (id) => `/flight-deck/cases/${id}`,
 };
 
 const PAGE = 150;
@@ -17,11 +18,8 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
   const { rt } = await requirePage();
   const params = await searchParams;
   const page = Math.max(0, Number(typeof params.page === "string" ? params.page : 0) || 0);
-  const { events, total, live } = await rt.store.read((tx) => {
-    const all = tx.list("audit").sort((a, b) => b.at.localeCompare(a.at));
-    const ids = new Set([...tx.list("prospects").map((p) => p.id), ...tx.list("outreach").map((d) => d.id), ...tx.list("content").map((c) => c.id)]);
-    return { events: all.slice(page * PAGE, (page + 1) * PAGE), total: all.length, live: ids };
-  });
+  const { events, total } = await rt.store.auditPage(page * PAGE, PAGE);
+  const live = await rt.store.read((tx) => new Set([...tx.list("prospects").map((p) => p.id), ...tx.list("outreach").map((d) => d.id), ...tx.list("content").map((c) => c.id), ...tx.list("cases").map((c) => c.id)]));
   return (
     <>
       <PageTitle eyebrow="Activity" title="Append-only record of what happened">

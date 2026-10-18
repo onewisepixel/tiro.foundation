@@ -71,6 +71,6 @@ export function audit(
     objectType,
     objectId,
     reason,
-    synthetic: true,
+    synthetic: tx.synthetic,
   });
 }

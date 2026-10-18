@@ -1,11 +1,12 @@
 "use client";
 
-// The /pilot expression-of-interest form. Text fields only: there is no
-// file input, no drag-and-drop, and no long story field, and the server
-// refuses anything else regardless of what a client sends.
-import { useActionState, useEffect, useRef, useState } from "react";
+// The /pilot expression-of-interest form. Short text fields and fixed
+// choices only: there is no file input, no drag-and-drop, and (since 0.2)
+// no free-text note, and the server refuses anything else regardless of
+// what a client sends.
+import { useActionState, useEffect, useRef } from "react";
 import { submitInterest, type PilotFormState } from "@/app/pilot/actions";
-import { CONSENT_WORDING, NOTE_GUIDANCE, NOTE_MAX, PUBLIC_CATEGORIES } from "@/lib/flightDeck/pilotCopy";
+import { CONSENT_WORDING, PUBLIC_CATEGORIES, PUBLIC_TOPICS, TOPICS_GUIDANCE } from "@/lib/flightDeck/pilotCopy";
 
 type Props = { formToken: string; noticeVersion: string; referral: string | null; demo: boolean };
 
@@ -28,7 +29,6 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 
 export default function PilotInterestForm({ formToken, noticeVersion, referral, demo }: Props) {
   const [state, action, pending] = useActionState(submitInterest, INITIAL);
-  const [noteLength, setNoteLength] = useState<number | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const errors = state.status === "invalid" ? state.fieldErrors : {};
   const v = (state.status === "invalid" || state.status === "refused" ? state.values : undefined) ?? {};
@@ -46,7 +46,7 @@ export default function PilotInterestForm({ formToken, noticeVersion, referral, 
     return (
       <div ref={resultRef} tabIndex={-1} role="status" className="fd-panel outline-none">
         <p className="lt-label mb-3 text-[var(--tiro-accent)]">Received</p>
-        <h3 className="lt-display text-3xl md:text-4xl">Thank you. Your note has been received.</h3>
+        <h3 className="lt-display text-3xl md:text-4xl">Thank you. Your inquiry has been received.</h3>
         <p className="mt-5 max-w-[var(--lt-measure)] text-base leading-relaxed text-[var(--tiro-text-muted)]">
           A person at TIRO reads every inquiry. If a conversation would be useful, we will write to you from custodians@tiro.foundation. Please do not send stories,
           recordings, or other material: we are not collecting any yet.
@@ -159,29 +159,23 @@ export default function PilotInterestForm({ formToken, noticeVersion, referral, 
         </div>
       </div>
 
-      <div>
-        <label htmlFor="note" className="tiro-field-label">
-          A short note <span className="text-[var(--tiro-text-muted)]">(optional)</span>
-        </label>
-        <span id="note-hint" className="tiro-field-hint">
-          {NOTE_GUIDANCE}
-        </span>
-        <textarea
-          id="note"
-          name="note"
-          rows={4}
-          maxLength={NOTE_MAX}
-          defaultValue={v.note}
-          className="tiro-input"
-          aria-invalid={!!errors.note}
-          aria-describedby={describe("note", "note-hint note-count")}
-          onChange={(e) => setNoteLength(e.currentTarget.value.length)}
-        />
-        <span id="note-count" className="tiro-field-hint text-right">
-          {noteLength ?? v.note?.length ?? 0} of {NOTE_MAX} characters
-        </span>
-        <FieldError id="note-error" message={errors.note} />
-      </div>
+      <fieldset aria-describedby={["topics-hint", errors.topics ? "topics-error" : null].filter(Boolean).join(" ")}>
+        <legend className="tiro-field-label">
+          What would you like to talk about? <span className="text-[var(--tiro-text-muted)]">(optional)</span>
+        </legend>
+        <p id="topics-hint" className="tiro-field-hint">
+          {TOPICS_GUIDANCE}
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {PUBLIC_TOPICS.map((t) => (
+            <label key={t.value} className="tiro-check border border-[var(--tiro-border)] p-3 hover:border-[var(--tiro-border-strong)]">
+              <input type="checkbox" name="topics" value={t.value} defaultChecked={v.topics?.includes(t.value)} />
+              <span>{t.label}</span>
+            </label>
+          ))}
+        </div>
+        <FieldError id="topics-error" message={errors.topics} />
+      </fieldset>
 
       <fieldset className="space-y-4 border-t border-[var(--tiro-border)] pt-6">
         <legend className="sr-only">Permissions</legend>
@@ -220,7 +214,7 @@ export default function PilotInterestForm({ formToken, noticeVersion, referral, 
           {pending ? "Sending…" : "Send expression of interest"}
         </button>
         <p className="text-sm text-[var(--tiro-text-muted)]" aria-live="polite">
-          {pending ? "Sending your note." : ""}
+          {pending ? "Sending your inquiry." : ""}
         </p>
       </div>
     </form>

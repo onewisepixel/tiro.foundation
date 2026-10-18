@@ -2,14 +2,20 @@ import Link from "next/link";
 import { SubmitButton } from "@/components/flight-deck/client";
 import { Badge, Empty, Field, Notice, PageTitle, Return, Section, StatusBadge, day, when } from "@/components/flight-deck/ui";
 import { can } from "@/lib/flightDeck/access";
+import { privacyNoticeIsDraft, PRIVACY_NOTICE_VERSION } from "@/lib/flightDeck/config";
 import { displayNameFor } from "@/lib/flightDeck/identities";
-import { liftSuppressionAction, pauseAction, resetSeedAction, retryJobAction, runJobsAction } from "../actions";
+import { computeAlerts } from "@/lib/flightDeck/worker";
+import { liftSuppressionAction, operatorAction, pauseAction, resetSeedAction, retryJobAction, runWorkerAction } from "../actions";
 import { requirePage } from "../guard";
+
+type Tone = "done" | "blocked" | "attention";
+const TONE_LABEL: Record<Tone, string> = { done: "Live", blocked: "Off", attention: "Local only" };
 
 export default async function HealthPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
   const params = await searchParams;
   const here = "/flight-deck/health";
+  const production = rt.mode === "production";
   const d = await rt.store.read((tx) => {
     const soon = new Date(tx.now.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
     const jobs = tx.list("jobs").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -22,26 +28,47 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       retentionTasks: tx.list("tasks", (t) => t.type === "retention-review" && t.status === "open").map((t) => ({ ...t, name: t.prospectId ? (tx.get("prospects", t.prospectId)?.displayName ?? "(erased)") : "—" })),
       funnel: tx.list("funnel").sort((a, b) => b.day.localeCompare(a.day)).slice(0, 40),
       prospectCount: tx.list("prospects").length,
+      runs: tx.list("workerRuns").sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 8),
+      alerts: computeAlerts(tx, { expectWorker: production || rt.flags.backgroundJobs, ledgerConfigured: !!rt.ledgerSink }),
     };
   });
-  const flags = rt.flags;
+  const operators = rt.identity ? await rt.identity.listOperators() : null;
+  const gates = rt.identity ? await rt.identity.gates() : [];
+  const lastRun = d.runs[0];
+  const lastRunText = lastRun ? `${when(lastRun.startedAt)} (${lastRun.outcome})` : "never";
 
-  const integrations: [string, string, "done" | "blocked" | "attention"][] = [
-    ["Identity provider", "Not configured. Local demo test identities only; refused outside localhost.", "blocked"],
-    ["Operations store", `Local JSON file on this machine (synthetic). Not production persistence. ${d.prospectCount} prospect records.`, "attention"],
-    ["Public interest form", flags.publicForm ? "Open in local demo only (synthetic store). Closed on every deployment." : "Closed.", flags.publicForm ? "attention" : "blocked"],
-    ["Email delivery", flags.outboundEmail ? `Dry-run outbox (${rt.providers.email.name}): writes files under .flight-deck/outbox, sends nothing.` : "No provider. Jobs are held; send by hand and attest.", "blocked"],
-    ["Social publishing", flags.socialPublishing ? `Dry-run outbox (${rt.providers.social.name}): publishes nothing.` : "No platform connected. Publish by hand and attest.", "blocked"],
-    ["Background jobs", "No durable job runner. Jobs run only when someone presses “Run due jobs”.", "blocked"],
-    ["Newsletter sending", "Not built. Requires a provider, an approved schedule, and a working unsubscribe.", "blocked"],
-    ["Privacy notice", "Draft, not legally reviewed (pilot-privacy-draft-0.1).", "blocked"],
-    ["Archive intake", "Not built in Flight Deck 0.1, and no switch exists to enable it.", "blocked"],
+  const integrations: [string, string, Tone][] = [
+    ["Identity", production ? "Cognito user pool (MFA required by the pool); only the named operators below." : "Local demo test identities; refused outside localhost.", production ? "done" : "attention"],
+    ["Operations store", `${rt.storeLabel}. ${d.prospectCount} prospect records.${rt.store.synthetic ? " Synthetic data only." : ""}`, production ? "done" : "attention"],
+    ["Rate limiting", rt.limiterLabel, production ? "done" : "attention"],
+    ["Scheduled worker", production ? `Runs when the scheduler calls it. Last run: ${lastRunText}.` : `Runs when someone presses “Run worker tick now”. Last run: ${lastRunText}.`, production && lastRun?.outcome === "ok" ? "done" : "attention"],
+    ["Restore ledger", rt.ledgerSink ? `Written after each worker run (${rt.ledgerSink.label}).` : "Not configured. Production needs a separate, versioned, write-once object store.", rt.ledgerSink && production ? "done" : rt.ledgerSink ? "attention" : "blocked"],
+    ["Public interest form", production ? (privacyNoticeIsDraft() ? "Closed: the privacy notice is still a draft." : "Closed unless its gate is recorded.") : rt.flags.publicForm ? "Open in local demo only (synthetic store)." : "Closed.", rt.flags.publicForm && !production ? "attention" : "blocked"],
+    ["Email delivery", production ? "Disabled by decision. Send approved messages by hand and record them." : rt.flags.outboundEmail ? `Dry-run outbox (${rt.providers.email.name}): sends nothing.` : "No provider. Jobs are held; send by hand and record them.", "blocked"],
+    ["Social publishing", "Manual by decision: publish approved posts yourself and record them.", "blocked"],
+    ["Privacy notice", `Draft, not legally reviewed (${PRIVACY_NOTICE_VERSION}).`, "blocked"],
+    ["Archive intake", "Not built in Flight Deck, and no switch exists to enable it.", "blocked"],
   ];
 
   return (
     <>
       <PageTitle eyebrow="Health" title="Operations, integrations, and safety controls" />
       <Notice params={params} />
+
+      {d.alerts.length ? (
+        <Section title="Needs attention">
+          <ul className="space-y-2">
+            {d.alerts.map((a) => (
+              <li key={a.key} className="text-sm">
+                <Badge tone={a.severity === "action" ? "blocked" : "attention"} glyph={a.severity === "action" ? "■" : "▲"}>
+                  {a.severity === "action" ? "Action" : "Warning"}
+                </Badge>{" "}
+                {a.message}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
 
       <Section title="Outbound activity">
         {d.settings.allOutboundPaused ? (
@@ -56,7 +83,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
             <Badge tone="done" glyph="●">
               Running
             </Badge>{" "}
-            Every dispatch is still checked against approval, suppression, and permission when it runs.
+            Every dispatch is still checked against approval, suppression, open cases, and permission when it runs.
           </p>
         )}
         <form action={pauseAction} className="flex flex-wrap gap-3">
@@ -79,13 +106,13 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
         </form>
       </Section>
 
-      <Section title="Integrations: what is live">
+      <Section title="What is live">
         <ul>
           {integrations.map(([name, text, tone]) => (
-            <li key={name} className="fd-row grid gap-2 text-sm md:grid-cols-[12rem_minmax(0,1fr)]">
+            <li key={name} className="fd-row grid gap-2 text-sm md:grid-cols-[13rem_minmax(0,1fr)]">
               <span className="flex items-center gap-2">
-                <Badge tone={tone} glyph={tone === "blocked" ? "■" : "◌"}>
-                  {tone === "blocked" ? "Off" : "Local only"}
+                <Badge tone={tone} glyph={tone === "blocked" ? "■" : tone === "done" ? "●" : "◌"}>
+                  {TONE_LABEL[tone]}
                 </Badge>
                 {name}
               </span>
@@ -96,16 +123,96 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       </Section>
 
       <Section
-        title="Dispatch queue"
+        title="Scheduled worker"
         aside={
           can(actor, "dispatch") ? (
-            <form action={runJobsAction}>
+            <form action={runWorkerAction}>
               <Return to={here} />
-              <SubmitButton>Run due jobs now</SubmitButton>
+              <SubmitButton>Run worker tick now</SubmitButton>
             </form>
           ) : null
         }
       >
+        <p className="mb-3 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
+          Each tick runs due jobs (every gate re-checked, pause honoured), opens retention and expired-approval tasks, escalates overdue cases, purges old rate-limit
+          windows, and writes the restore ledger. Only one tick runs at a time. It never sends anything without a provider.
+        </p>
+        {d.runs.length === 0 ? <Empty>No runs yet.</Empty> : null}
+        <ul>
+          {d.runs.map((r) => (
+            <li key={r.id} className="fd-row flex flex-wrap items-center gap-2 text-xs">
+              <StatusBadge status={r.outcome === "ok" ? "done" : r.outcome === "failed" ? "failed" : r.outcome === "paused" ? "paused" : "running"} />
+              {when(r.startedAt)} · {r.jobsClaimed} job{r.jobsClaimed === 1 ? "" : "s"} · {r.tasksCreated} task{r.tasksCreated === 1 ? "" : "s"} opened
+              {r.errorCode ? ` · ${r.errorCode}` : ""}
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {operators ? (
+        <Section title="Operators">
+          <p className="mb-3 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
+            Only people listed here can use Flight Deck, and only while active. Changes apply on their next request. Operators are added with the operator script
+            (each must also exist in the Cognito pool), not from this page.
+          </p>
+          {operators.map((o) => (
+            <div key={o.id} className="fd-row flex flex-wrap items-center justify-between gap-3 text-sm">
+              <span>
+                {o.displayName}{" "}
+                <span className="text-xs text-[var(--tiro-text-muted)]">
+                  · {o.email} · {o.role}
+                  {o.active ? "" : " · deactivated"}
+                </span>
+              </span>
+              {can(actor, "settings") && o.active ? (
+                <form action={operatorAction} className="flex flex-wrap items-center gap-2">
+                  <Return to={here} />
+                  <input type="hidden" name="id" value={o.id} />
+                  <label className="sr-only" htmlFor={`role-${o.id}`}>
+                    Role for {o.displayName}
+                  </label>
+                  <select id={`role-${o.id}`} name="role" defaultValue={o.role} className="tiro-input !mt-0 !w-auto !py-1.5 text-xs">
+                    <option value="founder">founder</option>
+                    <option value="operator">operator</option>
+                    <option value="reviewer">reviewer</option>
+                  </select>
+                  {o.id !== actor.id ? (
+                    <button name="op" value="role" className="fd-button">
+                      Change role
+                    </button>
+                  ) : null}
+                  <button name="op" value="revoke" className="fd-button">
+                    Sign out everywhere
+                  </button>
+                  {o.id !== actor.id ? (
+                    <button name="op" value="deactivate" className="fd-button" data-tone="danger">
+                      Deactivate
+                    </button>
+                  ) : null}
+                </form>
+              ) : null}
+            </div>
+          ))}
+        </Section>
+      ) : null}
+
+      {production ? (
+        <Section title="Launch gates">
+          <ul className="text-sm">
+            {(["console", "public-form"] as const).map((gate) => {
+              const g = gates.find((x) => x.gate === gate);
+              return (
+                <li key={gate} className="fd-row">
+                  {gate}: {g ? `recorded by ${g.approvedBy} on ${day(g.approvedAt)}` : "not recorded"}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">Gates are recorded deliberately with the gate script, never from this page.</p>
+        </Section>
+      ) : null}
+
+      <Section title="Dispatch queue">
         <p className="mb-3 text-xs text-[var(--tiro-text-muted)]">
           Last job completed: {d.lastSuccess ? `${when(d.lastSuccess.updatedAt)} (${d.lastSuccess.status === "simulated" ? "dry run" : "provider confirmed"})` : "none"}. Errors are shown as
           codes only.
@@ -180,7 +287,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
         </ul>
       </Section>
 
-      {can(actor, "settings") ? (
+      {can(actor, "settings") && rt.resetToSeed ? (
         <Section title="Local demo data">
           <form action={resetSeedAction} className="flex flex-wrap items-end gap-3">
             <Return to={here} />

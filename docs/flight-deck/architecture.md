@@ -1,109 +1,94 @@
-# Flight Deck 0.1: architecture and threat model
+# Flight Deck: architecture and threat model (0.2 production foundation)
 
-Status: **Implementation for founder review.** Runs locally on synthetic fixtures only. Nothing is deployed, no external account exists, and no real contact data has been collected.
-Revision date: 2026-10-16.
-Authority: the Flight Deck 0.1 directive. Defers to `/community-rights`, `docs/manifestov0-2.txt`, and `docs/ethos.txt` (proposed operational requirements). Implements nothing from Contract 0.2 (`docs/proposals/memory-record-relationship-contract.md`), which is still under formal review.
+Status: **Production-foundation candidate for founder review.** Runs and is tested locally, including against a real PostgreSQL and the production build. Nothing is deployed, no AWS resource or account has been created, no real contact data exists, and no message has been sent.
+Revision date: 2026-10-17. Supersedes the 0.1 version of this file.
+Authority: the Flight Deck 0.1 directive and the 0.2 founder decisions. Defers to `/community-rights`, `docs/manifestov0-2.txt`, and `docs/ethos.txt` (proposed operational requirements). Implements nothing from Contract 0.2 (`docs/proposals/memory-record-relationship-contract.md`), which remains under formal review.
 
-## 1. What Flight Deck is
+## 1. What changed in 0.2
 
-Two surfaces inside the existing Next.js 16 site:
-
-- **`/pilot`** (public). An honest invitation to *conversations* about a future pilot, with a small expression-of-interest form. It collects no memories, recordings, files, or cultural material.
-- **`/flight-deck`** (private). A founder operations instrument: relationships, outreach, campaigns, content, approvals, activity, health, and a weekly review. Every external consequence requires approval of an exact version.
-
-Neither surface is an archive, and nothing in either is an archival record, a source-authority finding, or consent to collect, preserve, or publish.
-
-## 2. Repository audit (2026-10-16)
-
-| Observed | Briefing said | Divergence |
+| Area | 0.1 | 0.2 |
 | --- | --- | --- |
-| `main` at `9bbf13b`, clean tree, no staged changes | Audit first | None. Branches `backend/fixture-preservation-milestone` and `docs/stewardship-alignment-20261002` exist; untouched. |
-| Next.js **16.3.8**, React 19, Tailwind v4, no ORM, no auth, no CRM | Same | None. |
-| `src/proxy.ts` (Next 16's renamed middleware) already set `no-store` on `/memories` | Not mentioned | Extended rather than replaced (§4). |
-| `/contact` is a `mailto:`; `/memory-project` has no funnel | Same | None. |
-| Baseline: 368/368 tests, lint 0 errors (2 pre-existing backend warnings), typecheck clean | Run checks | None. |
-| A `next dev` server was already running on :3000 from this directory (PID 22356) | Not mentioned | Left untouched. The demo runs on :3100 with its own build directory (`.next-flight-deck`), which required one opt-in line in `next.config.ts` (§6). |
+| Storage | Local JSON file | Same contract, plus a **PostgreSQL adapter** (serializable, versioned, DB-enforced keys, append-only audit trigger), migrations, logical snapshot export/import |
+| Identity | Local test identities | **Dedicated Cognito pool** (OIDC code + PKCE, MFA required by the pool), named operators table, hashed server-side sessions, revocation |
+| Modes | disabled, local-demo | + **production**, which exists only with complete, valid configuration and opens nothing without the founder's recorded gates |
+| Rate limiting | In-memory | + **PostgreSQL** shared limiter (multi-instance) |
+| Background work | A person pressed "Run due jobs" | **Scheduled worker** (EventBridge, every 5 min, disabled by default), single-runner lock, heartbeat, housekeeping |
+| Monitoring | Health page | + alerts, a token-protected status endpoint for an uptime monitor, a CloudWatch alarm on worker failures |
+| Exceptions | Opt-out and erase only | **Cases** for sensitive material, opt-outs, deletion and access requests, complaints, mistaken submissions, lost messages, doubtful contacts, and incidents |
+| Restore | Not addressed | **Restore ledger** of erasures and suppressions, replayed after any restore |
+| Public form | Optional 500-character note | **Note removed**; fixed topic choices only |
 
-Nothing under `backend/`, `infra/`, `docs/manifestov0-2.txt`, `/community-rights`, `docs/ethos.txt`, the proposals, or the fixture permissions was modified.
+Unchanged on purpose: exact-version approvals, dispatch-time checks, the global pause, the audit trail, manual social publishing, disabled email, and the separation between contact permission and archival consent.
 
-## 3. Boundaries
+## 2. Boundaries
 
 ```
- public                                   private (local demo only)
- ───────                                  ─────────────────────────
- /pilot ──server action──► intake.ts ─┐   /flight-deck/* ──server actions──► domain services
-                                      │                                         │
-                                      ▼                                         ▼
-                           OperationsStore (src/lib/flightDeck/store.ts) ◄──────┘
-                           LocalFileOperationsStore: .flight-deck/local-store.json
-                                      │
-                                      ▼
-                           dispatch.ts ──► EmailProvider / SocialPublisher ports
-                                           (Disabled, or dry-run LocalOutbox only)
+ public                                      private (local demo, or production behind Cognito + gate)
+ ──────                                      ──────────────────────────────────────────────────────────
+ /pilot ── server action ── intake.ts ──┐    /flight-deck/* ── server actions ── domain services
+                                        │                                        │
+                                        ▼                                        ▼
+                              OperationsStore contract (src/lib/flightDeck/store.ts)
+                 ┌──────────────────────┼──────────────────────────────┐
+     MemoryOperationsStore     LocalFileOperationsStore      PostgresOperationsStore (postgres/store.ts)
+          (tests)                (local demo)               (local demo --pg; production candidate)
 
- NO import path to backend/, infra/, src/data/, the Living Trace, or any archival store.
+ EventBridge rule ──(API destination, worker token)──► /flight-deck/internal/worker ── worker.ts
+ Uptime monitor ──(monitor token)──► /flight-deck/internal/status (counts and codes only)
+ Cognito (dedicated pool) ◄── /flight-deck/auth/login, /auth/callback ──► identity.ts (operators, sessions)
+
+ NO path to backend/, infra/, src/data/, the Living Trace, or any archival store.
 ```
 
-- **Separate domain.** `src/lib/flightDeck/` holds its own types, store, and services. Entity names (`Prospect`, `CommunicationPermission`, `OpsTask`, …) cannot be mistaken for the archive's `AuthorityClaim`, `ConsentGrant`, or `FixtureRecord`. A test (`flightDeck.test.ts`, item 12) fails if any Flight Deck file imports from `backend`, `infra`, `@/data`, `publicMemoryApi`, or `livingTrace`.
-- **Separate storage.** The local store is one JSON file in a git-ignored directory. It is not the AWS fixture backend and never talks to it.
-- **No archive intake.** There is no upload route, no file field, and no flag that could enable one.
+- **A separate operations domain.** `src/lib/flightDeck/` has its own types, store, migrations (`fd_*` tables), and identity. A test fails if any Flight Deck file imports from `backend`, `infra`, `@/data`, `publicMemoryApi`, or `livingTrace`. The production database must be separate from any archival system; the deploy template provisions nothing shared with the synthetic backend's stack (`infra/` is untouched).
+- **Synthetic and real never mix.** Every store has a `synthetic` flag; a database records its own (`fd_meta`), a store refuses to open a database whose flag differs, and every row is checked against it on write. Wiping is possible only for a synthetic database.
 
-## 4. Gates, outermost first
+## 3. Modes and gates (outermost first)
 
-1. **Mode decision** (`config.ts`). Two modes: `disabled` (default) and `local-demo`. Local demo requires `FLIGHT_DECK_MODE=local-demo` **and** `NODE_ENV !== "production"` **and** no hosting-platform marker (Vercel, Lambda, Amplify, Netlify, Cloud Run, ECS, Azure, Render, Fly, Railway, Heroku, Codespaces) **and** a loopback `Host`. Query strings and cookies are never consulted. There is no production mode in 0.1.
-2. **Proxy** (`src/proxy.ts`). Outside local demo, every `/flight-deck` path, including server actions and the export route, answers 404 before page code runs. Private responses carry `no-store`, `noindex`, `no-referrer`, `DENY` framing, and `nosniff`.
-3. **Server re-check** (`runtime.ts`, `app/flight-deck/guard.ts`). Every page, action, and route handler gets the runtime again; null means 404. No session means sign-in (pages) or nothing (actions).
-4. **Capabilities** (`access.ts`). Enforced inside the domain functions, not in the UI: `founder` (all), `operator` (prepare, never approve, resume, or delete), `reviewer` (read and decide, never edit).
-5. **Approval binding** (`approvals.ts`). An approval stores a SHA-256 over the canonical payload: content version and text, recipient address, channel, purpose, and schedule (content also binds origin, source, asset, asset permission, and route). The reviewer's form posts the hash it displayed; a mismatch is refused. Any edit appends a new immutable version and invalidates approvals. Approvals expire (14 days by default).
-6. **Dispatch-time checks** (`dispatch.ts`). Re-run when a job runs, not when it is queued: global pause, approval for exactly this payload, suppression, communication permission, campaign active and within weekly limits, provider availability. Any failure holds or cancels the job.
-7. **Truthful receipts.** `sent`/`published` only with a provider confirmation or a named person's manual attestation. A dry run is `simulated`. With no provider (0.1), the job is held as `provider-disabled` and the item becomes "ready to send by hand".
+1. **Mode** (`config.ts`): `disabled` (default), `local-demo` (explicit, non-production build, no platform marker, loopback Host), or `production` (production build, every required setting present and well-formed, secrets ≥ 32 characters, all different, no placeholders, TLS required on the database URL). Values are never echoed, only setting names.
+2. **Host**: production requests must carry the configured public host; anything else is 404.
+3. **Proxy** (`src/proxy.ts`): outside those modes every `/flight-deck` path, including actions, auth callbacks, and machine endpoints, is 404 before page code runs.
+4. **Console gate** (`runtime.ts`): in production the console exists only after the founder records the `console` gate with the admin script, which itself requires an active founder operator.
+5. **Identity** (`oidc.ts`, `identity.ts`): Cognito proves who someone is (state, PKCE, RS256 signature against the pool JWKS, issuer, audience, `token_use`, expiry, nonce, verified email, group). Flight Deck then requires a **named, active operator** and takes the role from its own table. The provider subject binds to the operator once; a different subject for the same email is refused. Sessions are random tokens in a `__Host-` HttpOnly Secure cookie; only their SHA-256 is stored; 1-hour idle and 8-hour absolute limits; deactivation and role changes apply on the next request.
+6. **Capabilities** (`access.ts`): enforced in the domain. Founder: everything. Operator: prepares and records, never approves, resumes, or deletes. Reviewer: reads and decides, never edits.
+7. **Approval binding**, **dispatch-time checks**, and **truthful receipts**: as in 0.1. 0.2 adds two dispatch-time holds: an **open exception case** for the person, and a **campaign** that is not active or is over its weekly limit.
+8. **Public form gate**: in production the form needs its flag, a recorded `public-form` gate naming the current notice version, and a notice whose version does not contain "draft". The admin script refuses to record the gate while the notice is a draft. 0.2 ships a draft notice, so the production form cannot open.
 
-## 5. Data model
+## 4. PostgreSQL adapter
 
-Entities and their schemas live in `src/lib/flightDeck/types.ts`; every type is inferred from its schema, so requests and writes share one definition. The store (`store.ts`) enforces on every write: strict schema validation (unknown fields are errors), optimistic version checks, declared foreign keys, unique keys (`emailKey`, `idempotencyKey`, `dedupeKey`), insert-only audit, and all-or-nothing transactions.
+- **Transactions**: `BEGIN ISOLATION LEVEL SERIALIZABLE`. The domain function runs against an empty working state; touching an unloaded table throws `NeedCollection`, the adapter loads that table **inside the same transaction**, and the function runs again from the start (domain functions are pure over the transaction). Writes are the difference: inserts, `UPDATE … WHERE id AND version`, version-checked deletes, audit appends without reading the audit table, and atomic counter upserts. Serialization failures, deadlocks, and lost version checks retry the whole transaction (8 attempts, jittered). A connection or server failure is `StoreUnavailable`: nothing from that transaction was committed.
+- **Schema** (`postgres/migrations.ts`): one table per collection, each a validated JSON document plus real columns for every declared foreign key (deferrable, so writes can land in any order) and unique key. The audit table has triggers that reject `UPDATE`, `DELETE`, and `TRUNCATE`. Migrations are ordered, checksummed, advisory-locked, and a changed migration is refused.
+- **Reads**: `REPEATABLE READ READ ONLY` snapshots; the audit trail is read in pages (`auditPage`, `auditSince`), never loaded whole.
+- **Scale**: each transaction loads the tables it touches in full. Right for hundreds to a few thousand records; revisit (repository-style queries) past roughly 5,000 prospects or 200 ms transactions.
+- **TLS**: production requires `sslmode=verify-full`; the pool sets certificate and hostname verification explicitly (node-postgres would otherwise let URL parameters silently drop a configured CA).
 
-| Entity | Purpose | Notes |
+## 5. Worker
+
+`worker.ts` runs one idempotent tick: takes a Postgres advisory lock (a concurrent tick exits as `skipped-locked`), records a `WorkerRun` heartbeat, runs due jobs (every gate re-checked, pause honoured; with no provider, jobs are held, never sent), opens a retention-review task for each record past its review date (never deletes on its own), expires unused approvals and opens a re-review task, raises overdue exception cases to the founder, purges old rate-limit windows and old runs, and writes the restore ledger. Alerts (`computeAlerts`) cover a stale or repeatedly failing worker, failed or long-held jobs, overdue cases, a long pause, and a missing ledger.
+
+## 6. Exceptions
+
+`cases.ts`: nine kinds, each with a deadline, a checklist, whether it holds outreach, and immediate effects (an opt-out case suppresses at once; an incident case can pause everything). Automatic steps complete themselves (erasure completes a deletion case's erase step and unlinks the person). Complaints, sensitive disclosures, and incidents are resolved by the founder. A case records handling, never content; a redaction tool replaces a field that should never have held material, and the audit records only that a field was redacted. Procedures: `exception-procedures.md`.
+
+## 7. Restore ledger
+
+A backup cannot know about later erasures or opt-outs. After each tick the worker exports erasure tombstones (opaque ids) and suppressions (keyed hashes) to a sink outside the database; after any restore, `replay-ledger` re-applies them before the console or worker reopens. Production needs a separate, versioned, write-once object store for the ledger (not provisioned; Health shows the warning). Recovery point: one worker interval.
+
+## 8. Threat model (additions and changes in 0.2)
+
+| Threat | Control | Remaining risk / requirement |
 | --- | --- | --- |
-| Prospect | A person or organization TIRO may talk to | `authorityStatus` can only be `unverified` or `not-applicable`; the schema has no "verified" value. |
-| InterestSubmission | One form submission | Stores form version and the exact notice version shown. |
-| CommunicationPermission | Permission to write, per purpose | `direct-response`, `pilot-follow-up`, `newsletter`. Exact wording and version for form captures; a documented basis awaiting review for researched contacts. Never manufactured. |
-| Organization, Affiliation | Introductions | Schema and store only in 0.1; the UI records organization names on the prospect. |
-| Interaction | High-level summary of a contact | No testimony or pasted correspondence. Inbound replies record sender integrity. |
-| OpsTask | Work item | Deterministic automation creates at most one per `dedupeKey`. |
-| Campaign | Purpose, audience, weekly limits, review status | Approval of scope never makes a recipient eligible. |
-| ContentDraft, OutreachDraft | Versioned drafts | Versions are append-only. |
-| Approval | Decision bound to a payload hash | `active`, `invalidated`, `consumed`, `expired`, `closed`. |
-| DispatchJob | One idempotent attempt to send or publish | One idempotency key for the job's life; lease-based claiming; exponential backoff. |
-| DeliveryReceipt | Proof of delivery | `provider` + `confirmed`, `dry-run` + `simulated`, or `manual-attestation` + `attested` with the person's id. |
-| Suppression | Opt-out, by keyed hash | Survives erasure of the prospect. Overrides any approval. |
-| AuditEvent | Who, capacity, action code, object id, reason code | The schema admits no free text. |
-| FunnelCount | Aggregate form and abuse counters | No identifiers. |
-
-## 6. Files
-
-- `src/lib/flightDeck/` — domain: `schema`, `types`, `store`, `config`, `access`, `ids`, `abuse`, `intake`, `permissions`, `approvals`, `drafts`, `dispatch`, `prospects`, `briefing`, `templates`, `pilotCopy`, `messages`, `identities`, `seed`, `providers`, `session`, `runtime` (server-only); tests in `flightDeck.test.ts`.
-- `src/app/pilot/` — public page and its server action. `src/components/pilot/PilotInterestForm.tsx`.
-- `src/app/flight-deck/` — private routes, `actions.ts`, `guard.ts`, `export/[id]/route.ts`. `src/components/flight-deck/` — UI parts.
-- `scripts/flight-deck/dev.mjs` (demo launcher), `scripts/flight-deck/e2e.mjs` (browser checks).
-- Modified: `src/proxy.ts` (gate), `next.config.ts` (`serverActions.bodySizeLimit: "64kb"`; `distDir` honours `FLIGHT_DECK_DIST_DIR`, set only by the demo launcher), `src/app/globals.css` (additive styles from existing tokens), `package.json` (scripts; no new dependencies), `.gitignore`, `eslint.config.mjs`, `tsconfig.json` (Next.js adds the demo build directory's type paths automatically), `src/app/memory-project/page.tsx` and `src/app/contact/page.tsx` (one link each to `/pilot`).
-
-No dependency was added; `package-lock.json` is unchanged.
-
-## 7. Threat model
-
-| Threat | Control in 0.1 | Remaining risk / production requirement |
-| --- | --- | --- |
-| Private console reachable on a deployment | Mode decision refuses production builds, platform markers, and non-loopback hosts; proxy 404; per-request server re-check | A production identity provider must replace test identities before any deployment of `/flight-deck`. |
-| Demo enabled by a stray variable or query string | Four independent conditions; no query or cookie input | Verified by unit tests and a production-build probe (`acceptance.md`). |
-| CSRF on mutations | Server Actions are POST-only and Next.js rejects Origin/Host mismatch; session cookie `SameSite=Strict`, `HttpOnly`, path-scoped | Production: `Secure` cookies behind HTTPS, `serverActions.allowedOrigins` if a proxy/CDN rewrites Host. |
-| Session forgery | HMAC-signed cookie, per-process random key, 8-hour expiry, timing-safe compare | Demo only. Production needs IdP sessions with MFA and server-side revocation. |
-| Uploads or testimony through the form | Text-only allow-list; any `File` value or unknown field refused; 4,000-character total cap; 500-character note; links refused in the note; 64 KB action body limit | None identified for 0.1. |
-| Contact enumeration | Identical "received" response for new, repeat, suppressed, rate-limited-by-address, and honeypot submissions | Per-client rate limit can reveal "too many from this connection", which says nothing about an address. |
-| Bots and abuse | Honeypot (hidden from AT), signed form token with minimum fill time and expiry, per-client and per-address limits; no CAPTCHA | **In-memory limiter protects one process only.** Production needs a durable shared limiter or edge rate limiting. |
-| Duplicate sends | One idempotency key per job; queueing twice returns the same job; receipt check before resend after a crash; dry-run outbox dedupes by key | A real provider must honour idempotency keys. A suppression landing in the instant between the pre-send check and the provider call cannot be caught; the window is one request. |
-| Sending after opt-out | Suppression checked at dispatch and at manual attestation; applying it cancels jobs and holds drafts immediately | Inbound unsubscribe processing (email links) is not built: no provider. |
-| PII in logs | Audit schema admits codes and opaque ids only; action errors log the error class only; digest omits addresses and notes | Hosting logs (request URLs) contain opaque ids only. |
-| Email hashing reversible | Keyed HMAC with a per-store pepper | **Locally the pepper sits in the same file as the data.** Production must hold it in a secret manager, separately from the database. |
-| Server code in client bundles | `server-only` on runtime; providers and stores imported only by server modules | Verified: zero client-bundle matches for store, suppression, session, or seed symbols in the production build. |
-| Unapproved outbound | No network provider exists in the codebase | Adding one is a founder decision (`integrations.md`). |
-| Archive contamination | Separate domain, separate store, import test | None identified. |
+| Console reachable before launch | Production mode needs complete config; console needs the recorded gate; proxy and server both check | Verified in the production rehearsal (`acceptance.md`) |
+| Stolen or replayed ID token | RS256 against JWKS; iss, aud, token_use, exp/iat, nonce bound to a signed, expiring login transaction; `alg:none` and HMAC refused | Cognito ID tokens do not reliably carry `amr`; MFA is enforced by pool configuration and checked by the template test, not per token |
+| Account takeover by re-creating a Cognito user | Subject binds once; a different subject for the same email is refused | Recovery requires the founder to deactivate and re-add the operator |
+| Former operator retains access | Server-side sessions; deactivation revokes all sessions at once; role re-read on every request | — |
+| Session theft from the database | Only SHA-256 of tokens stored | — |
+| Session fixation / CSRF | Session issued only after IdP verification; `__Host-` cookie; Server Actions reject cross-origin POSTs | Session cookie is `SameSite=Lax` so the IdP redirect carries it; mutations remain origin-checked POSTs |
+| Machine endpoint abuse | Bearer tokens (≥ 32 chars) compared in constant time; endpoints 404 before the gate; responses carry counts and codes only | Local demo has no token (loopback only); a cross-site page could trigger a harmless, idempotent local tick |
+| Concurrent writes and duplicate requests | Serializable transactions, version checks, unique keys in the database | Verified against real PostgreSQL (`acceptance.md`) |
+| Opt-out racing a dispatch | Serializable conflict forces a retry that sees the opt-out | Verified; the one-request window between the last check and a provider call remains (no provider exists) |
+| Storage outage | `StoreUnavailable`, nothing half-written; the public form says nothing was stored; the worker records the failure | Availability depends on the chosen provider |
+| Restore undoing erasures/opt-outs | Ledger replay | Ledger sink not provisioned; RPO one tick |
+| Free-text testimony via the form | Note removed; topics from a fixed list; any other field refused | Name, organization and region remain short free text |
+| Unsolicited material by email | Exception procedure: remove, do not copy, record handling only, redact fields | Depends on people following the procedure (`exception-procedures.md`) |
+| Secrets exposure | Secrets only from the environment (secret manager); config errors name settings, never values; no secret in client bundles (verified) | Host must inject secrets; rotation runbook in `operations.md` |

@@ -930,3 +930,14 @@ html[data-bfcache-pending="true"] body {
 #flight-deck .tiro-kv .v {
   overflow-wrap: anywhere;
 }
+
+/* The primary button's text colour must beat the unlayered .tiro-button
+   rule above (unlayered styles win over @layer components), or light text
+   sits on the gold fill at about 2:1. Dark ink on the accent clears WCAG
+   AA in both themes. Found by the axe scan in scripts/flight-deck/e2e.mjs. */
+.tiro-button.tiro-button-primary,
+.tiro-button.tiro-button-primary:hover {
+  background: var(--tiro-accent);
+  border-color: var(--tiro-accent);
+  color: var(--tiro-bg);
+}

@@ -12,6 +12,7 @@ const NAV = [
   { href: "/flight-deck/campaigns", label: "Campaigns" },
   { href: "/flight-deck/content", label: "Content" },
   { href: "/flight-deck/approvals", label: "Approvals" },
+  { href: "/flight-deck/cases", label: "Exceptions" },
   { href: "/flight-deck/activity", label: "Activity" },
   { href: "/flight-deck/health", label: "Health" },
 ];

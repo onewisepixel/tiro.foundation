@@ -1,20 +1,21 @@
 // Every Flight Deck page and action starts here. Outside a local-demo
-// request there is no runtime, and the route does not exist (404). Without
-// a valid session, pages go to sign-in and actions do nothing.
+// request or an activated production console (recorded "console" gate)
+// there is no runtime, and the route does not exist (404). Without a valid
+// session, pages go to sign-in and actions do nothing.
 import "server-only";
 import { notFound, redirect } from "next/navigation";
 import { AccessDenied, type Actor } from "@/lib/flightDeck/access";
 import { GateError } from "@/lib/flightDeck/approvals";
-import { getActor, getRuntime, type Runtime } from "@/lib/flightDeck/runtime";
+import { getActor, getConsoleRuntime, type Runtime } from "@/lib/flightDeck/runtime";
 import { ValidationError } from "@/lib/flightDeck/schema";
-import { StoreError } from "@/lib/flightDeck/store";
+import { StoreError, StoreUnavailable } from "@/lib/flightDeck/store";
 
 export async function requirePage(): Promise<{ rt: Runtime; actor: Actor }> {
-  const rt = await getRuntime();
+  const rt = await getConsoleRuntime();
   if (!rt) {
     notFound();
   }
-  const actor = await getActor();
+  const actor = await getActor(rt);
   if (!actor) {
     redirect("/flight-deck/sign-in");
   }
@@ -34,6 +35,9 @@ export function errorCode(e: unknown): string {
   if (e instanceof StoreError) {
     return e.code;
   }
+  if (e instanceof StoreUnavailable) {
+    return "storage-unavailable";
+  }
   return "error";
 }
 
@@ -48,11 +52,11 @@ export function safeReturn(value: FormDataEntryValue | null, fallback = "/flight
 type Outcome = void | string | { notice: string; to: string };
 
 export async function act(formData: FormData, fn: (ctx: { rt: Runtime; actor: Actor }) => Promise<Outcome>) {
-  const rt = await getRuntime();
+  const rt = await getConsoleRuntime();
   if (!rt) {
     notFound();
   }
-  const actor = await getActor();
+  const actor = await getActor(rt);
   if (!actor) {
     redirect("/flight-deck/sign-in");
   }
@@ -62,7 +66,7 @@ export async function act(formData: FormData, fn: (ctx: { rt: Runtime; actor: Ac
     const r = await fn({ rt, actor });
     target = r && typeof r === "object" ? `${safeReturn(r.to)}?notice=${encodeURIComponent(r.notice)}` : `${back}?notice=${encodeURIComponent(r ?? "saved")}`;
   } catch (e) {
-    if (!(e instanceof AccessDenied || e instanceof GateError || e instanceof ValidationError || e instanceof StoreError)) {
+    if (!(e instanceof AccessDenied || e instanceof GateError || e instanceof ValidationError || e instanceof StoreError || e instanceof StoreUnavailable)) {
       // Unexpected: log the class only. Never log form contents.
       console.error("flight-deck action failed:", e instanceof Error ? e.name : "unknown");
     }

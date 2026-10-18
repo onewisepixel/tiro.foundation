@@ -1,6 +1,7 @@
 // The Now board and the weekly digest. Deterministic: items are ordered by
 // lateness, then manual priority, then due date. Nothing ranks a person by
 // perceived cultural value, age, ethnicity, influence, or any inference.
+import { PLAYBOOKS } from "./cases";
 import type { OpsTx } from "./store";
 import type { AuditEvent, OpsTask, Prospect, Stage } from "./types";
 import { ACTIVE_STAGES, STAGE_LABELS } from "./workflow";
@@ -8,7 +9,7 @@ import { ACTIVE_STAGES, STAGE_LABELS } from "./workflow";
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 } as const;
 
 export type NextAction = {
-  kind: "task" | "approvals" | "held-jobs" | "permission-review";
+  kind: "task" | "approvals" | "held-jobs" | "permission-review" | "case";
   title: string;
   detail: string;
   href: string;
@@ -48,6 +49,8 @@ const PROGRESS_LABELS: Record<string, string> = {
   "interaction-recorded": "Interactions recorded",
   "contact-withdrawn": "Opt-outs and withdrawals",
   "task-done": "Tasks completed",
+  "case-opened": "Exceptions opened",
+  "case-resolved": "Exceptions resolved",
   "draft-created": "Drafts prepared",
 };
 
@@ -55,7 +58,10 @@ function today(tx: OpsTx) {
   return tx.nowIso.slice(0, 10);
 }
 
-export function buildBriefing(tx: OpsTx, opts: { operatorIds?: readonly string[] } = {}): Briefing {
+// opts.events: audit events since the last review, fetched with
+// store.auditSince() so the whole trail need not be loaded. Without it the
+// trail is read through the transaction (fine for in-process stores).
+export function buildBriefing(tx: OpsTx, opts: { operatorIds?: readonly string[]; events?: AuditEvent[] } = {}): Briefing {
   const settings = tx.settings();
   const since = settings.lastReviewAt ?? new Date(tx.now.getTime() - 7 * 86_400_000).toISOString();
   const day = today(tx);
@@ -63,7 +69,7 @@ export function buildBriefing(tx: OpsTx, opts: { operatorIds?: readonly string[]
   const prospects = new Map(tx.list("prospects").map((p) => [p.id, p]));
   const nameOf = (id: string | null) => (id ? (prospects.get(id)?.displayName ?? null) : null);
 
-  const events: AuditEvent[] = tx.list("audit", (e) => e.at > since);
+  const events: AuditEvent[] = opts.events ? opts.events.filter((e) => e.at > since) : tx.list("audit", (e) => e.at > since);
   const counts = new Map<string, number>();
   for (const e of events) {
     if (PROGRESS_LABELS[e.action]) {
@@ -99,6 +105,21 @@ export function buildBriefing(tx: OpsTx, opts: { operatorIds?: readonly string[]
     extra.push({ kind: "held-jobs", title: `${failing.length} dispatch job${failing.length === 1 ? "" : "s"} held or failed`, detail: "Health", href: "/flight-deck/health", dueOn: null, overdue: false, priority: "high" });
   }
 
+  // Exceptions come before ordinary work at the same lateness: each has a
+  // deadline that matters to someone outside TIRO.
+  const openCaseRows = tx.list("cases", (c) => c.status !== "resolved");
+  for (const c of openCaseRows) {
+    extra.push({
+      kind: "case",
+      title: `${PLAYBOOKS[c.kind].label}: next step ${(c.steps.findIndex((s) => !s.doneAt) + 1) || "resolve"}`,
+      detail: nameOf(c.prospectId) ?? "Exception",
+      href: `/flight-deck/cases/${c.id}`,
+      dueOn: c.dueOn,
+      overdue: c.dueOn < day,
+      priority: "high",
+    });
+  }
+
   const order = (a: NextAction, b: NextAction) =>
     Number(b.overdue) - Number(a.overdue) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || (a.dueOn ?? "9999-12-31").localeCompare(b.dueOn ?? "9999-12-31") || a.title.localeCompare(b.title);
   const nextActions = [...extra, ...taskActions].sort(order).slice(0, 5);
@@ -118,6 +139,9 @@ export function buildBriefing(tx: OpsTx, opts: { operatorIds?: readonly string[]
   }
   for (const c of tx.list("campaigns", (c) => c.status !== "closed" && (c.consentReviewStatus !== "cleared" || c.legalReviewStatus !== "cleared"))) {
     blockers.push({ kind: "campaign", title: c.name, href: "/flight-deck/campaigns", reason: `Consent review ${c.consentReviewStatus}, legal review ${c.legalReviewStatus}: cannot be activated` });
+  }
+  for (const c of openCaseRows.filter((c) => c.holdsOutreach)) {
+    blockers.push({ kind: "case", title: nameOf(c.prospectId) ?? PLAYBOOKS[c.kind].label, href: `/flight-deck/cases/${c.id}`, reason: `${PLAYBOOKS[c.kind].label}: outreach held until resolved (due ${c.dueOn})` });
   }
   for (const d of tx.list("outreach", (d) => d.status === "held")) {
     blockers.push({ kind: "outreach", title: nameOf(d.prospectId) ?? "Outreach draft", href: `/flight-deck/outreach/${d.id}`, reason: "Message held: a gate failed at dispatch time" });

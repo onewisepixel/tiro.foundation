@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Notice, PageTitle } from "@/components/flight-deck/ui";
 import { SubmitButton } from "@/components/flight-deck/client";
 import { DEMO_IDENTITIES } from "@/lib/flightDeck/identities";
-import { getRuntime } from "@/lib/flightDeck/runtime";
+import { getConsoleRuntime } from "@/lib/flightDeck/runtime";
 import { signIn } from "../actions";
 
 const ROLE_TEXT = {
@@ -12,10 +12,25 @@ const ROLE_TEXT = {
 };
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  if (!(await getRuntime())) {
+  const rt = await getConsoleRuntime();
+  if (!rt) {
     notFound();
   }
   const params = await searchParams;
+  if (rt.mode === "production") {
+    return (
+      <div className="max-w-xl">
+        <PageTitle eyebrow="Flight Deck" title="Sign in">
+          Flight Deck is for named TIRO operators. You will sign in with your operator account and a second factor; then Flight Deck checks that you are an active
+          operator before anything is shown.
+        </PageTitle>
+        <Notice params={params} />
+        <a href="/flight-deck/auth/login" className="fd-button" data-tone="primary">
+          Continue to sign in
+        </a>
+      </div>
+    );
+  }
   return (
     <div className="max-w-xl">
       <PageTitle eyebrow="Flight Deck · local demo" title="Choose a test identity">

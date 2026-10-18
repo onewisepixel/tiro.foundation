@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, Empty, Notice, PageTitle, Section, day, when } from "@/components/flight-deck/ui";
 import { buildBriefing } from "@/lib/flightDeck/briefing";
+import { computeAlerts } from "@/lib/flightDeck/worker";
 import { OPERATOR_IDS } from "@/lib/flightDeck/identities";
 import { requirePage } from "./guard";
 
@@ -9,7 +10,12 @@ const INTEREST = { "interested-contributor": "Potential contributor", "community
 export default async function NowPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt } = await requirePage();
   const params = await searchParams;
-  const b = await rt.store.read((tx) => buildBriefing(tx, { operatorIds: OPERATOR_IDS }));
+  const since = await rt.store.read((tx) => tx.settings().lastReviewAt ?? new Date(tx.now.getTime() - 7 * 86_400_000).toISOString());
+  const events = await rt.store.auditSince(since);
+  const { b, alerts } = await rt.store.read((tx) => ({
+    b: buildBriefing(tx, { operatorIds: OPERATOR_IDS, events }),
+    alerts: computeAlerts(tx, { expectWorker: rt.mode === "production" || rt.flags.backgroundJobs, ledgerConfigured: !!rt.ledgerSink }),
+  }));
   const approvals = b.pendingApprovals.outreach + b.pendingApprovals.content + b.pendingApprovals.campaign;
 
   return (
@@ -18,6 +24,23 @@ export default async function NowPage({ searchParams }: { searchParams: Promise<
         Activity {b.sinceLabel} ({day(b.since)} onward). Ordered by lateness, then the priority you set, then due date. Nothing here ranks people.
       </PageTitle>
       <Notice params={params} />
+
+      {alerts.length ? (
+        <ul role="status" className="mb-8 space-y-2">
+          {alerts.map((a) => (
+            <li key={a.key} className="flex gap-3 border-l-2 pl-4 text-sm" style={{ borderColor: a.severity === "action" ? "var(--tiro-contested)" : "var(--tiro-accent)" }}>
+              <span aria-hidden="true">{a.severity === "action" ? "■" : "▲"}</span>
+              <span>
+                <span className="sr-only">{a.severity === "action" ? "Needs action: " : "Warning: "}</span>
+                {a.message}{" "}
+                <Link href={a.href} className="tiro-link">
+                  Open
+                </Link>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {b.paused ? (
         <p role="status" className="mb-8 border-l-2 border-[var(--tiro-contested)] pl-4 text-sm">

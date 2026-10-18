@@ -1,82 +1,270 @@
 // Server-only wiring for Flight Deck. Every page, action and route handler
-// goes through here, and every one of them fails closed: when the request
-// is not a local-demo request, there is no store, no provider, and no
-// actor, so there is nothing to read or write.
+// goes through here, and every one of them fails closed: when a request is
+// not a local-demo request or an activated production request, there is no
+// store, no provider, and no actor, so there is nothing to read or write.
 import "server-only";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { cookies, headers } from "next/headers";
-import { FormTokens, InMemoryRateLimiter, clientKey } from "./abuse";
+import type pg from "pg";
+import { createPool } from "./postgres/pool";
+import { FormTokens, InMemoryRateLimiter, clientKey, type RateLimiter } from "./abuse";
 import type { Actor } from "./access";
-import { channelFlags, decideMode, localDemoActive, publicFormOpen, type ChannelFlags } from "./config";
+import { channelFlags, decideMode, privacyNoticeIsDraft, productionConfig, publicFormOpen, PRIVACY_NOTICE_VERSION, requestMode, type ChannelFlags, type ProductionConfig } from "./config";
+import { PostgresIdentityStore, type GateRecord, type IdentityStore } from "./identity";
+import type { CognitoConfig } from "./oidc";
+import { initializeDatabase, migrate } from "./postgres/migrations";
+import { PostgresRateLimiter } from "./postgres/rateLimiter";
+import { PostgresOperationsStore } from "./postgres/store";
+import { wipeSyntheticDatabase } from "./postgres/admin";
+import { FileLedgerSink, type LedgerSink } from "./ledger";
 import { DisabledEmailProvider, DisabledSocialPublisher, LocalOutboxEmailProvider, LocalOutboxSocialPublisher, type Providers } from "./providers";
 import { buildSeedState } from "./seed";
-import { LocalFileOperationsStore } from "./store";
+import { LocalFileOperationsStore, type OperationsStore } from "./store";
 import { readSession, SESSION_COOKIE } from "./session";
 
 export type Runtime = {
-  mode: "local-demo";
-  store: LocalFileOperationsStore;
+  mode: "local-demo" | "production";
+  store: OperationsStore;
+  storeLabel: string;
   providers: Providers;
   flags: ChannelFlags;
   tokens: FormTokens;
-  limiter: InMemoryRateLimiter;
-  // Keys the in-memory rate limiter; client addresses are never stored.
+  limiter: RateLimiter;
+  limiterLabel: string;
+  // Keys the rate limiter; client addresses are never stored.
   clientSecret: string;
+  identity: IdentityStore | null;
+  cognito: CognitoConfig | null;
+  config: ProductionConfig | null;
+  purgeRateLimits?: (cutoff: Date) => Promise<number>;
+  acquireWorkerLock?: () => Promise<(() => Promise<void>) | null>;
+  ledgerSink?: LedgerSink;
+  // Local demo only: replace everything with fresh synthetic fixtures.
+  resetToSeed?: () => Promise<void>;
 };
 
 const LOCAL_DIR = path.join(process.cwd(), ".flight-deck");
+// The local demo's synthetic pepper. Never used for real data: production
+// requires FLIGHT_DECK_EMAIL_HASH_PEPPER from the secret manager.
+const DEMO_PEPPER = "flight-deck-local-demo-pepper-synthetic-only-0001";
 
-type Singletons = { runtime?: Omit<Runtime, "flags" | "providers"> & { seeded: Promise<void> }; providers?: Providers; providersFor?: string };
-const g = globalThis as unknown as { __flightDeck?: Singletons };
-const singletons = () => (g.__flightDeck ??= {});
+type Cached = { runtime: Promise<Omit<Runtime, "flags" | "providers">>; providers?: Providers; providersFor?: string; gates?: { at: number; records: GateRecord[] } };
+const g = globalThis as unknown as { __flightDeck2?: Record<string, Cached> };
+const cache = () => (g.__flightDeck2 ??= {});
 
 async function host(): Promise<string | null> {
   return (await headers()).get("host");
 }
 
-// Null unless this request is a local-demo request. Callers must treat
-// null as "this feature does not exist here".
-export async function getRuntime(): Promise<Runtime | null> {
-  if (!localDemoActive(process.env, await host())) {
-    return null;
-  }
-  const s = singletons();
-  if (!s.runtime) {
-    const store = new LocalFileOperationsStore(process.env.FLIGHT_DECK_LOCAL_STORE_PATH ? path.resolve(process.env.FLIGHT_DECK_LOCAL_STORE_PATH) : path.join(LOCAL_DIR, "local-store.json"));
-    // First use of an empty local store loads the synthetic seed.
-    const seeded = store.read((tx) => tx.list("prospects").length + tx.list("audit").length).then(async (n) => {
-      if (n === 0) {
-        await store.replace(await buildSeedState());
-      }
-    });
-    s.runtime = { mode: "local-demo", store, tokens: new FormTokens(randomBytes(32).toString("hex")), limiter: new InMemoryRateLimiter(), clientSecret: randomBytes(32).toString("hex"), seeded };
-  }
-  await s.runtime.seeded;
-  const flags = channelFlags(process.env);
-  const signature = `${flags.outboundEmail}:${flags.socialPublishing}`;
-  if (!s.providers || s.providersFor !== signature) {
-    // Even with a flag on, local demo selects only the dry-run outbox.
-    s.providers = {
-      email: flags.outboundEmail ? new LocalOutboxEmailProvider(path.join(LOCAL_DIR, "outbox")) : new DisabledEmailProvider(),
-      social: flags.socialPublishing ? new LocalOutboxSocialPublisher(path.join(LOCAL_DIR, "outbox")) : new DisabledSocialPublisher(),
-    };
-    s.providersFor = signature;
-  }
-  const { seeded, ...rest } = s.runtime;
-  void seeded;
-  return { ...rest, flags, providers: s.providers };
+const derive = (secret: string, purpose: string) => createHmac("sha256", secret).update(`flight-deck:${purpose}`).digest("hex");
+
+function poolFor(url: string, production: ProductionConfig | null): pg.Pool {
+  return createPool(url, { ca: production?.databaseCa ?? null });
 }
 
-export async function getActor(): Promise<Actor | null> {
-  if (!localDemoActive(process.env, await host())) {
+function advisoryLock(pool: pg.Pool) {
+  return async () => {
+    const client = await pool.connect();
+    const { rows } = await client.query("select pg_try_advisory_lock(hashtext('flight-deck-worker')) as ok");
+    if (!rows[0].ok) {
+      client.release();
+      return null;
+    }
+    return async () => {
+      await client.query("select pg_advisory_unlock(hashtext('flight-deck-worker'))").catch(() => undefined);
+      client.release();
+    };
+  };
+}
+
+async function buildLocalDemo(): Promise<Omit<Runtime, "flags" | "providers">> {
+  const tokens = new FormTokens(randomBytes(32).toString("hex"));
+  const clientSecret = randomBytes(32).toString("hex");
+  const dbUrl = process.env.FLIGHT_DECK_DATABASE_URL;
+  if (dbUrl) {
+    // Local demo over a local Postgres: the same adapter production uses,
+    // holding synthetic data only (the database is marked synthetic).
+    const pool = poolFor(dbUrl, null);
+    const client = await pool.connect();
+    try {
+      await migrate(client);
+      await initializeDatabase(client, { synthetic: true });
+    } finally {
+      client.release();
+    }
+    const pepper = process.env.FLIGHT_DECK_EMAIL_HASH_PEPPER || DEMO_PEPPER;
+    const store = await PostgresOperationsStore.open({ pool, pepper, synthetic: true });
+    const limiter = new PostgresRateLimiter(pool);
+    const resetToSeed = async () => {
+      await wipeSyntheticDatabase(pool);
+      await store.importSnapshot(await buildSeedState(new Date(), { pepper }));
+    };
+    if ((await store.read((tx) => tx.list("prospects").length)) === 0 && (await store.auditPage(0, 1)).total === 0) {
+      await store.importSnapshot(await buildSeedState(new Date(), { pepper }));
+    }
+    return {
+      mode: "local-demo",
+      store,
+      storeLabel: "Local PostgreSQL (synthetic)",
+      tokens,
+      limiter,
+      limiterLabel: "PostgreSQL (shared, durable)",
+      clientSecret,
+      identity: null,
+      cognito: null,
+      config: null,
+      purgeRateLimits: (cutoff) => limiter.purgeOlderThan(cutoff),
+      acquireWorkerLock: advisoryLock(pool),
+      ledgerSink: new FileLedgerSink(path.join(LOCAL_DIR, "ledger-pg.json")),
+      resetToSeed,
+    };
+  }
+  const store = new LocalFileOperationsStore(process.env.FLIGHT_DECK_LOCAL_STORE_PATH ? path.resolve(process.env.FLIGHT_DECK_LOCAL_STORE_PATH) : path.join(LOCAL_DIR, "local-store.json"));
+  if ((await store.read((tx) => tx.list("prospects").length)) === 0 && (await store.auditPage(0, 1)).total === 0) {
+    await store.replace(await buildSeedState());
+  }
+  const limiter = new InMemoryRateLimiter();
+  return {
+    mode: "local-demo",
+    store,
+    storeLabel: "Local JSON file (synthetic)",
+    tokens,
+    limiter,
+    limiterLabel: "In-memory (this process only)",
+    clientSecret,
+    identity: null,
+    cognito: null,
+    config: null,
+    ledgerSink: new FileLedgerSink(path.join(LOCAL_DIR, "ledger-file.json")),
+    resetToSeed: async () => {
+      await store.replace(await buildSeedState());
+      limiter.clear();
+    },
+  };
+}
+
+async function buildProduction(config: ProductionConfig): Promise<Omit<Runtime, "flags" | "providers">> {
+  const pool = poolFor(config.databaseUrl, config);
+  // Production never migrates or initializes on request: the migrate
+  // script does that, deliberately, before deploy. Opening refuses a
+  // database that is uninitialized or marked synthetic.
+  const store = await PostgresOperationsStore.open({ pool, pepper: config.pepper, synthetic: false });
+  const limiter = new PostgresRateLimiter(pool);
+  return {
+    mode: "production",
+    store,
+    storeLabel: "PostgreSQL",
+    // Derived, not random: every instance must accept every other
+    // instance's form tokens and agree on rate-limit keys.
+    tokens: new FormTokens(derive(config.sessionSecret, "form-tokens")),
+    limiter,
+    limiterLabel: "PostgreSQL (shared, durable)",
+    clientSecret: derive(config.sessionSecret, "client-keys"),
+    identity: new PostgresIdentityStore(pool),
+    cognito: config.cognito,
+    config,
+    purgeRateLimits: (cutoff) => limiter.purgeOlderThan(cutoff),
+    acquireWorkerLock: advisoryLock(pool),
+  };
+}
+
+// The runtime for this request's mode, or null. Does NOT check the console
+// gate; use getConsoleRuntime() for anything private.
+export async function getRuntime(): Promise<Runtime | null> {
+  const mode = requestMode(process.env, await host());
+  if (!mode) {
     return null;
   }
-  return readSession((await cookies()).get(SESSION_COOKIE)?.value, Date.now());
+  const config = mode === "production" ? productionConfig(process.env) : null;
+  const key = mode === "production" ? "production" : `local-demo:${process.env.FLIGHT_DECK_DATABASE_URL ? "pg" : "file"}`;
+  const entry = (cache()[key] ??= { runtime: mode === "production" ? buildProduction(config!) : buildLocalDemo() });
+  let base: Omit<Runtime, "flags" | "providers">;
+  try {
+    base = await entry.runtime;
+  } catch (e) {
+    // A failed start (database unreachable, uninitialized) is not cached:
+    // the next request tries again. Callers treat this as unavailable.
+    delete cache()[key];
+    throw e;
+  }
+  const flags = channelFlags(process.env);
+  const signature = mode === "production" ? "production" : `${flags.outboundEmail}:${flags.socialPublishing}`;
+  if (!entry.providers || entry.providersFor !== signature) {
+    // Production: no live provider exists, so both stay disabled whatever
+    // the flags say. Local demo: a flag selects only the dry-run outbox.
+    entry.providers =
+      mode === "production"
+        ? { email: new DisabledEmailProvider(), social: new DisabledSocialPublisher() }
+        : {
+            email: flags.outboundEmail ? new LocalOutboxEmailProvider(path.join(LOCAL_DIR, "outbox")) : new DisabledEmailProvider(),
+            social: flags.socialPublishing ? new LocalOutboxSocialPublisher(path.join(LOCAL_DIR, "outbox")) : new DisabledSocialPublisher(),
+          };
+    entry.providersFor = signature;
+  }
+  return { ...base, flags, providers: entry.providers };
+}
+
+async function gateRecords(rt: Runtime): Promise<GateRecord[]> {
+  if (!rt.identity) {
+    return [];
+  }
+  const entry = cache().production;
+  const now = Date.now();
+  if (entry?.gates && now - entry.gates.at < 30_000) {
+    return entry.gates.records;
+  }
+  const records = await rt.identity.gates();
+  if (entry) {
+    entry.gates = { at: now, records };
+  }
+  return records;
+}
+
+export async function gateRecorded(rt: Runtime, gate: "console" | "public-form"): Promise<GateRecord | null> {
+  return (await gateRecords(rt)).find((r) => r.gate === gate) ?? null;
+}
+
+// The private console: local demo, or production with the founder's
+// recorded "console" gate. Anything else: null (404).
+export async function getConsoleRuntime(): Promise<Runtime | null> {
+  const rt = await getRuntime();
+  if (!rt) {
+    return null;
+  }
+  if (rt.mode === "production" && !(await gateRecorded(rt, "console"))) {
+    return null;
+  }
+  return rt;
+}
+
+export const PROD_SESSION_COOKIE = "__Host-fd_session";
+export const PROD_LOGIN_COOKIE = "__Host-fd_login";
+
+export async function getActor(rt?: Runtime | null): Promise<Actor | null> {
+  const runtime = rt === undefined ? await getConsoleRuntime() : rt;
+  if (!runtime) {
+    return null;
+  }
+  const jar = await cookies();
+  if (runtime.mode === "local-demo") {
+    return readSession(jar.get(SESSION_COOKIE)?.value, Date.now());
+  }
+  const token = jar.get(PROD_SESSION_COOKIE)?.value;
+  return token && runtime.identity ? runtime.identity.resolveSession(token, new Date()) : null;
 }
 
 export async function isPublicFormOpen(): Promise<boolean> {
-  return publicFormOpen(process.env, await host());
+  const mode = requestMode(process.env, await host());
+  if (mode === "local-demo") {
+    return publicFormOpen(process.env, await host());
+  }
+  if (mode !== "production" || !channelFlags(process.env).publicForm || privacyNoticeIsDraft()) {
+    return false;
+  }
+  const rt = await getRuntime().catch(() => null);
+  const gate = rt ? await gateRecorded(rt, "public-form") : null;
+  return !!gate && gate.detail.noticeVersion === PRIVACY_NOTICE_VERSION;
 }
 
 export async function requestClientKey(secret: string): Promise<string> {
@@ -86,7 +274,7 @@ export async function requestClientKey(secret: string): Promise<string> {
 
 export function modeReason(): string {
   const d = decideMode(process.env);
-  return d.mode === "local-demo" ? "local-demo" : d.reason;
+  return d.mode === "disabled" ? d.reason : d.mode;
 }
 
 // Issued at render time; the server refuses it if submitted implausibly

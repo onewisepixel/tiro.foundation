@@ -126,7 +126,9 @@ export const InterestSubmissionSchema = obj({
   formVersion: str({ max: 32 }),
   noticeVersion: str({ max: 32 }),
   category: oneOf(PARTICIPATION_INTERESTS),
-  note: nullable(shortText(500)),
+  // Chosen from a fixed list (pilotCopy.ts PUBLIC_TOPICS). 0.2 removed the
+  // free-text note: there is no field here that can hold an account.
+  topics: arrayOf(str({ max: 40, pattern: /^[a-z-]+$/ }), { max: 8 }),
   referral: nullable(str({ max: 80 })),
   outcome: oneOf(["accepted", "accepted-repeat"] as const),
   submittedAt: isoInstant,
@@ -381,6 +383,70 @@ export const AuditEventSchema = obj({
   synthetic: bool,
 });
 export type AuditEvent = Infer<typeof AuditEventSchema>;
+
+// ---------- Exceptions (0.2) ----------
+
+// Anything that must not drift into ordinary outreach: material sent by
+// mistake, opt-outs, deletion and access requests, complaints, mistaken
+// submissions, lost messages, doubtful researched contacts, and
+// operational incidents. See cases.ts for each kind's playbook.
+export const CASE_KINDS = [
+  "sensitive-disclosure",
+  "opt-out",
+  "deletion-request",
+  "access-request",
+  "complaint",
+  "mistaken-submission",
+  "lost-communication",
+  "questionable-contact",
+  "incident",
+] as const;
+export type CaseKind = (typeof CASE_KINDS)[number];
+
+export const OpsCaseSchema = obj({
+  id: opaqueId("case"),
+  kind: oneOf(CASE_KINDS),
+  // Nulled (not deleted) if the person's record is later erased: the case
+  // remains as an accountability record without identifying them.
+  prospectId: nullable(opaqueId("prs")),
+  receivedVia: oneOf(["email", "web-form", "phone", "in-person", "post", "internal"] as const),
+  receivedAt: isoInstant,
+  // How it was handled, never what the material said. Short by design.
+  summary: str({ min: 1, max: 200 }),
+  status: oneOf(["open", "contained", "resolved"] as const),
+  dueOn: isoDate,
+  ownerId: nullable(userId),
+  holdsOutreach: bool,
+  steps: arrayOf(obj({ key: code, doneAt: nullable(isoInstant), doneBy: nullable(userId) }), { max: 12 }),
+  outcome: nullable(code),
+  ...base,
+});
+export type OpsCase = Infer<typeof OpsCaseSchema>;
+
+// A tombstone for an erased person: the opaque id and, if they asked not
+// to be contacted, their keyed email hash. Exported by the worker to a
+// ledger kept outside the database, so a restore from an older backup can
+// replay erasures that happened after it (postgres/ledger.ts).
+export const ErasureSchema = obj({
+  id: opaqueId("ers"),
+  prospectId: opaqueId("prs"),
+  erasedAt: isoInstant,
+  ...base,
+});
+export type Erasure = Infer<typeof ErasureSchema>;
+
+// One run of the scheduled worker (worker.ts). Counts and codes only.
+export const WorkerRunSchema = obj({
+  id: opaqueId("run"),
+  startedAt: isoInstant,
+  finishedAt: nullable(isoInstant),
+  outcome: oneOf(["running", "ok", "paused", "failed"] as const),
+  jobsClaimed: int({ min: 0 }),
+  tasksCreated: int({ min: 0 }),
+  errorCode: nullable(code),
+  ...base,
+});
+export type WorkerRun = Infer<typeof WorkerRunSchema>;
 
 // Aggregate counts only: no identifiers, no addresses, no notes.
 export const FunnelCountSchema = obj({

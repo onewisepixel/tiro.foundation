@@ -1,78 +1,67 @@
-# Flight Deck 0.1: acceptance evidence
+# Flight Deck: acceptance evidence (0.2 production foundation)
 
-Status: **Local implementation evidence, 2026-10-16.** Nothing is deployed, live, or authorized for production. No real person's data has been collected.
+Status: **Local evidence, 2026-10-17.** Nothing is deployed, no AWS resource or account exists, no real contact data exists, no message has been sent, and no post has been published. The 0.1 evidence is in git history (commit `2ab612e`).
 
-## 1. Live / not live
+## 1. Live / prepared / not built
 
 | Capability | State |
 | --- | --- |
-| `/pilot` page in a production build | Builds and serves; **form closed** ("not yet open", no fields). Not deployed. |
-| `/pilot` form accepting submissions | **Local demo only**, into a synthetic local file store |
-| `/flight-deck` private app | **Local demo only** (loopback, dev build, explicit mode). 404 in every production build |
-| Production identity, database, email, social, job runner | **Not built / not configured.** Adapters and disabled states only |
-| Outbound email or social posts | **None possible.** No network provider exists in the code |
-| Privacy notice | **Draft**, not legally reviewed |
-| Archive intake | **Not built**; no switch exists |
+| `/pilot` page, production build | Serves with the form **closed**; the form now has no free-text field |
+| Public form accepting real submissions | **Not possible**: needs its flag, a recorded gate, and a non-draft notice; the admin script refuses the gate while the notice is a draft |
+| Private console in production | **Prepared**: exists only with complete configuration and the founder's recorded console gate; Cognito sign-in required |
+| PostgreSQL operations store | **Prepared and tested** against real PostgreSQL 17 locally; no database provisioned |
+| Cognito pool, secrets, worker schedule, alarm | **Template only** (`deploy/flight-deck/`), not deployed, schedule disabled by default |
+| Restore ledger sink | **Not provisioned** (warning shown) |
+| Email, social, AI drafting, archive intake | **Off** by decision; no live implementation exists |
 
 ## 2. Commands and measured results
 
-Run on Windows 11, Node 22.17.1, Next.js 16.3.8.
+Windows 11, Node 22.17.1, Next.js 16.3.8, PostgreSQL 17.10 (embedded, temporary).
 
 | Command | Result |
 | --- | --- |
-| `npm test` | **409 / 409 pass** (368 pre-existing + 41 new in `src/lib/flightDeck/flightDeck.test.ts`) |
+| `npm test` | **430 / 430** (368 pre-existing + 62 Flight Deck: 42 domain, 16 production-foundation, 4 deploy-template) |
+| `npm run test:flight-deck-pg` | **15 / 15** against real PostgreSQL; repeated 4 times, all green |
 | `npx tsc --noEmit` | Clean |
-| `npm run lint` | 0 errors; 2 warnings, both pre-existing in `backend/` (baseline unchanged) |
-| `npm run build` | Succeeds. `/pilot` and all `/flight-deck` routes dynamic (`ƒ`); existing static routes unchanged |
-| `npm run verify:disclosure` | "disclosure boundary holds in the production build" (20 client files, 278 prerendered files, 20 routes) |
-| `npm run e2e:flight-deck` (against `npm run dev:flight-deck`) | **34 / 34 pass**; with `CLOSED_BASE_URL` pointing at a `next start` server, **35 / 35** (adds the production closed-form check). Results in `screens/e2e-results.json` |
-| Production probe: `next start` with `FLIGHT_DECK_MODE=local-demo`, form and email flags deliberately set to `true` | `/flight-deck`, `/flight-deck/sign-in`, `/flight-deck/health`, `/flight-deck/export/…`, `?demo=1`, and a POST action attempt: **all 404**. Headers: `no-store`, `noindex, nofollow`, `X-Frame-Options: DENY`. `/pilot`: 200, "Form not yet open", 0 form fields |
-| Client-bundle scan of the production build for store, suppression, session, and seed symbols | **0 matches** |
+| `npm run lint` | 0 errors; the 2 pre-existing `backend/` warnings only |
+| `npm run build` | Succeeds; all Flight Deck routes dynamic |
+| `npm run verify:disclosure` | "disclosure boundary holds in the production build" |
+| Client-bundle scan for server-only Flight Deck symbols (store, sessions, identity, seed, secrets) | **0 matches** |
+| `npm run e2e:flight-deck`: browser run on the **local file store** | **50 / 50** (51 / 51 with `CLOSED_BASE_URL` pointing at a production server: the closed public form) |
+| Same browser run with the UI on **local PostgreSQL** (`dev:flight-deck -- --pg`) | **50 / 50**; data confirmed in Postgres afterwards |
+| axe-core scans (WCAG 2.0/2.1/2.2 A+AA rules), 11 page states incl. light theme | **0 violations** (after fixing one serious contrast defect it found) |
+| `npm run rehearse:flight-deck`: production build against a TLS-only PostgreSQL with certificate verification | **27 / 27** (`screens/production-rehearsal.json`) |
+| `npm run flight-deck:admin -- check-config` with no production settings | Lists the 11 missing settings by name only; exit 1 |
 
-## 3. Directive §10 checklist
+## 3. 0.2 validation requirements
 
-| # | Requirement | Evidence | Result |
-| --- | --- | --- | --- |
-| 1 | No public route accepts files, narratives, media, archive metadata, or testimony | Unit: File values, unknown fields (`story`, `recordId`), 5,000-character note, 501-character note, links → refused, nothing stored. 64 KB action body limit. E2E: no file input or drag target on `/pilot` | Pass |
-| 2 | Interest ≠ consent to newsletter, collection, naming, or preservation | Unit: only `direct-response` permission without the opt-in; schema has no "verified" authority value; E2E: no updates permission shown, opt-in unchecked by default | Pass |
-| 3 | Repeats create no multi-email sequence; no account-existence disclosure | Unit: three submissions → one prospect, three submissions, **one** acknowledgement job, one open task, identical responses; past the per-address limit and for a suppressed address, the same response. E2E: repeat gets identical confirmation | Pass |
-| 4 | No acceptance gate → blocked; exact notice version stored | Unit and E2E: missing acknowledgement or reply consent refused server-side; stale notice version refused; `pilot-privacy-draft-0.1` stored on submission and permission with exact wording | Pass |
-| 5 | Unauthorized requests cannot reach records, exports, activity, or mutations | Proxy 404 outside demo; pages redirect without session; export route 403 without session/capability; capabilities enforced in the domain (unit: reviewer cannot draft, operator cannot approve or erase, reviewer cannot export, null actor denied). E2E: reviewer has no edit form, operator no approval controls | Pass |
-| 6 | Demo cannot be activated on a real deployment by query or stray env | Unit: refused for production builds, five platform markers, non-loopback hosts. Production probe above | Pass |
-| 7 | Approval bound to content, recipient, channel, schedule; edits revoke | Unit: body edit, recipient change, schedule change, content-metadata change each void approval; stale-hash decision refused; expiry. E2E: edit after approval removes send controls and shows "Invalidated" | Pass |
-| 8 | Suppression at dispatch overrides approvals and retries | Unit: unsubscribe between a failed attempt and its retry → job cancelled, draft held, no receipt, one provider call; manual send refused; newsletter-only unsubscribe still allows a reply | Pass |
-| 9 | `sent`/`published` only with confirmation | Unit: no provider → held, "manual-ready", no receipt; dry run → "simulated"; confirming fake provider → "sent". Manual route records "attested" with the person's id. E2E shows "Ready to send by hand", then "Attested by a person" | Pass |
-| 10 | Failed jobs idempotent, retryable, no duplicates | Unit: double queue → one job; failure then success → two provider calls with one idempotency key, one receipt; crash with existing receipt → settled, not resent | Pass |
-| 11 | Audit contains no messages, evidence, archive content, tokens, or secrets | Unit: across the whole seed, audit/counters/jobs contain no `@`, names, notes, or message bodies; every event has exactly the nine schema keys | Pass |
-| 12 | No import from `backend/` archival stores; no mixed data | Unit: import scan of every Flight Deck file; separate store file | Pass |
-| 13 | Public site fast and keyboard/screen-reader usable | E2E: first Tab reaches the skip link; every visible form control labeled; errors announced (`role=alert`), invalid fields marked (`aria-invalid`), focus moved to the outcome; entries survive a validation error; no horizontal overflow at 390 px on `/pilot`, Now, Approvals, Relationship. Disclosure verifier green. **Manual assistive-technology testing was NOT performed** (see §5) | Partial: automated checks only |
-| 14 | Public copy factual | `/pilot` and templates claim no partners, participants, counts, incorporation, tax status, quotes, or turnaround; templates cite their sources; the founder progress note is marked for founder confirmation | Pass (founder to confirm copy) |
-| 15 | Disabled flags give an honest, accessible alternative | Production `/pilot`: "Form not yet open" with the email address and a no-material reminder; server action returns `closed` and stores nothing | Pass |
-| 16 | 15-minute synthetic review session | E2E: find the new inquiry on Now → read its note and permissions → draft reply → placeholders refused → fill and save → submit → approve the exact version (fingerprint checked) → queue → run jobs (held: no provider) → send by hand and attest → follow-up reminder registered, stage Contacted → generate digest → mark review complete. 7–10 s automated; a human pace was not timed | Pass (automated) |
+| Requirement | Evidence | Result |
+| --- | --- | --- |
+| Concurrent writes | PG: 12 people submitting at once all recorded; the same person 8 times at once → 1 record, 8 submissions, 1 acknowledgement, 1 task; 3 concurrent edits from the same version → exactly 1 succeeds, 2 get "changed since you opened it" | Pass |
+| Duplicate requests | PG: 3 concurrent queue requests → 1 job; 2 concurrent runners → 1 provider call, 1 receipt. Unit: double queue, repeated runs, crash recovery without resend | Pass |
+| Revocation and suppression races | PG, staged at the worst moment (between the domain's reads and its writes): an opt-out committed during dispatch preparation wins and nothing is sent; an edit committed during a manual-send record revokes it and the send is refused | Pass |
+| Worker retries | PG: a failed send retries with the same idempotency key; one receipt; two concurrent ticks → one runs, one `skipped-locked`. Unit: idempotent housekeeping, paused and failed outcomes recorded | Pass |
+| Data restoration | PG: logical backup restored into a fresh database; ledger replay re-erases a person erased after the backup and restores an opt-out; import refuses a non-empty database. Unit: replay cancels a message queued in the restored copy; replay is idempotent | Pass (provider PITR drill not performed) |
+| Storage failure | PG: unreachable database → `StoreUnavailable`; connection killed between reads and writes → `StoreUnavailable`, nothing committed, pool recovers. Unit: the public form tells the person nothing was stored | Pass |
+| Operator access | Unit: only named, active operators get sessions; a different provider account for the same email is refused; idle and absolute expiry. PG: only token hashes stored. Rehearsal: forged and demo cookies refused in production; console 404 before the gate | Pass |
+| Permission changes | Unit and PG: role change and deactivation take effect on the next request; deactivation revokes every session | Pass |
+| OIDC verification | Unit, with real RSA keys: genuine token accepted; wrong key, `alg:none`, HS256, tampered claims, wrong issuer (incl. a "staff" pool), audience, token use, expiry, future issue, nonce, unverified email, missing group, unknown key all refused; JWKS rotation without refresh storms; PKCE S256 | Pass |
+| Production disabled until gates | Rehearsal: 404 before the console gate and on any other host; console gate refused without a founder; public-form gate refused while the notice is a draft; form closed with its flag on | Pass |
+| Database-level guards | PG: direct SQL `UPDATE`, `DELETE`, `TRUNCATE` on the audit table rejected; foreign keys enforced; synthetic/real mismatch refused; wipe refused on real data | Pass |
+| Form content | Unit: a `note` field, free-text topics, duplicate or excess topics refused; E2E: no textarea anywhere in the form | Pass |
+| Exceptions | Unit: opt-out case suppresses at once; deletion case holds outreach and completes on erasure; redaction leaves no trace of content; founder-only resolution; incident pause. E2E: a deletion request worked end to end in the browser | Pass |
+| Regression of 0.1 guarantees | All 0.1 tests (exact-version approvals, dispatch-time checks, pause, audit safety, separation from the archive) still pass | Pass |
 
-## 4. Screenshots (`docs/flight-deck/screens/`)
+## 4. Defects found and fixed during 0.2
 
-`pilot-desktop`, `pilot-mobile`, `pilot-mobile-reduced-motion`, `pilot-validation-error`, `pilot-confirmation`, `pilot-production-closed`, `now-desktop`, `now-mobile`, `now-desktop-light-reduced-motion`, `relationship-desktop`, `relationship-mobile`, `approvals-desktop`, `approvals-mobile`, `outreach-manual-ready-desktop`, `health-desktop`, `digest-desktop`. All show synthetic data. Regenerate with `npm run e2e:flight-deck` (it resets the local store first).
+1. **Process crash on a dropped database connection** (no `error` listener on pool clients). Found by the killed-connection test; fixed.
+2. **A CA certificate silently ignored** when `sslmode` appears in the connection URL (a node-postgres precedence rule). Found while building the rehearsal; fixed and covered by the TLS-only rehearsal.
+3. **Primary button contrast 2.04:1** on `/pilot` (light text on gold, from 0.1, caused by CSS layer order). Found by axe; fixed.
 
 ## 5. Not performed
 
-- **Manual screen-reader and physical-device testing** (VoiceOver, NVDA, TalkBack, switch/keyboard-only walkthrough). Use `docs/design/accessibility-manual-test.md`'s protocol for `/pilot` and `/flight-deck`.
-- Lighthouse performance measurement of `/pilot` (it is server-rendered per request because the form token and mode are per-request).
-- Any test against a real provider, database, or identity service (none exist).
-- Human-paced timing of the 15-minute review.
-- Legal review of any wording.
+Manual screen-reader and device testing; human-paced timing of the founder review; any test with a real Cognito pool, real database provider, or provider point-in-time restore; `validate-template` or a staging deploy of the CloudFormation template; the new CI step on GitHub's runners (added, not yet run there). Protocols: `manual-tests.md`.
 
-## 6. Known limitations
+## 6. Screenshots
 
-- In-memory rate limiting (one process). Local pepper stored with the data. Test identities instead of an IdP. No background job runner. No inbound-email processing (unsubscribe links, bounces). Organization and affiliation records exist in the model and store but have no editing screen. "Second reviewer" is recorded, not required. A suppression arriving in the instant between the final pre-send check and a provider call cannot be stopped (one-request window).
-- `tsconfig.json`: Next.js adds `.next-flight-deck` type paths whenever the demo server runs; harmless (the directory is git-ignored).
-
-## 7. Founder decisions required for launch
-
-1. **Identity provider** for `/flight-deck` (separate Cognito pool vs managed OIDC), and who the named operators and any second reviewer are.
-2. **Operations database** (recommended: managed PostgreSQL in a TIRO-controlled account) and its region.
-3. **Privacy notice and controller**: commission legal review of `privacy-launch-gates.md` §2–3; name the controlling entity while TIRO is unincorporated.
-4. **Acknowledgement emails**: send by hand for now, or choose a transactional provider (requires SPF/DKIM/DMARC DNS changes).
-5. **Social publishing**: stay manual (recommended) or connect platform APIs later.
-6. **Public copy**: approve `/pilot` wording and whether to name the proposed pilot's community or region publicly (it is deliberately generic now).
-7. **Launch approval**: record which gates in `privacy-launch-gates.md` §5 are met, and authorize deployment of `/pilot` (closed state is safe to deploy; opening the form is not, yet).
+`docs/flight-deck/screens/`: the public form with topic choices, a validation error with entries preserved, the confirmation, mobile and reduced-motion views; Now, a relationship, Approvals, an outreach item ready to send by hand, Health with the worker, the weekly review, a deletion-request case; light theme. All synthetic.

@@ -116,6 +116,17 @@ const noOverflow = async (name) => {
   const ok = (await evaluate(`document.documentElement.scrollWidth <= 391`)) === true;
   check(name, ok, ok ? "" : await culprits());
 };
+// Automated accessibility scan (axe-core, WCAG 2.0/2.1/2.2 A and AA rules).
+// Fails on serious or critical violations; records the rest.
+const AXE = fs.readFileSync(path.resolve(import.meta.dirname, "../../node_modules/axe-core/axe.min.js"), "utf8");
+const axeFindings = [];
+async function axe(name) {
+  await evaluate(`if (!window.axe) { ${AXE} }`);
+  const result = await evaluate(`axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] } }).then((r) => r.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length, where: v.nodes.slice(0, 3).map((n) => n.target.join(" ") + (n.any[0]?.data?.contrastRatio ? " (" + n.any[0].data.contrastRatio + ":1, fg " + n.any[0].data.fgColor + " on " + n.any[0].data.bgColor + ")" : "")) })))`);
+  axeFindings.push({ page: name, violations: result });
+  const severe = result.filter((v) => v.impact === "serious" || v.impact === "critical");
+  check(`axe: ${name} has no serious or critical WCAG violations`, severe.length === 0, severe.map((v) => `${v.id}×${v.nodes} at ${v.where.join("; ")}`).join(", ") || (result.length ? `minor: ${result.map((v) => v.id).join(", ")}` : ""));
+}
 async function viewport(width, height, mobile = false) {
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
 }
@@ -163,25 +174,28 @@ try {
   await go("/pilot");
   await shot("pilot-desktop");
   const pilotText = await text();
-  check("/pilot states it is not collecting material", /We are not collecting/.test(pilotText) && /Recordings, audio, or video/.test(pilotText));
+  check("/pilot states it is not collecting material", /we are not collecting/i.test(pilotText) && /recordings, audio, or video/i.test(pilotText));
   check("/pilot has no file input or drag-and-drop", (await evaluate(`document.querySelectorAll('input[type=file], [draggable=true]').length`)) === 0);
   check("/pilot updates opt-in is unchecked by default", (await evaluate(`document.querySelector('input[name=updatesOptIn]').checked`)) === false);
+  check("/pilot has no free-text note or any textarea (0.2)", (await evaluate(`document.querySelectorAll('form textarea, [name=note]').length`)) === 0);
+  await axe("/pilot (form)");
   // Submit without the acknowledgement: refused, fields flagged.
   await sleep(2600);
   await fill("#displayName", "Synthetic Visitor E2E");
   await fill("#email", "visitor-e2e@example.invalid");
   await evaluate(`document.querySelector('input[name=category][value=community-partner]').click()`);
-  await fill("#note", "Synthetic note from the end-to-end run: would like to talk about community consultation.");
+  await evaluate(`document.querySelector('input[name=topics][value=community-consultation]').click(); document.querySelector('input[name=topics][value=archival-practice]').click();`);
   await evaluate(`document.querySelector('input[name=replyConsent]').click()`);
   await clickButton("Send expression of interest");
   await waitFor(`document.body.innerText.toLowerCase().includes("confirm you have read the privacy notice")`);
   check("submission without privacy acknowledgement is refused server-side", true);
   await shot("pilot-validation-error", false);
-  check("entries survive a validation error", (await evaluate(`document.querySelector("#displayName").value`)) === "Synthetic Visitor E2E" && (await evaluate(`document.querySelector("#note").value`)).startsWith("Synthetic note"));
+  check("entries survive a validation error", (await evaluate(`document.querySelector("#displayName").value`)) === "Synthetic Visitor E2E" && (await evaluate(`document.querySelector('input[name=topics][value=community-consultation]').checked`)) === true);
+  await axe("/pilot (validation error)");
   check("error is announced and invalid field is marked", (await evaluate(`document.querySelector("[role=alert]") !== null && document.querySelector("input[name=noticeAck]").getAttribute("aria-invalid") === "true"`)) === true);
   await evaluate(`document.querySelector("input[name=noticeAck]").click()`);
   await clickButton("Send expression of interest");
-  await waitFor(`document.body.innerText.toLowerCase().includes("your note has been received")`);
+  await waitFor(`document.body.innerText.toLowerCase().includes("your inquiry has been received")`);
   check("valid submission shows an accessible confirmation", (await evaluate(`document.activeElement?.getAttribute("role")`)) === "status");
   await shot("pilot-confirmation", false);
   // Same address again: identical response.
@@ -191,13 +205,14 @@ try {
   await fill("#email", "VISITOR-E2E@example.invalid");
   await evaluate(`document.querySelector('input[name=category][value=interested-contributor]').click(); document.querySelector('input[name=noticeAck]').click(); document.querySelector('input[name=replyConsent]').click();`);
   await clickButton("Send expression of interest");
-  await waitFor(`document.body.innerText.toLowerCase().includes("your note has been received")`);
+  await waitFor(`document.body.innerText.toLowerCase().includes("your inquiry has been received")`);
   check("repeat submission gets the identical response (no enumeration)", true);
 
   // ---------- The representative founder review session ----------
   const sessionStart = Date.now();
   await go("/flight-deck");
   await shot("now-desktop");
+  await axe("Now");
   const now = await text();
   check("Now: new inquiry is visible", has(now, "Synthetic Visitor E2E"));
   check("Now: shows next actions, blockers, approvals", /Next actions/i.test(now) && /Blocked by a gate/i.test(now) && /Ready for your approval/i.test(now));
@@ -206,10 +221,11 @@ try {
   await waitFor(`location.pathname.startsWith("/flight-deck/relationships/prs_")`);
   prospectPath = await url();
   const detail = await text();
-  check("relationship: safe context shown (note, notice version, unverified authority)", has(detail, "Synthetic note from the end-to-end run") && has(detail, "pilot-privacy-draft-0.1") && /Authority: unverified/i.test(detail));
+  check("relationship: safe context shown (chosen topics, notice version, unverified authority)", has(detail, "How communities would be consulted") && has(detail, "pilot-privacy-draft-0.2") && /Authority: unverified/i.test(detail));
   check("relationship: repeat submission linked to one record", (detail.match(/repeat submission/g) ?? []).length === 1);
   check("relationship: no newsletter permission without opt-in", !has(detail, "Occasional updates"));
   await shot("relationship-desktop");
+  await axe("relationship detail");
 
   await fill("#templateKey", "inquiry-reply");
   await clickButton("Create draft");
@@ -231,6 +247,7 @@ try {
 
   await go("/flight-deck/approvals");
   await shot("approvals-desktop");
+  await axe("Approvals");
   const card = `[...document.querySelectorAll("article")].find((a) => a.innerText.includes("Synthetic Visitor E2E"))`;
   await waitFor(card);
   const shownHash = await evaluate(`${card}.querySelector("input[name=hash]").value`);
@@ -244,9 +261,11 @@ try {
   await clickButton("Queue for dispatch");
   await waitFor(`location.search.includes("notice=queued")`);
   await go("/flight-deck/health");
-  await clickButton("Run due jobs now");
-  await waitFor(`location.search.includes("notice=jobs-run")`);
+  await clickButton("Run worker tick now");
+  await waitFor(`location.search.includes("notice=worker-ran")`);
+  check("worker tick recorded on Health", has(await text(), "task") && (await evaluate(`document.body.innerText.includes("job")`)) === true);
   await shot("health-desktop");
+  await axe("Health");
   await go(draftPath);
   const afterRun = await text();
   check("no provider: message held as 'ready to send by hand', never 'sent'", has(afterRun, "Ready to send by hand") && !/\bSent\b(?! by hand)/.test(afterRun.split("Next step")[0] ?? ""));
@@ -266,10 +285,48 @@ try {
   const digest = await text();
   check("digest generated locally, delivery off, no addresses", has(digest, "weekly digest") && has(digest, "Automatic delivery is off") && !/@example\.invalid/.test(await evaluate(`document.querySelector("pre").innerText`)));
   await shot("digest-desktop");
+  await axe("Weekly review");
   await clickButton("Mark this week");
   await waitFor(`location.search.includes("review-complete")`);
   const sessionSeconds = Math.round((Date.now() - sessionStart) / 1000);
   check("representative review session completed without a spreadsheet", true, `${sessionSeconds}s of automated interaction`);
+
+  // ---------- Exceptions (0.2): a deletion request, end to end ----------
+  // On a different seeded person, so the main test person stays for later checks.
+  await go("/flight-deck/relationships");
+  const casePerson = await evaluate(`[...document.querySelectorAll("a")].find((x) => x.innerText.includes("Synthetic Prospect A-01"))?.getAttribute("href")`);
+  await go(`/flight-deck/cases/new?prospect=${casePerson.split("/").pop()}`);
+  await axe("Open a case");
+  await evaluate(`document.querySelector('input[name=kind][value=deletion-request]').click()`);
+  await fill("#summary", "Asked by email to delete their details; request came from the address on record.");
+  await clickButton("Open case");
+  await waitFor(`location.pathname.startsWith("/flight-deck/cases/case_")`);
+  const casePath = (await url()).split("?")[0];
+  await shot("case-deletion-desktop");
+  await axe("Case detail");
+  await go(casePerson);
+  check("an open deletion request holds outreach to the person", has(await text(), "Case open: held"));
+  await go(casePath);
+  for (const step of ["verify-requester", "export-if-asked"]) {
+    await evaluate(`[...document.querySelectorAll("form")].find((f) => f.querySelector("input[name=step][value=${step}]")).querySelector("button").click()`);
+    await waitFor(`location.search.includes("notice=case-step")`);
+    await go(casePath);
+  }
+  await go(casePerson);
+  await evaluate(`document.querySelector("details summary") && [...document.querySelectorAll("details")].find((d) => d.innerText.includes("Erase this person")).setAttribute("open", "")`);
+  await fill("#confirm", "ERASE");
+  await clickButton("Erase permanently");
+  await waitFor(`location.search.includes("notice=erased")`);
+  await go(casePath);
+  const caseAfter = await text();
+  check("erasure completed the case's erase step and unlinked the person", has(caseAfter, "No person is linked") && (await evaluate(`document.querySelectorAll("form input[name=step][value=erase-record]").length`)) === 0);
+  await evaluate(`[...document.querySelectorAll("form")].find((f) => f.querySelector("input[name=step][value=confirm-deletion]")).querySelector("button").click()`);
+  await waitFor(`location.search.includes("notice=case-step")`);
+  await go(casePath);
+  await fill("#outcome", "erased");
+  await clickButton("Resolve case");
+  await waitFor(`location.search.includes("notice=case-resolved")`);
+  check("deletion request resolved with every step recorded", has(await text(), "Outcome: erased"));
 
   // ---------- Adversarial, in the browser ----------
   // Edit after approval revokes it.
@@ -298,7 +355,8 @@ try {
   await clickButton("Continue as reviewer");
   await waitFor(`location.search.includes("signed-in")`);
   await go(draftPath);
-  check("reviewer sees no edit form", (await evaluate(`document.querySelector("#body")`)) === null);
+  const reviewerView = await text();
+  check("reviewer sees the message but no edit form", has(reviewerView, "Exact message") && (await evaluate(`document.querySelector("#body")`)) === null);
   await go("/flight-deck/sign-in");
   await clickButton("Continue as operator");
   await waitFor(`location.search.includes("signed-in")`);
@@ -330,6 +388,9 @@ try {
   await evaluate(`localStorage.setItem("theme", "light")`);
   await go("/flight-deck");
   await shot("now-desktop-light-reduced-motion");
+  await axe("Now (light theme)");
+  await go("/pilot");
+  await axe("/pilot (light theme)");
   await evaluate(`localStorage.removeItem("theme")`);
 
   // Keyboard: the first Tab reaches the skip link; the form has labels.
@@ -365,7 +426,7 @@ try {
 }
 
 const failed = results.filter((r) => !r.ok);
-const summary = { at: new Date().toISOString(), base: BASE, seconds: Math.round((Date.now() - started) / 1000), passed: results.length - failed.length, failed: failed.length, results };
+const summary = { at: new Date().toISOString(), base: BASE, seconds: Math.round((Date.now() - started) / 1000), passed: results.length - failed.length, failed: failed.length, results, axe: axeFindings };
 fs.writeFileSync(path.join(OUT, "e2e-results.json"), JSON.stringify(summary, null, 2));
 console.log(`\n${summary.passed} passed, ${summary.failed} failed (${summary.seconds}s). Screenshots: ${path.relative(process.cwd(), OUT)}`);
 process.exit(failed.length ? 1 : 0);

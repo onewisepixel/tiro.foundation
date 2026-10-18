@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FlightDeckNav } from "@/components/flight-deck/client";
 import { SyntheticBanner } from "@/components/flight-deck/ui";
-import { getActor, getRuntime } from "@/lib/flightDeck/runtime";
+import { getActor, getConsoleRuntime } from "@/lib/flightDeck/runtime";
 import { signOut } from "./actions";
 
 export const metadata: Metadata = {
@@ -13,18 +13,18 @@ export const metadata: Metadata = {
 // Private operations instrument. The proxy already answers 404 outside a
 // local-demo request; this checks again on the server for every render.
 export default async function FlightDeckLayout({ children }: { children: React.ReactNode }) {
-  const rt = await getRuntime();
+  const rt = await getConsoleRuntime();
   if (!rt) {
     notFound();
   }
-  const actor = await getActor();
+  const actor = await getActor(rt);
   const approvals = actor
     ? await rt.store.read((tx) => tx.list("outreach", (d) => d.status === "needs-review").length + tx.list("content", (d) => d.status === "needs-review").length + tx.list("campaigns", (c) => c.status === "needs-review").length)
     : 0;
 
   return (
     <div className="min-h-screen bg-[var(--tiro-bg)] pt-[61px] text-[var(--tiro-text)]">
-      <SyntheticBanner />
+      {rt.store.synthetic ? <SyntheticBanner /> : null}
       {actor ? (
         <div className="sticky top-[61px] z-30 border-b border-[var(--tiro-border)] bg-[var(--tiro-bg)]">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 px-[var(--lt-gutter)] md:px-6">

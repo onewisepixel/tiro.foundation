@@ -41,6 +41,13 @@ jobs:
       - name: Test
         run: npm test
 
+      # Flight Deck operations store against a real PostgreSQL 17, started
+      # from the embedded-postgres dev dependency in a temporary directory
+      # on the runner. Synthetic data only; nothing outlives the step. No
+      # credentials, no network services.
+      - name: Flight Deck PostgreSQL integration tests
+        run: npm run test:flight-deck-pg
+
       # Synth only — proves the CDK stack produces valid CloudFormation in
       # environment-agnostic mode. Does NOT deploy, and needs no credentials.
       - name: CDK synth (no deploy, no credentials)

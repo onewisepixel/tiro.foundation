@@ -6,6 +6,8 @@ import { can } from "@/lib/flightDeck/access";
 import { DEMO_IDENTITIES, displayNameFor } from "@/lib/flightDeck/identities";
 import { contactEligibility } from "@/lib/flightDeck/permissions";
 import { MESSAGE_TEMPLATES } from "@/lib/flightDeck/templates";
+import { PUBLIC_TOPICS } from "@/lib/flightDeck/pilotCopy";
+import { PLAYBOOKS } from "@/lib/flightDeck/cases";
 import { BLOCK_REASONS, TASK_TYPES } from "@/lib/flightDeck/types";
 import { allowedTransitions, STAGE_LABELS } from "@/lib/flightDeck/workflow";
 import {
@@ -21,10 +23,12 @@ import {
 } from "../../actions";
 import { requirePage } from "../../guard";
 
+const TOPIC_LABEL: Record<string, string> = Object.fromEntries(PUBLIC_TOPICS.map((t) => [t.value, t.label]));
+
 const INTEREST = { "interested-contributor": "Potential contributor", "community-partner": "Community representative / partner", "specialist-volunteer": "Researcher / archivist / translator / volunteer", institution: "Institution" } as const;
 const PURPOSE = { "direct-response": "Reply about their inquiry", "pilot-follow-up": "Pilot outreach and one follow-up", newsletter: "Occasional updates" } as const;
 const BASIS = { "form-request-reply": "Ticked “TIRO may reply” on the form", "form-opt-in": "Ticked the separate updates opt-in", "documented-public-business-contact": "Documented public business contact", "referral-introduction": "Referral or introduction" } as const;
-const ELIGIBILITY: Record<string, string> = { "no-address": "No address", withdrawn: "Withdrawn", suppressed: "Opted out", "permission-pending-review": "Basis not reviewed", "permission-expired": "Permission expired", "no-permission": "No permission" };
+const ELIGIBILITY: Record<string, string> = { "case-open": "Case open: held", "no-address": "No address", withdrawn: "Withdrawn", suppressed: "Opted out", "permission-pending-review": "Basis not reviewed", "permission-expired": "Permission expired", "no-permission": "No permission" };
 
 export default async function ProspectPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
@@ -44,6 +48,7 @@ export default async function ProspectPage({ params, searchParams }: { params: P
       tasks: tx.list("tasks", (t) => t.prospectId === id).sort((a, b) => Number(a.status !== "open") - Number(b.status !== "open") || (a.dueOn ?? "9").localeCompare(b.dueOn ?? "9")),
       drafts: tx.list("outreach", (d) => d.prospectId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       suppressed: p.emailKey ? tx.list("suppressions", (s) => s.emailKey === p.emailKey && s.liftedAt === null) : [],
+      cases: tx.list("cases", (c) => c.prospectId === id).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)),
       eligibility,
     };
   });
@@ -203,7 +208,13 @@ export default async function ProspectPage({ params, searchParams }: { params: P
                     {when(s.submittedAt)} · {s.outcome === "accepted-repeat" ? "repeat submission" : "first submission"} · form {s.formVersion} · notice {s.noticeVersion}
                     {s.referral ? ` · via ${s.referral}` : ""}
                   </p>
-                  <p className="mt-2 text-sm">{s.note ?? <span className="text-[var(--tiro-text-muted)]">No note.</span>}</p>
+                  <p className="mt-2 text-sm">
+                    {s.topics.length ? (
+                      <>Would like to talk about: {s.topics.map((t) => TOPIC_LABEL[t] ?? t).join("; ")}</>
+                    ) : (
+                      <span className="text-[var(--tiro-text-muted)]">No topics chosen.</span>
+                    )}
+                  </p>
                 </div>
               ))
             )}
@@ -424,6 +435,23 @@ export default async function ProspectPage({ params, searchParams }: { params: P
                 </Field>
                 <SubmitButton>Create draft</SubmitButton>
               </form>
+            ) : null}
+          </Section>
+
+          <Section title="Exceptions">
+            {data.cases.length === 0 ? <Empty>No cases for this person.</Empty> : null}
+            {data.cases.map((c) => (
+              <Link key={c.id} href={`/flight-deck/cases/${c.id}`} className="fd-row flex flex-wrap items-center justify-between gap-2 px-1 text-sm">
+                <span>
+                  {PLAYBOOKS[c.kind].label} · due {c.dueOn}
+                </span>
+                <StatusBadge status={c.status === "resolved" ? "done" : c.holdsOutreach ? "held" : "open"} />
+              </Link>
+            ))}
+            {can(actor, "edit-relationships") ? (
+              <Link href={`/flight-deck/cases/new?prospect=${p.id}`} className="fd-button mt-3">
+                Open a case (opt-out, deletion, complaint, sensitive material…)
+              </Link>
             ) : null}
           </Section>
 

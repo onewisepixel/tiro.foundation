@@ -1,0 +1,223 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "TIRO Flight Deck 0.2 production foundation (NOT DEPLOYED; requires founder authorization). Dedicated operator identity (separate from the synthetic preservation backend), generated secrets, the scheduled worker (disabled until activated), and a failure alarm. The operations database is NOT created here: provider and region await the founder's decision (docs/flight-deck/integrations.md).",
+  "Parameters": {
+    "PublicOrigin": {
+      "Type": "String",
+      "Description": "The https origin Flight Deck is served from, e.g. https://tiro.foundation",
+      "AllowedPattern": "^https://[a-z0-9.-]+$"
+    },
+    "CognitoDomainPrefix": {
+      "Type": "String",
+      "Description": "Prefix for the Cognito managed login domain, e.g. tiro-ops",
+      "AllowedPattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "WorkerScheduleState": {
+      "Type": "String",
+      "Description": "The worker schedule stays DISABLED until the console gate is recorded and the founder enables it.",
+      "AllowedValues": ["DISABLED", "ENABLED"],
+      "Default": "DISABLED"
+    },
+    "AlarmEmail": {
+      "Type": "String",
+      "Description": "Optional address for worker-failure alarms (confirmation email required).",
+      "Default": ""
+    }
+  },
+  "Conditions": {
+    "HasAlarmEmail": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "AlarmEmail" }, ""] }] }
+  },
+  "Resources": {
+    "OperatorPool": {
+      "Type": "AWS::Cognito::UserPool",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "UserPoolName": "tiro-flight-deck-operators",
+        "DeletionProtection": "ACTIVE",
+        "UsernameAttributes": ["email"],
+        "AutoVerifiedAttributes": ["email"],
+        "AdminCreateUserConfig": { "AllowAdminCreateUserOnly": true },
+        "MfaConfiguration": "ON",
+        "EnabledMfas": ["SOFTWARE_TOKEN_MFA"],
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 14,
+            "RequireLowercase": true,
+            "RequireUppercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": false,
+            "TemporaryPasswordValidityDays": 2
+          }
+        },
+        "AccountRecoverySetting": { "RecoveryMechanisms": [{ "Name": "verified_email", "Priority": 1 }] },
+        "UserAttributeUpdateSettings": { "AttributesRequireVerificationBeforeUpdate": ["email"] }
+      }
+    },
+    "OperatorGroup": {
+      "Type": "AWS::Cognito::UserPoolGroup",
+      "Properties": {
+        "UserPoolId": { "Ref": "OperatorPool" },
+        "GroupName": "flight-deck",
+        "Description": "Membership is required to sign in; Flight Deck's own operator table decides the role."
+      }
+    },
+    "OperatorDomain": {
+      "Type": "AWS::Cognito::UserPoolDomain",
+      "Properties": {
+        "UserPoolId": { "Ref": "OperatorPool" },
+        "Domain": { "Ref": "CognitoDomainPrefix" }
+      }
+    },
+    "ConsoleClient": {
+      "Type": "AWS::Cognito::UserPoolClient",
+      "Properties": {
+        "UserPoolId": { "Ref": "OperatorPool" },
+        "ClientName": "flight-deck-console",
+        "GenerateSecret": true,
+        "AllowedOAuthFlowsUserPoolClient": true,
+        "AllowedOAuthFlows": ["code"],
+        "AllowedOAuthScopes": ["openid", "email", "profile"],
+        "SupportedIdentityProviders": ["COGNITO"],
+        "CallbackURLs": [{ "Fn::Sub": "${PublicOrigin}/flight-deck/auth/callback" }],
+        "LogoutURLs": [{ "Fn::Sub": "${PublicOrigin}/flight-deck/signed-out" }],
+        "ExplicitAuthFlows": ["ALLOW_REFRESH_TOKEN_AUTH"],
+        "PreventUserExistenceErrors": "ENABLED",
+        "EnableTokenRevocation": true,
+        "IdTokenValidity": 60,
+        "AccessTokenValidity": 60,
+        "RefreshTokenValidity": 1,
+        "TokenValidityUnits": { "IdToken": "minutes", "AccessToken": "minutes", "RefreshToken": "days" }
+      }
+    },
+    "EmailHashPepper": {
+      "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Name": "tiro/flight-deck/email-hash-pepper",
+        "Description": "Keys the email hashes used for suppression and deduplication. Never stored with the data. Losing it breaks suppression matching: retain.",
+        "GenerateSecretString": { "PasswordLength": 64, "ExcludePunctuation": true }
+      }
+    },
+    "SessionSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "Name": "tiro/flight-deck/session-secret",
+        "Description": "Signs the sign-in transaction cookie and derives form-token and rate-limit keys.",
+        "GenerateSecretString": { "PasswordLength": 64, "ExcludePunctuation": true }
+      }
+    },
+    "WorkerToken": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "Name": "tiro/flight-deck/worker-token",
+        "Description": "Bearer token the scheduler presents to /flight-deck/internal/worker.",
+        "GenerateSecretString": { "PasswordLength": 48, "ExcludePunctuation": true }
+      }
+    },
+    "MonitorToken": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "Name": "tiro/flight-deck/monitor-token",
+        "Description": "Bearer token an uptime monitor presents to /flight-deck/internal/status.",
+        "GenerateSecretString": { "PasswordLength": 48, "ExcludePunctuation": true }
+      }
+    },
+    "WorkerConnection": {
+      "Type": "AWS::Events::Connection",
+      "Properties": {
+        "Description": "Authorizes the worker schedule to call Flight Deck.",
+        "AuthorizationType": "API_KEY",
+        "AuthParameters": {
+          "ApiKeyAuthParameters": {
+            "ApiKeyName": "Authorization",
+            "ApiKeyValue": { "Fn::Sub": "Bearer {{resolve:secretsmanager:${WorkerToken}}}" }
+          }
+        }
+      }
+    },
+    "WorkerDestination": {
+      "Type": "AWS::Events::ApiDestination",
+      "Properties": {
+        "ConnectionArn": { "Fn::GetAtt": ["WorkerConnection", "Arn"] },
+        "InvocationEndpoint": { "Fn::Sub": "${PublicOrigin}/flight-deck/internal/worker" },
+        "HttpMethod": "POST",
+        "InvocationRateLimitPerSecond": 1
+      }
+    },
+    "WorkerInvokeRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "events.amazonaws.com" },
+              "Action": "sts:AssumeRole",
+              "Condition": { "StringEquals": { "aws:SourceAccount": { "Ref": "AWS::AccountId" } } }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "invoke-flight-deck-worker",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [{ "Effect": "Allow", "Action": "events:InvokeApiDestination", "Resource": { "Fn::GetAtt": ["WorkerDestination", "Arn"] } }]
+            }
+          }
+        ]
+      }
+    },
+    "WorkerSchedule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Description": "Runs one Flight Deck worker tick every five minutes. Idempotent and single-runner.",
+        "ScheduleExpression": "rate(5 minutes)",
+        "State": { "Ref": "WorkerScheduleState" },
+        "Targets": [
+          {
+            "Id": "flight-deck-worker",
+            "Arn": { "Fn::GetAtt": ["WorkerDestination", "Arn"] },
+            "RoleArn": { "Fn::GetAtt": ["WorkerInvokeRole", "Arn"] },
+            "RetryPolicy": { "MaximumRetryAttempts": 2, "MaximumEventAgeInSeconds": 240 }
+          }
+        ]
+      }
+    },
+    "AlarmTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": { "TopicName": "tiro-flight-deck-alarms" }
+    },
+    "AlarmSubscription": {
+      "Type": "AWS::SNS::Subscription",
+      "Condition": "HasAlarmEmail",
+      "Properties": { "TopicArn": { "Ref": "AlarmTopic" }, "Protocol": "email", "Endpoint": { "Ref": "AlarmEmail" } }
+    },
+    "WorkerFailureAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Flight Deck worker invocations are failing (non-2xx from /flight-deck/internal/worker).",
+        "Namespace": "AWS/Events",
+        "MetricName": "FailedInvocations",
+        "Dimensions": [{ "Name": "RuleName", "Value": { "Ref": "WorkerSchedule" } }],
+        "Statistic": "Sum",
+        "Period": 900,
+        "EvaluationPeriods": 1,
+        "Threshold": 2,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{ "Ref": "AlarmTopic" }]
+      }
+    }
+  },
+  "Outputs": {
+    "CognitoRegion": { "Value": { "Ref": "AWS::Region" } },
+    "CognitoUserPoolId": { "Value": { "Ref": "OperatorPool" } },
+    "CognitoClientId": { "Value": { "Ref": "ConsoleClient" } },
+    "CognitoDomain": { "Value": { "Fn::Sub": "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com" } },
+    "SecretNames": { "Value": "tiro/flight-deck/email-hash-pepper, session-secret, worker-token, monitor-token (client secret: read from the Cognito app client)" }
+  }
+}
