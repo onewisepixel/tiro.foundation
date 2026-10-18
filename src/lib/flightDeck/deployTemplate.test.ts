@@ -53,3 +53,26 @@ test("deploy template: the worker schedule is disabled by default and authentica
   assert.equal(byType("AWS::CloudWatch::Alarm").length, 1);
   assert.equal(byType("AWS::RDS::DBInstance").length + byType("AWS::RDS::DBCluster").length, 0, "no database is provisioned before the founder chooses one");
 });
+
+test("deploy template: the protective log bucket is versioned, Object Locked, private, TLS-only, and append-only for the app", () => {
+  const b = t.Resources.ProtectiveLogBucket;
+  assert.equal(b.DeletionPolicy, "Retain");
+  assert.equal(b.Properties.ObjectLockEnabled, true);
+  const lock = b.Properties.ObjectLockConfiguration as { ObjectLockEnabled: string; Rule: { DefaultRetention: { Mode: string } } };
+  assert.equal(lock.ObjectLockEnabled, "Enabled");
+  assert.equal(lock.Rule.DefaultRetention.Mode, "GOVERNANCE");
+  assert.deepEqual(b.Properties.VersioningConfiguration, { Status: "Enabled" });
+  assert.ok(Object.values(b.Properties.PublicAccessBlockConfiguration as Record<string, boolean>).every(Boolean));
+  const rules = (b.Properties.LifecycleConfiguration as { Rules: { Prefix: string; ExpirationInDays?: unknown }[] }).Rules;
+  assert.ok(rules.every((r) => !r.Prefix.includes("events/") && r.ExpirationInDays === undefined), "events are never expired automatically");
+  const policy = JSON.stringify(t.Resources.ProtectiveLogBucketPolicy.Properties);
+  assert.match(policy, /aws:SecureTransport/);
+  assert.match(policy, /BypassGovernanceRetention/);
+  const app = JSON.stringify(t.Resources.FlightDeckAppPolicy.Properties);
+  assert.doesNotMatch(app, /DeleteObject|PutObjectRetention|BypassGovernance|PutBucket|s3:\*/, "no delete, retention, or bucket-level writes");
+  assert.match(app, /s3:PutObject/);
+  // Restore drills and audits read the log but can never add to it.
+  const ro = JSON.stringify(t.Resources.ProtectiveLogReadOnlyPolicy.Properties);
+  assert.match(ro, /s3:GetObject/);
+  assert.doesNotMatch(ro, /PutObject|DeleteObject|Retention|BypassGovernance|PutBucket|s3:\*/);
+});

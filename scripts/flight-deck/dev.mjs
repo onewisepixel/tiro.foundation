@@ -29,7 +29,7 @@ const env = {
   FLIGHT_DECK_SOCIAL_PUBLISHING_ENABLED: outbox ? "true" : "false",
   FLIGHT_DECK_BACKGROUND_JOBS_ENABLED: "false",
   // A separate build directory, so this can run beside `npm run dev`.
-  FLIGHT_DECK_DIST_DIR: ".next-flight-deck",
+  FLIGHT_DECK_DIST_DIR: process.env.FLIGHT_DECK_DIST_DIR || ".next-flight-deck",
 };
 
 let pg = null;

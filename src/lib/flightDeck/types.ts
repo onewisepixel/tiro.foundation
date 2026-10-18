@@ -10,7 +10,7 @@
 //
 // Every type is inferred from its schema, so the same definition validates
 // incoming requests and every store write.
-import { arrayOf, bool, int, isoDate, isoInstant, literal, nullable, obj, oneOf, opaqueId, str, type Infer } from "./schema";
+import { arrayOf, bool, int, isoDate, isoInstant, literal, nullable, nullish, obj, oneOf, opaqueId, str, type Infer } from "./schema";
 
 // ---------- Shared vocabularies ----------
 
@@ -440,7 +440,7 @@ export const WorkerRunSchema = obj({
   id: opaqueId("run"),
   startedAt: isoInstant,
   finishedAt: nullable(isoInstant),
-  outcome: oneOf(["running", "ok", "paused", "failed"] as const),
+  outcome: oneOf(["running", "ok", "paused", "failed", "recovery-locked"] as const),
   jobsClaimed: int({ min: 0 }),
   tasksCreated: int({ min: 0 }),
   errorCode: nullable(code),
@@ -467,6 +467,11 @@ export const SettingsSchema = obj({
   followUpDelayDays: int({ min: 3, max: 60 }),
   maxFollowUps: int({ min: 0, max: 1 }),
   approvalValidityDays: int({ min: 1, max: 30 }),
+  // Set when the protective event log is ahead of, or inconsistent with,
+  // this database (a restore, or a crash between the log write and the
+  // commit). While set, nothing may contact anyone: no dispatch, no manual
+  // send, no intake. Only verified reconciliation clears it (recovery.ts).
+  recoveryLock: nullish(obj({ reason: oneOf(["journal-ahead", "journal-mismatch", "journal-integrity", "restore-in-progress", "sink-unavailable"] as const), since: isoInstant })),
   version: int({ min: 1 }),
 });
 export type Settings = Infer<typeof SettingsSchema>;
@@ -479,5 +484,6 @@ export const DEFAULT_SETTINGS: Settings = {
   followUpDelayDays: 10,
   maxFollowUps: 1,
   approvalValidityDays: 14,
+  recoveryLock: null,
   version: 1,
 };

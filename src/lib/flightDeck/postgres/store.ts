@@ -45,7 +45,12 @@ import {
   type OpsState,
   type OpsTx,
   type WorkingState,
+  deriveProtective,
+  ReplayOutOfOrder,
+  type TxOptions,
 } from "../store";
+import type { JournalHead, ProtectiveSink } from "../protective";
+import { appendWithinTransaction, readHead, setHead } from "./journal";
 
 const TABLE: Record<CollectionName, string> = {
   prospects: "fd_prospects",
@@ -130,6 +135,12 @@ export type PostgresStoreOptions = {
   // write, inside the open transaction. Used to simulate a crash or a
   // concurrent writer at the worst moment.
   beforeWrite?: (client: PoolClient, attempt: number) => Promise<void>;
+  // Where protective events go (protective.ts). Production requires one.
+  sink?: ProtectiveSink | null;
+  requireJournal?: boolean;
+  // Test hook: called after protective events were written to the log and
+  // before COMMIT. Throwing simulates a crash at the worst moment.
+  afterLog?: (client: PoolClient) => Promise<void>;
 };
 
 export class PostgresOperationsStore implements OperationsStore {
@@ -151,6 +162,21 @@ export class PostgresOperationsStore implements OperationsStore {
     this.synthetic = opts.synthetic;
     this.clock = opts.clock ?? (() => new Date());
     this.beforeWrite = opts.beforeWrite;
+    this.protectiveSink = opts.sink ?? null;
+    this.requireJournal = opts.requireJournal ?? false;
+    this.afterLog = opts.afterLog;
+  }
+
+  readonly protectiveSink: ProtectiveSink | null;
+  private readonly requireJournal: boolean;
+  private readonly afterLog?: PostgresStoreOptions["afterLog"];
+
+  async protectiveHead(): Promise<JournalHead> {
+    try {
+      return await readHead(this.pool);
+    } catch (e) {
+      throw mapError(e);
+    }
   }
 
   // Opens a migrated, initialized database, refusing one whose synthetic
@@ -316,15 +342,32 @@ export class PostgresOperationsStore implements OperationsStore {
     );
   }
 
-  async transaction<T>(fn: (tx: OpsTx) => T): Promise<T> {
+  async transaction<T>(fn: (tx: OpsTx) => T, opts: TxOptions = {}): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       const client = await this.connect();
       let broken = false;
       try {
         await client.query("begin isolation level serializable");
-        const { result, snap, working } = await this.runLoaded(client, fn, this.clock());
+        const now = this.clock();
+        const { result, snap, working } = await this.runLoaded(client, fn, now);
         await this.beforeWrite?.(client, attempt);
+        // Protective events go to the external log before anything is
+        // written here; a log failure rolls the whole transaction back.
+        let logged = false;
+        if (opts.replayHead) {
+          const prior = await readHead(client, true);
+          if (prior.seq !== opts.replayHead.seq - 1) {
+            throw new ReplayOutOfOrder();
+          }
+          await setHead(client, opts.replayHead);
+        } else {
+          const bodies = deriveProtective(snap.collections as never, working.collections as never, working.appends as never, this.synthetic, now.toISOString());
+          logged = (await appendWithinTransaction(client, this.protectiveSink, this.requireJournal, bodies)) !== null;
+        }
         await this.write(client, snap, working);
+        if (logged) {
+          await this.afterLog?.(client);
+        }
         await client.query("commit");
         return result;
       } catch (e) {
@@ -414,6 +457,7 @@ export class PostgresOperationsStore implements OperationsStore {
       }
       await this.load(client, "settings", snap);
       const meta = await client.query("select value from fd_meta where key = 'synthetic'");
+      const head = await readHead(client);
       await client.query("commit");
       return {
         schemaVersion: 2,
@@ -421,6 +465,7 @@ export class PostgresOperationsStore implements OperationsStore {
         createdAt: this.clock().toISOString(),
         settings: snap.settings!,
         collections: snap.collections as OpsState["collections"],
+        protectiveHead: head,
       };
     } catch (e) {
       await client.query("rollback").catch(() => undefined);
@@ -432,7 +477,10 @@ export class PostgresOperationsStore implements OperationsStore {
 
   // Loads a snapshot into an EMPTY database (a restore target or a demo
   // seed). Every row is validated again on the way in.
-  async importSnapshot(state: Omit<OpsState, "pepper">): Promise<void> {
+  // asRestore (default): the imported database is locked for contact
+  // until the recovery gate has verified it against the protective log.
+  // Only the local demo's seeding passes false.
+  async importSnapshot(state: Omit<OpsState, "pepper">, opts: { asRestore?: boolean } = {}): Promise<void> {
     if (state.synthetic !== this.synthetic) {
       throw new StoreError("synthetic-mismatch", "snapshot and database disagree about synthetic data");
     }
@@ -449,7 +497,12 @@ export class PostgresOperationsStore implements OperationsStore {
           await this.insertRow(client, c, valid);
         }
       }
-      await client.query("update fd_settings set doc = $1, version = $2 where id = 1", [must(SettingsSchema, state.settings), state.settings.version]);
+      // A restored database is locked for contact until the recovery gate
+      // has compared it with the external log and replayed anything newer
+      // (recovery.ts). Importing is a restore.
+      const settings = must(SettingsSchema, { ...state.settings, recoveryLock: opts.asRestore === false ? null : { reason: "restore-in-progress", since: this.clock().toISOString() } });
+      await client.query("update fd_settings set doc = $1, version = $2 where id = 1", [settings, settings.version]);
+      await setHead(client, state.protectiveHead ?? { seq: 0, hash: "0".repeat(64) });
       await client.query("commit");
     } catch (e) {
       await client.query("rollback").catch(() => undefined);

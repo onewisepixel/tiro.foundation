@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { audit, type Actor } from "./access";
+import { newId } from "./ids";
 import { applySuppression } from "./permissions";
 import { eraseProspect } from "./prospects";
 import type { OpsTx } from "./store";
@@ -63,25 +64,55 @@ export class FileLedgerSink implements LedgerSink {
   }
 }
 
-export type ReplayResult = { erased: number; suppressionsRestored: number; suppressionsLifted: number };
+export type ReplayResult = { erased: number; suppressionsRestored: number; liftsToConfirm: number };
+
+// A lift reduces protection, so no recovery path re-applies one: the
+// suppression stays in force and a founder is asked to confirm the lift
+// again (Health → Recovery), only if the person asked. Shared by the
+// protective-log reconciliation (recovery.ts) and ledger replay below.
+export function requestLiftConfirmation(tx: OpsTx, suppressionId: string): boolean {
+  const key = `lift-confirm:${suppressionId}`;
+  if (tx.list("tasks", (t) => t.dedupeKey === key).length) {
+    return false;
+  }
+  tx.insert("tasks", {
+    id: newId("tsk"),
+    type: "permission-review",
+    title: "After a recovery: an opt-out that had been lifted is back in force. Confirm the lift again only if the person asked",
+    dueOn: tx.nowIso.slice(0, 10),
+    ownerId: null,
+    prospectId: null,
+    status: "open",
+    priority: "high",
+    resolution: null,
+    createdBy: "system",
+    dedupeKey: key,
+    createdAt: tx.nowIso,
+    updatedAt: tx.nowIso,
+    version: 1,
+    synthetic: tx.synthetic,
+  });
+  return true;
+}
 
 // Re-applies a ledger to a (restored) store. Idempotent: replaying twice
-// changes nothing the second time. Run by a founder after a restore.
+// changes nothing the second time. Run by a founder after a restore. Since
+// 0.2.1 this is the reconciliation checkpoint behind the protective log
+// (recovery.ts), which is the primary mechanism.
 export function replayLedger(tx: OpsTx, actor: Actor, ledger: Ledger): ReplayResult {
   if (ledger.version !== 1 || ledger.synthetic !== tx.synthetic) {
     throw new Error("ledger does not match this store");
   }
-  const result: ReplayResult = { erased: 0, suppressionsRestored: 0, suppressionsLifted: 0 };
+  const result: ReplayResult = { erased: 0, suppressionsRestored: 0, liftsToConfirm: 0 };
   for (const s of ledger.suppressions) {
     const existing = tx.get("suppressions", s.id);
     if (!existing) {
       tx.insert("suppressions", { ...s, createdBy: actor.id, createdAt: s.effectiveAt, updatedAt: tx.nowIso, version: 1, synthetic: tx.synthetic });
       result.suppressionsRestored++;
-    } else if (s.liftedAt && !existing.liftedAt) {
-      tx.update("suppressions", s.id, existing.version, { liftedAt: s.liftedAt });
-      result.suppressionsLifted++;
+    } else if (s.liftedAt && !existing.liftedAt && requestLiftConfirmation(tx, s.id)) {
+      result.liftsToConfirm++;
     }
-    if (!s.liftedAt) {
+    if (!s.liftedAt || !tx.require("suppressions", s.id).liftedAt) {
       // Holds drafts and cancels jobs for the address, exactly as when the
       // opt-out first happened (no new row: it already exists).
       applySuppression(tx, actor, s.emailKey, s.scope, s.basis);

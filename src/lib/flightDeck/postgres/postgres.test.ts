@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { SYSTEM } from "../access";
 import { decide, GateError, payloadFor, submitForReview } from "../approvals";
-import { DEFAULT_SETTINGS } from "../types";
+import { DEFAULT_SETTINGS, SettingsSchema } from "../types";
+import { must } from "../schema";
 import { queueDispatch, recordManualSend, runDueJobs } from "../dispatch";
 import { createOutreachDraft, editOutreachDraft } from "../drafts";
 import { DEMO_IDENTITIES } from "../identities";
@@ -83,7 +84,10 @@ test("migrations: apply once, re-run as a no-op, refuse a changed migration; def
     await assert.rejects(migrate(client, tampered), /has changed since it was applied/);
     assert.notEqual(checksum(MIGRATIONS[0].sql), checksum(tampered[0].sql));
     const { rows } = await client.query("select doc from fd_settings where id = 1");
-    assert.deepEqual(rows[0].doc, DEFAULT_SETTINGS, "the frozen settings literal still equals DEFAULT_SETTINGS");
+    // The frozen 0001 literal predates later settings fields; read through
+    // the schema (missing nullish fields become null) it must still equal
+    // today's defaults.
+    assert.deepEqual(must(SettingsSchema, rows[0].doc), DEFAULT_SETTINGS, "the frozen settings literal still equals DEFAULT_SETTINGS");
     // Every foreign key and unique field the domain declares is a real column.
     const cols = await client.query("select table_name, column_name from information_schema.columns where table_name like 'fd_%'");
     const have = new Set(cols.rows.map((r) => `${r.table_name}.${r.column_name}`));
@@ -152,7 +156,10 @@ test("contract: the whole synthetic seed round-trips through Postgres and briefs
     const b = Object.keys(exported.collections[c]).sort();
     assert.deepEqual(b, a, c);
   }
-  assert.deepEqual(exported.settings, seed.settings);
+  // An import is a restore: it arrives locked until the recovery gate has
+  // checked it against the protective log.
+  assert.equal(exported.settings.recoveryLock?.reason, "restore-in-progress");
+  assert.deepEqual({ ...exported.settings, recoveryLock: null }, seed.settings);
   const briefing = await store.read((tx) => buildBriefing(tx));
   assert.ok(briefing.nextActions.length > 0 && briefing.newInquiries.length >= 2);
 });
@@ -310,7 +317,7 @@ test("restore: a logical backup restores into a fresh database, and the ledger r
   await target.store.importSnapshot(backup);
   assert.equal((await target.store.read((tx) => tx.list("prospects").length)), 2, "backup restored as it was");
   const r = await target.store.transaction((tx) => replayLedger(tx, FOUNDER, ledger));
-  assert.deepEqual(r, { erased: 1, suppressionsRestored: 1, suppressionsLifted: 0 });
+  assert.deepEqual(r, { erased: 1, suppressionsRestored: 1, liftsToConfirm: 0 });
   const s = await target.store.read((tx) => ({ p1: tx.get("prospects", ids[0]), sup: tx.list("suppressions").length }));
   assert.equal(s.p1, null);
   assert.equal(s.sup, 1);
@@ -356,7 +363,7 @@ test("operators: sessions stored as hashes; deactivation and role changes apply 
   await id.deactivateOperator(op.id, now);
   assert.equal(await id.resolveSession(token, now), null);
   assert.equal((await pool.query("select count(*)::int n from fd_sessions where revoked_at is null")).rows[0].n, 0);
-  await id.recordGate("console", "Founder (test)", { note: "test" }, now);
+  await id.recordGate("console", op.id, JSON.stringify({ note: "test" }), now);
   assert.equal((await id.gates())[0].gate, "console");
 });
 

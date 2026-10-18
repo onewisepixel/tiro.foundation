@@ -21,6 +21,8 @@
 import { audit, SYSTEM } from "./access";
 import { runDueJobs } from "./dispatch";
 import { buildLedger, type LedgerSink } from "./ledger";
+import type { IdentityStore } from "./identity";
+import { checkRecovery, reconcile } from "./recovery";
 import { newId } from "./ids";
 import type { Providers } from "./providers";
 import type { OperationsStore, OpsTx } from "./store";
@@ -32,12 +34,14 @@ export type WorkerDeps = {
   purgeRateLimits?: (cutoff: Date) => Promise<number>;
   // Returns a release function, or null if another tick holds the lock.
   acquireLock?: () => Promise<(() => Promise<void>) | null>;
-  // Where the restore-safety ledger goes (ledger.ts). Absent: an alert.
+  // Optional extra copy of the periodic checkpoint (ledger.ts).
   ledgerSink?: LedgerSink;
+  // For replaying identity events during automatic reconciliation.
+  identity?: IdentityStore | null;
 };
 
 export type TickSummary = {
-  outcome: "ok" | "paused" | "failed" | "skipped-locked";
+  outcome: "ok" | "paused" | "failed" | "skipped-locked" | "recovery-locked";
   runId: string | null;
   jobsClaimed: number;
   tasksCreated: number;
@@ -124,15 +128,34 @@ export async function runWorkerTick(deps: WorkerDeps): Promise<TickSummary> {
         synthetic: tx.synthetic,
       }),
     );
-    const jobs = await runDueJobs(deps.store, deps.providers, SYSTEM);
+    // Recovery first: if the database is behind the protective log, replay
+    // what it is missing (protection-increasing events only) before any
+    // contact. An integrity failure is never cleared here: it waits for a
+    // founder, and contact stays blocked.
+    let recovery = await checkRecovery(deps.store);
+    if (!recovery.ok && (recovery.reason === "journal-ahead" || recovery.reason === "restore-in-progress")) {
+      await reconcile(deps.store, SYSTEM, { identity: deps.identity ?? null });
+      recovery = await checkRecovery(deps.store);
+    }
+    const jobs = recovery.ok ? await runDueJobs(deps.store, deps.providers, SYSTEM) : { paused: true, blocked: "recovery" as const, claimed: 0, outcomes: {} };
     const tasksCreated = await deps.store.transaction((tx) => housekeeping(tx));
     if (deps.purgeRateLimits) {
       await deps.purgeRateLimits(new Date(Date.now() - 2 * 86_400_000));
     }
-    if (deps.ledgerSink) {
-      await deps.ledgerSink.write(await deps.store.read((tx) => buildLedger(tx)));
+    // Periodic checkpoint: the cumulative erasures and suppressions, tied
+    // to the log position it was taken at. A reconciliation aid, not the
+    // durability guarantee (that is the per-event log).
+    if (recovery.ok) {
+      const head = await deps.store.protectiveHead();
+      const ledger = await deps.store.read((tx) => buildLedger(tx));
+      if (deps.store.protectiveSink?.writeCheckpoint) {
+        await deps.store.protectiveSink.writeCheckpoint(`${String(head.seq).padStart(12, "0")}.json`, JSON.stringify({ head, ledger }));
+      }
+      if (deps.ledgerSink) {
+        await deps.ledgerSink.write(ledger);
+      }
     }
-    const outcome = jobs.paused ? "paused" : "ok";
+    const outcome = !recovery.ok ? "recovery-locked" : jobs.paused ? "paused" : "ok";
     const id = run.id;
     await deps.store.transaction((tx) => {
       const r = tx.require("workerRuns", id);
@@ -162,13 +185,29 @@ export type Alert = { key: string; severity: "action" | "warning"; message: stri
 
 export const WORKER_STALE_MS = 20 * 60 * 1000;
 
-export function computeAlerts(tx: OpsTx, opts: { expectWorker: boolean; ledgerConfigured?: boolean }): Alert[] {
+export function computeAlerts(tx: OpsTx, opts: { expectWorker: boolean; logConfigured?: boolean }): Alert[] {
   const alerts: Alert[] = [];
-  if (opts.ledgerConfigured === false) {
-    alerts.push({ key: "ledger-missing", severity: "warning", message: "No restore-safety ledger is configured: a restore could undo recent erasures or opt-outs.", href: "/flight-deck/health" });
+  const lock = tx.settings().recoveryLock;
+  if (lock) {
+    alerts.push({
+      key: "recovery-locked",
+      severity: "action",
+      message:
+        lock.reason === "journal-integrity"
+          ? "Contact is blocked: the protective log failed its integrity check. A founder must investigate before recovery can run."
+          : `Contact is blocked until recovery completes (${lock.reason}). The worker retries automatically; a founder can run it from Health.`,
+      href: "/flight-deck/health",
+    });
+  }
+  if (opts.logConfigured === false) {
+    alerts.push({ key: "protective-log-missing", severity: "warning", message: "No protective event log is configured: opt-outs and erasures are not protected against a database restore.", href: "/flight-deck/health" });
+  }
+  const pendingLifts = tx.list("tasks", (t) => t.status === "open" && (t.dedupeKey ?? "").startsWith("lift-confirm:")).length;
+  if (pendingLifts) {
+    alerts.push({ key: "lifts-to-confirm", severity: "warning", message: `${pendingLifts} lifted opt-out${pendingLifts === 1 ? " is" : "s are"} back in force after a recovery and need${pendingLifts === 1 ? "s" : ""} a founder's confirmation.`, href: "/flight-deck/health" });
   }
   const runs = tx.list("workerRuns").sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  const lastOk = runs.find((r) => r.outcome === "ok" || r.outcome === "paused");
+  const lastOk = runs.find((r) => r.outcome === "ok" || r.outcome === "paused" || r.outcome === "recovery-locked");
   if (opts.expectWorker && (!lastOk || tx.now.getTime() - Date.parse(lastOk.startedAt) > WORKER_STALE_MS)) {
     alerts.push({ key: "worker-stale", severity: "action", message: lastOk ? "The scheduled worker has not completed a run in over 20 minutes." : "The scheduled worker has never completed a run.", href: "/flight-deck/health" });
   }

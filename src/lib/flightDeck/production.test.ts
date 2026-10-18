@@ -175,8 +175,8 @@ test("worker: a held lock skips the tick; a paused deck reports paused; a store 
 
 test("alerts: stale worker, repeated failures, overdue cases, missing ledger", async () => {
   const h = storeAt();
-  const none = await h.store.read((tx) => computeAlerts(tx, { expectWorker: true, ledgerConfigured: false }));
-  assert.deepEqual(none.map((a) => a.key).sort(), ["ledger-missing", "worker-stale"]);
+  const none = await h.store.read((tx) => computeAlerts(tx, { expectWorker: true, logConfigured: false }));
+  assert.deepEqual(none.map((a) => a.key).sort(), ["protective-log-missing", "worker-stale"]);
   await runWorkerTick({ store: h.store, providers });
   assert.equal((await h.store.read((tx) => computeAlerts(tx, { expectWorker: true }))).length, 0);
   h.advance(30 * 60_000);
@@ -206,8 +206,8 @@ test("restore: replaying the ledger re-erases and re-suppresses after restoring 
   assert.deepEqual(before, { p1: true, sup: 0 }, "the restore brought both back");
   const r1 = await restored.transaction((tx) => replayLedger(tx, FOUNDER, ledger));
   const r2 = await restored.transaction((tx) => replayLedger(tx, FOUNDER, ledger));
-  assert.deepEqual(r1, { erased: 1, suppressionsRestored: 1, suppressionsLifted: 0 });
-  assert.deepEqual(r2, { erased: 0, suppressionsRestored: 0, suppressionsLifted: 0 }, "idempotent");
+  assert.deepEqual(r1, { erased: 1, suppressionsRestored: 1, liftsToConfirm: 0 });
+  assert.deepEqual(r2, { erased: 0, suppressionsRestored: 0, liftsToConfirm: 0 }, "idempotent");
   const after = await restored.read((tx) => ({ p1: tx.get("prospects", ids[0]), queued: tx.list("jobs", (j) => j.kind === "send-outreach" && j.status === "queued").length, elig: contactEligibility(tx, tx.require("prospects", ids[1]), "reply") }));
   assert.equal(after.p1, null);
   assert.equal(after.queued, 0, "the restored queued message was cancelled");
@@ -223,7 +223,7 @@ test("identity: only named, active operators get sessions; subjects bind once", 
   await assert.rejects(signInOperator(id, { sub: "sub-1", email: "stranger@example.invalid" }, now), (e) => e instanceof SignInRefused && e.code === "not-an-operator");
   const op = await id.addOperator({ email: "Founder@Example.invalid", displayName: "Founder", role: "founder" }, now);
   const { token } = await signInOperator(id, { sub: "sub-1", email: "founder@example.invalid" }, now);
-  assert.deepEqual(await id.resolveSession(token, now), { id: op.id, role: "founder", displayName: "Founder" });
+  assert.deepEqual(await id.resolveSession(token, now), { id: op.id, role: "founder", displayName: "Founder", authTime: null, providerSubject: "sub-1" });
   // A different provider account with the same email cannot take over.
   await assert.rejects(signInOperator(id, { sub: "sub-ATTACKER", email: "founder@example.invalid" }, now), (e) => e instanceof SignInRefused && e.code === "subject-mismatch");
 });
@@ -373,6 +373,8 @@ const PROD_ENV = {
   FLIGHT_DECK_COGNITO_CLIENT_SECRET: "c".repeat(40),
   FLIGHT_DECK_COGNITO_DOMAIN: "https://tiro-ops.auth.eu-west-2.amazoncognito.com",
   FLIGHT_DECK_PUBLIC_ORIGIN: "https://tiro.foundation",
+  FLIGHT_DECK_PROTECTIVE_BUCKET: "tiro-flight-deck-protective-log",
+  FLIGHT_DECK_PROTECTIVE_REGION: "eu-west-2",
 };
 
 test("config: production mode exists only with complete, well-formed, distinct secrets in a production build", () => {

@@ -146,6 +146,22 @@ create table fd_activation_gates (
   detail jsonb not null
 );`,
   },
+  {
+    id: "0004_protective_log_and_recovery",
+    sql: `-- The last protective event (src/lib/flightDeck/protective.ts) this
+-- database includes. Locked FOR UPDATE while an event is appended, so
+-- concurrent writers get contiguous sequence numbers.
+create table fd_protective_head (
+  id smallint primary key check (id = 1),
+  seq integer not null check (seq >= 0),
+  hash text not null check (hash ~ '^[a-f0-9]{64}$')
+);
+insert into fd_protective_head (id, seq, hash) values (1, 0, '0000000000000000000000000000000000000000000000000000000000000000');
+
+-- When the operator last proved their identity to the identity provider
+-- (the ID token auth_time). Launch-gate approvals require it to be recent.
+alter table fd_sessions add column auth_time timestamptz;`,
+  },
 ];
 
 export function checksum(sql: string): string {

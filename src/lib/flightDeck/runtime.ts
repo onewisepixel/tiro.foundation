@@ -11,13 +11,17 @@ import { createPool } from "./postgres/pool";
 import { FormTokens, InMemoryRateLimiter, clientKey, type RateLimiter } from "./abuse";
 import type { Actor } from "./access";
 import { channelFlags, decideMode, privacyNoticeIsDraft, productionConfig, publicFormOpen, PRIVACY_NOTICE_VERSION, requestMode, type ChannelFlags, type ProductionConfig } from "./config";
-import { PostgresIdentityStore, type GateRecord, type IdentityStore } from "./identity";
+import { PostgresIdentityStore, type GateRecord, type IdentityStore, type SessionActor } from "./identity";
 import type { CognitoConfig } from "./oidc";
 import { initializeDatabase, migrate } from "./postgres/migrations";
 import { PostgresRateLimiter } from "./postgres/rateLimiter";
 import { PostgresOperationsStore } from "./postgres/store";
 import { wipeSyntheticDatabase } from "./postgres/admin";
 import { FileLedgerSink, type LedgerSink } from "./ledger";
+import { LocalFileProtectiveSink } from "./protective";
+import { S3ProtectiveSink } from "./s3Sink";
+import { verifyGate } from "./gates";
+import fs from "node:fs";
 import { DisabledEmailProvider, DisabledSocialPublisher, LocalOutboxEmailProvider, LocalOutboxSocialPublisher, type Providers } from "./providers";
 import { buildSeedState } from "./seed";
 import { LocalFileOperationsStore, type OperationsStore } from "./store";
@@ -94,14 +98,20 @@ async function buildLocalDemo(): Promise<Omit<Runtime, "flags" | "providers">> {
       client.release();
     }
     const pepper = process.env.FLIGHT_DECK_EMAIL_HASH_PEPPER || DEMO_PEPPER;
-    const store = await PostgresOperationsStore.open({ pool, pepper, synthetic: true });
+    // The demo's protective log: local files beside the demo database.
+    const logDir = path.join(LOCAL_DIR, "protective-pg");
+    const sink = new LocalFileProtectiveSink(logDir);
+    const store = await PostgresOperationsStore.open({ pool, pepper, synthetic: true, sink, requireJournal: true });
     const limiter = new PostgresRateLimiter(pool);
+    // A reset starts a new synthetic world: database AND its log.
     const resetToSeed = async () => {
       await wipeSyntheticDatabase(pool);
-      await store.importSnapshot(await buildSeedState(new Date(), { pepper }));
+      fs.rmSync(logDir, { recursive: true, force: true });
+      await store.importSnapshot(await buildSeedState(new Date(), { pepper }), { asRestore: false });
     };
     if ((await store.read((tx) => tx.list("prospects").length)) === 0 && (await store.auditPage(0, 1)).total === 0) {
-      await store.importSnapshot(await buildSeedState(new Date(), { pepper }));
+      fs.rmSync(logDir, { recursive: true, force: true });
+      await store.importSnapshot(await buildSeedState(new Date(), { pepper }), { asRestore: false });
     }
     return {
       mode: "local-demo",
@@ -120,8 +130,13 @@ async function buildLocalDemo(): Promise<Omit<Runtime, "flags" | "providers">> {
       resetToSeed,
     };
   }
-  const store = new LocalFileOperationsStore(process.env.FLIGHT_DECK_LOCAL_STORE_PATH ? path.resolve(process.env.FLIGHT_DECK_LOCAL_STORE_PATH) : path.join(LOCAL_DIR, "local-store.json"));
+  const fileLogDir = path.join(LOCAL_DIR, "protective-file");
+  const store = new LocalFileOperationsStore(process.env.FLIGHT_DECK_LOCAL_STORE_PATH ? path.resolve(process.env.FLIGHT_DECK_LOCAL_STORE_PATH) : path.join(LOCAL_DIR, "local-store.json"), undefined, {
+    sink: new LocalFileProtectiveSink(fileLogDir),
+    requireJournal: true,
+  });
   if ((await store.read((tx) => tx.list("prospects").length)) === 0 && (await store.auditPage(0, 1)).total === 0) {
+    fs.rmSync(fileLogDir, { recursive: true, force: true });
     await store.replace(await buildSeedState());
   }
   const limiter = new InMemoryRateLimiter();
@@ -138,6 +153,7 @@ async function buildLocalDemo(): Promise<Omit<Runtime, "flags" | "providers">> {
     config: null,
     ledgerSink: new FileLedgerSink(path.join(LOCAL_DIR, "ledger-file.json")),
     resetToSeed: async () => {
+      fs.rmSync(fileLogDir, { recursive: true, force: true });
       await store.replace(await buildSeedState());
       limiter.clear();
     },
@@ -149,7 +165,10 @@ async function buildProduction(config: ProductionConfig): Promise<Omit<Runtime, 
   // Production never migrates or initializes on request: the migrate
   // script does that, deliberately, before deploy. Opening refuses a
   // database that is uninitialized or marked synthetic.
-  const store = await PostgresOperationsStore.open({ pool, pepper: config.pepper, synthetic: false });
+  // The protective log is mandatory in production: a protective change
+  // that cannot be journaled is refused (requireJournal).
+  const sink = new S3ProtectiveSink(config.protective);
+  const store = await PostgresOperationsStore.open({ pool, pepper: config.pepper, synthetic: false, sink, requireJournal: true });
   const limiter = new PostgresRateLimiter(pool);
   return {
     mode: "production",
@@ -161,7 +180,7 @@ async function buildProduction(config: ProductionConfig): Promise<Omit<Runtime, 
     limiter,
     limiterLabel: "PostgreSQL (shared, durable)",
     clientSecret: derive(config.sessionSecret, "client-keys"),
-    identity: new PostgresIdentityStore(pool),
+    identity: new PostgresIdentityStore(pool, { sink, requireJournal: true, synthetic: false }),
     cognito: config.cognito,
     config,
     purgeRateLimits: (cutoff) => limiter.purgeOlderThan(cutoff),
@@ -221,12 +240,26 @@ async function gateRecords(rt: Runtime): Promise<GateRecord[]> {
   return records;
 }
 
+// A gate counts only if its signed approval verifies against the server
+// key AND its approver is still an active founder with the same provider
+// subject (gates.ts). An unsigned or altered row opens nothing.
 export async function gateRecorded(rt: Runtime, gate: "console" | "public-form"): Promise<GateRecord | null> {
-  return (await gateRecords(rt)).find((r) => r.gate === gate) ?? null;
+  const record = (await gateRecords(rt)).find((r) => r.gate === gate) ?? null;
+  if (!record || !rt.identity || !rt.config) {
+    return null;
+  }
+  return (await verifyGate(record, rt.config.sessionSecret, rt.identity)).ok ? record : null;
 }
 
-// The private console: local demo, or production with the founder's
-// recorded "console" gate. Anything else: null (404).
+export function forgetGateCache() {
+  const entry = cache().production;
+  if (entry) {
+    entry.gates = undefined;
+  }
+}
+
+// The private console: local demo, or production with a verified console
+// gate. Anything else: null (404).
 export async function getConsoleRuntime(): Promise<Runtime | null> {
   const rt = await getRuntime();
   if (!rt) {
@@ -238,10 +271,17 @@ export async function getConsoleRuntime(): Promise<Runtime | null> {
   return rt;
 }
 
+// Sign-in, the auth routes, and the gate-approval page also exist before
+// the console gate, so that a founder can approve it with a verified,
+// fresh sign-in. Nothing else of the console does.
+export async function getBootstrapRuntime(): Promise<Runtime | null> {
+  return getRuntime();
+}
+
 export const PROD_SESSION_COOKIE = "__Host-fd_session";
 export const PROD_LOGIN_COOKIE = "__Host-fd_login";
 
-export async function getActor(rt?: Runtime | null): Promise<Actor | null> {
+export async function getActor(rt?: Runtime | null): Promise<Actor | SessionActor | null> {
   const runtime = rt === undefined ? await getConsoleRuntime() : rt;
   if (!runtime) {
     return null;

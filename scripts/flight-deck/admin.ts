@@ -8,20 +8,30 @@
 //   init --real | --synthetic         mark a freshly migrated database (once, irreversible)
 //   add-operator --email E --name N --role founder|operator|reviewer
 //   list-operators
-//   record-gate console --by "Name"
-//   record-gate public-form --by "Name" --notice-version V
+//   list-gates                        show recorded gates and whether each verifies
+//                                     (gates are approved in the console, not here)
 //   export-snapshot <file>            logical backup of operations data (restore drills)
-//   import-snapshot <file>            into an EMPTY database (restore drills)
-//   replay-ledger <file> --operator <usr_id>   after any restore, before reopening
+//   import-snapshot <file>            into an EMPTY database (restore drills); locks contact
+//   mark-restored                     after a provider restore (point in time or snapshot):
+//                                     locks contact until recovery is verified, ends all sessions
+//   replay-ledger <file> --operator <usr_id>   reconciliation checkpoint; lifts are never
+//                                     re-applied (they become founder confirmation tasks)
 //
 // Reads FLIGHT_DECK_DATABASE_URL (and FLIGHT_DECK_EMAIL_HASH_PEPPER where the
-// operations store is opened). Prints counts and codes, never secrets or
+// operations store is opened). On a real-data database, every change goes
+// through the protective event log, exactly as in the app: set
+// FLIGHT_DECK_PROTECTIVE_BUCKET and FLIGHT_DECK_PROTECTIVE_REGION (and AWS
+// credentials allowed to write it), or commands that change data refuse. Prints counts and codes, never secrets or
 // personal data.
 import fs from "node:fs";
 import type pg from "pg";
 import { createPool } from "../../src/lib/flightDeck/postgres/pool";
-import { productionConfigProblems, privacyNoticeIsDraft, PRIVACY_NOTICE_VERSION } from "../../src/lib/flightDeck/config";
-import { GATES, PostgresIdentityStore, type Gate } from "../../src/lib/flightDeck/identity";
+import { productionConfigProblems } from "../../src/lib/flightDeck/config";
+import { PostgresIdentityStore } from "../../src/lib/flightDeck/identity";
+import { verifyGate } from "../../src/lib/flightDeck/gates";
+import { LocalFileProtectiveSink, type ProtectiveSink } from "../../src/lib/flightDeck/protective";
+import { markRestored } from "../../src/lib/flightDeck/recovery";
+import { S3ProtectiveSink } from "../../src/lib/flightDeck/s3Sink";
 import { replayLedger, type Ledger } from "../../src/lib/flightDeck/ledger";
 import { initializeDatabase, migrate } from "../../src/lib/flightDeck/postgres/migrations";
 import { PostgresOperationsStore } from "../../src/lib/flightDeck/postgres/store";
@@ -57,7 +67,20 @@ async function opsStore(p: pg.Pool) {
   if (!synthetic && pepper.length < 32) {
     fail("FLIGHT_DECK_EMAIL_HASH_PEPPER is required for a real-data database");
   }
-  return PostgresOperationsStore.open({ pool: p, pepper, synthetic });
+  return PostgresOperationsStore.open({ pool: p, pepper, synthetic, sink: protectiveSink(synthetic), requireJournal: true });
+}
+
+// The same log the app writes to. A real-data database requires the S3
+// log; the synthetic local demo uses its local file log.
+function protectiveSink(synthetic: boolean): ProtectiveSink {
+  const env = process.env;
+  if (env.FLIGHT_DECK_PROTECTIVE_BUCKET && env.FLIGHT_DECK_PROTECTIVE_REGION) {
+    return new S3ProtectiveSink({ bucket: env.FLIGHT_DECK_PROTECTIVE_BUCKET, region: env.FLIGHT_DECK_PROTECTIVE_REGION, prefix: env.FLIGHT_DECK_PROTECTIVE_PREFIX || "flight-deck/", ...(env.FLIGHT_DECK_PROTECTIVE_ENDPOINT ? { endpoint: env.FLIGHT_DECK_PROTECTIVE_ENDPOINT } : {}) });
+  }
+  if (synthetic) {
+    return new LocalFileProtectiveSink(".flight-deck/protective-pg");
+  }
+  fail("FLIGHT_DECK_PROTECTIVE_BUCKET and FLIGHT_DECK_PROTECTIVE_REGION are required for a real-data database");
 }
 
 async function main() {
@@ -122,32 +145,21 @@ async function main() {
       return;
     }
     case "record-gate": {
-      const gate = rest[0] as Gate;
-      const by = flag("by");
-      if (!GATES.includes(gate) || !by) {
-        fail(`usage: record-gate ${GATES.join("|")} --by "Name"`);
-      }
+      // 0.2.1: gates are approved only in the console, by an active founder
+      // who has just signed in through Cognito with MFA; the approval is
+      // signed by the server and journaled (src/lib/flightDeck/gates.ts). A
+      // name typed here would be an assertion, not an authentication.
+      fail("gates can no longer be recorded from this script. Sign in to /flight-deck as a founder (with MFA) and use /flight-deck/gates.");
+    }
+    case "list-gates": {
       const p = pool();
       try {
         const identity = new PostgresIdentityStore(p);
-        const detail: Record<string, unknown> = { recordedWith: "flight-deck-admin" };
-        if (gate === "console") {
-          const founders = (await identity.listOperators()).filter((o) => o.role === "founder" && o.active);
-          if (!founders.length) {
-            fail("the console gate needs at least one active founder operator first");
-          }
+        const secret = process.env.FLIGHT_DECK_SESSION_SECRET;
+        for (const g of await identity.gates()) {
+          const check = secret ? await verifyGate(g, secret, identity) : null;
+          console.log(`${g.gate.padEnd(12)} approved by ${g.approvedBy} at ${g.approvedAt}  ${check ? (check.ok ? "signature and approver verified" : `NOT VALID (${check.reason})`) : "(set FLIGHT_DECK_SESSION_SECRET to verify)"}`);
         }
-        if (gate === "public-form") {
-          if (privacyNoticeIsDraft()) {
-            fail(`refusing: the privacy notice (${PRIVACY_NOTICE_VERSION}) is still a draft; replace it with the reviewed text and a non-draft version first`);
-          }
-          if (flag("notice-version") !== PRIVACY_NOTICE_VERSION) {
-            fail(`--notice-version must equal the notice in this build (${PRIVACY_NOTICE_VERSION})`);
-          }
-          detail.noticeVersion = PRIVACY_NOTICE_VERSION;
-        }
-        await identity.recordGate(gate, by, detail, new Date());
-        console.log(`gate "${gate}" recorded by ${by}`);
       } finally {
         await p.end();
       }
@@ -170,7 +182,20 @@ async function main() {
       const p = pool();
       try {
         await (await opsStore(p)).importSnapshot(JSON.parse(fs.readFileSync(file, "utf8")));
-        console.log("imported; now run replay-ledger before reopening the console or the worker");
+        console.log("imported; contact is locked until recovery is verified: the worker does this on its next run, or a founder can from Health");
+      } finally {
+        await p.end();
+      }
+      return;
+    }
+    case "mark-restored": {
+      const p = pool();
+      try {
+        await markRestored(await opsStore(p));
+        // Sessions live in the database: a restore could revive one that
+        // was signed out after the backup. Everyone signs in again.
+        const ended = await p.query("update fd_sessions set revoked_at = now() where revoked_at is null");
+        console.log(`marked as restored: contact is locked until recovery is verified (the worker does this on its next run, or a founder from Health); ${ended.rowCount ?? 0} session(s) ended`);
       } finally {
         await p.end();
       }
@@ -191,7 +216,7 @@ async function main() {
         const ledger = JSON.parse(fs.readFileSync(file, "utf8")) as Ledger;
         const store = await opsStore(p);
         const r = await store.transaction((tx) => replayLedger(tx, { id: op.id, role: "founder", displayName: op.displayName }, ledger));
-        console.log(`replayed: ${r.erased} erasures, ${r.suppressionsRestored} suppressions restored, ${r.suppressionsLifted} lifted`);
+        console.log(`replayed: ${r.erased} erasures, ${r.suppressionsRestored} suppressions restored, ${r.liftsToConfirm} lift(s) left in force for a founder to confirm (Health)`);
       } finally {
         await p.end();
       }

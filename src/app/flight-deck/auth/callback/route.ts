@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { audit } from "@/lib/flightDeck/access";
 import { SESSION_ABSOLUTE_MS, signInOperator, SignInRefused } from "@/lib/flightDeck/identity";
 import { exchangeCode, issuerFor, JwksCache, OidcError, openTransaction, verifyIdToken } from "@/lib/flightDeck/oidc";
-import { getConsoleRuntime, PROD_LOGIN_COOKIE, PROD_SESSION_COOKIE } from "@/lib/flightDeck/runtime";
+import { getBootstrapRuntime, getConsoleRuntime, PROD_LOGIN_COOKIE, PROD_SESSION_COOKIE } from "@/lib/flightDeck/runtime";
 
 const g = globalThis as unknown as { __fdJwks?: Map<string, JwksCache> };
 const jwksFor = (issuer: string) => {
@@ -20,7 +20,7 @@ const jwksFor = (issuer: string) => {
 };
 
 export async function GET(request: NextRequest) {
-  const rt = await getConsoleRuntime();
+  const rt = await getBootstrapRuntime();
   if (!rt || rt.mode !== "production" || !rt.cognito || !rt.config || !rt.identity) {
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
@@ -41,7 +41,9 @@ export async function GET(request: NextRequest) {
     const claims = await verifyIdToken(idToken, rt.cognito, jwksFor(issuerFor(rt.cognito)), { now, nonce: t.nonce });
     const { token, operator } = await signInOperator(rt.identity, claims, new Date(now));
     await rt.store.transaction((tx) => audit(tx, { id: operator.id, role: operator.role, displayName: operator.displayName }, "signed-in", "operator", operator.id, null));
-    const res = NextResponse.redirect(new URL("/flight-deck", rt.cognito.publicOrigin), 303);
+    // Before the console gate, a founder lands on the approval page.
+    const open = !!(await getConsoleRuntime());
+    const res = NextResponse.redirect(new URL(open ? "/flight-deck" : "/flight-deck/gates", rt.cognito.publicOrigin), 303);
     res.cookies.delete({ name: PROD_LOGIN_COOKIE, path: "/" });
     // __Host- prefix: Secure, Path=/, no Domain; cannot be set by a
     // subdomain. Lax so the redirect chain from the IdP carries it; every

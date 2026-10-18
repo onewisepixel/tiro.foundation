@@ -51,6 +51,9 @@ export type ModeDecision = { mode: "local-demo" } | { mode: "production" } | { m
 // ---------- Production configuration ----------
 
 export type ProductionConfig = {
+  // The protective event log (protective.ts, s3Sink.ts): a versioned,
+  // Object Lock bucket. Mandatory.
+  protective: { bucket: string; region: string; prefix: string; endpoint?: string };
   databaseUrl: string;
   databaseCa: string | null;
   pepper: string;
@@ -106,6 +109,18 @@ export function productionConfigProblems(env: FlightDeckEnv): string[] {
   if (!httpsOrigin(env.FLIGHT_DECK_PUBLIC_ORIGIN)) {
     problems.push("FLIGHT_DECK_PUBLIC_ORIGIN (https origin)");
   }
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(env.FLIGHT_DECK_PROTECTIVE_BUCKET ?? "") || PLACEHOLDER.test(env.FLIGHT_DECK_PROTECTIVE_BUCKET ?? "")) {
+    problems.push("FLIGHT_DECK_PROTECTIVE_BUCKET (the protective event log bucket)");
+  }
+  if (!/^[a-z]{2}(-gov)?-[a-z]+-\d$/.test(env.FLIGHT_DECK_PROTECTIVE_REGION ?? "")) {
+    problems.push("FLIGHT_DECK_PROTECTIVE_REGION");
+  }
+  // An S3-compatible endpoint override is accepted only over https, or
+  // over http on this machine (the local production rehearsal).
+  const ep = env.FLIGHT_DECK_PROTECTIVE_ENDPOINT;
+  if (ep && !/^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(ep) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(ep)) {
+    problems.push("FLIGHT_DECK_PROTECTIVE_ENDPOINT (https, or http on loopback only)");
+  }
   return problems;
 }
 
@@ -114,6 +129,12 @@ export function productionConfig(env: FlightDeckEnv): ProductionConfig | null {
     return null;
   }
   return {
+    protective: {
+      bucket: env.FLIGHT_DECK_PROTECTIVE_BUCKET!,
+      region: env.FLIGHT_DECK_PROTECTIVE_REGION!,
+      prefix: env.FLIGHT_DECK_PROTECTIVE_PREFIX || "flight-deck/",
+      ...(env.FLIGHT_DECK_PROTECTIVE_ENDPOINT ? { endpoint: env.FLIGHT_DECK_PROTECTIVE_ENDPOINT } : {}),
+    },
     databaseUrl: env.FLIGHT_DECK_DATABASE_URL!,
     databaseCa: env.FLIGHT_DECK_DATABASE_CA_PEM ?? null,
     pepper: env.FLIGHT_DECK_EMAIL_HASH_PEPPER!,

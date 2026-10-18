@@ -343,6 +343,13 @@ export function resolveTask(tx: OpsTx, actor: Actor, taskId: string, expectedVer
 // again. Approvals, jobs and receipts keep only opaque ids.
 export function eraseProspect(tx: OpsTx, actor: Actor, prospectId: string, keepSuppression: boolean) {
   requireCapability(actor, "delete-records");
+  eraseProspectRecord(tx, actor, prospectId, keepSuppression, null);
+}
+
+// The erasure itself, without the capability check. Called directly only
+// by recovery replay (recovery.ts), re-applying an erasure a founder
+// already made, under the tombstone id recorded in the protective log.
+export function eraseProspectRecord(tx: OpsTx, actor: Actor, prospectId: string, keepSuppression: boolean, erasureId: string | null) {
   const p = tx.require("prospects", prospectId);
   if (keepSuppression && p.emailKey) {
     applySuppression(tx, actor, p.emailKey, "all", "withdrawal");
@@ -377,7 +384,9 @@ export function eraseProspect(tx: OpsTx, actor: Actor, prospectId: string, keepS
     }
   }
   tx.remove("prospects", p.id);
-  tx.insert("erasures", { id: newId("ers"), prospectId: p.id, erasedAt: tx.nowIso, ...base(tx) });
+  if (!erasureId || !tx.get("erasures", erasureId)) {
+    tx.insert("erasures", { id: erasureId ?? newId("ers"), prospectId: p.id, erasedAt: tx.nowIso, ...base(tx) });
+  }
   audit(tx, actor, "prospect-erased", "prospect", p.id, keepSuppression ? "suppression-kept" : null);
 }
 

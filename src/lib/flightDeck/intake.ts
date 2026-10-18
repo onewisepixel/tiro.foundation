@@ -10,6 +10,7 @@ import { audit, PUBLIC, SYSTEM } from "./access";
 import { HONEYPOT_FIELD, LIMITS, type FormTokens, type RateLimiter } from "./abuse";
 import { EMAIL_PATTERN, emailKey, newId, normalizeEmail, sha256 } from "./ids";
 import { activeSuppressions } from "./permissions";
+import { GateError } from "./approvals";
 import { CONSENT_WORDING, PUBLIC_CATEGORIES, PUBLIC_TOPICS, type PublicTopic } from "./pilotCopy";
 import { arrayOf, nullable, obj, oneOf, str, type Issue } from "./schema";
 import type { OperationsStore, OpsTx } from "./store";
@@ -76,6 +77,9 @@ function messageFor(issue: Issue): [string, string] {
 }
 
 export type IntakeContext = {
+  // Runs the recovery check (recovery.ts) before anything is stored; false
+  // means "not safe now": the person is told nothing was stored.
+  recoveryOk?: () => Promise<boolean>;
   store: OperationsStore;
   tokens: FormTokens;
   limiter: RateLimiter;
@@ -198,6 +202,10 @@ export async function processInterest(entries: Iterable<RawEntry>, ctx: IntakeCo
     return { status: "received" };
   }
 
+  if (ctx.recoveryOk && !(await ctx.recoveryOk().catch(() => false))) {
+    return { status: "refused", message: UNAVAILABLE };
+  }
+
   // 4. Persist, in one transaction. If storage fails, say so: nothing is
   // half-saved (the transaction is all or nothing) and nothing is retried
   // behind the person's back.
@@ -227,6 +235,11 @@ function addDays(iso: string, days: number) {
 }
 
 export function recordInterest(tx: OpsTx, form: ValidInterest) {
+  // An unreconciled database might not know this person opted out; take
+  // nothing in until the recovery gate has cleared (recovery.ts).
+  if (tx.settings().recoveryLock) {
+    throw new GateError("recovery-unverified");
+  }
   const key = emailKey(form.email, tx.pepper);
   const base = { createdAt: tx.nowIso, updatedAt: tx.nowIso, version: 1, synthetic: tx.synthetic };
   const existing = tx.list("prospects", (p) => p.emailKey === key)[0] ?? null;

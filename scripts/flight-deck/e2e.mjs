@@ -328,6 +328,16 @@ try {
   await waitFor(`location.search.includes("notice=case-resolved")`);
   check("deletion request resolved with every step recorded", has(await text(), "Outcome: erased"));
 
+  // ---------- Recovery (0.2.1): the erasure is in the protective log ----------
+  await go("/flight-deck/health");
+  const recoveryText = await text();
+  const headSeq = Number(/Database includes events up to\s*#(\d+)/.exec(recoveryText)?.[1] ?? 0);
+  check("Health shows the protective log, its head, and verified recovery", has(recoveryText, "Verified: contact allowed") && headSeq >= 1, `head #${headSeq}`);
+  await clickButton("Verify and replay now");
+  await waitFor(`location.search.includes("notice=recovery-verified")`);
+  check("a founder can verify the log against the database on demand", has(await text(), "Verified: contact allowed"));
+  await shot("health-recovery-desktop");
+
   // ---------- Adversarial, in the browser ----------
   // Edit after approval revokes it.
   await go("/flight-deck/outreach");

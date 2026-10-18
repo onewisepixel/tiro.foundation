@@ -22,6 +22,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { must, type Schema } from "./schema";
+import { newId } from "./ids";
+import { appendAll, chainEvents, EMPTY_HEAD, SinkConflict, SinkUnavailable, type JournalHead, type ProtectiveBody, type ProtectiveSink } from "./protective";
 import {
   AffiliationSchema,
   ApprovalSchema,
@@ -137,6 +139,9 @@ export type OpsState = {
   pepper: string;
   settings: Settings;
   collections: { [C in CollectionName]: Record<string, Row<C>> };
+  // The last protective event (protective.ts) this state includes. Compared
+  // with the external log by the recovery gate (recovery.ts).
+  protectiveHead: JournalHead;
 };
 
 export class StoreError extends Error {
@@ -156,6 +161,41 @@ export class StoreUnavailable extends Error {
     super(message);
   }
 }
+
+// The protective event for this action could not be written to the
+// external log, so the transaction was rolled back: nothing changed.
+export class ProtectiveWriteFailed extends Error {
+  readonly code = "protective-log-unavailable";
+  constructor() {
+    super("the protective event log could not be written; nothing was changed");
+  }
+}
+
+// The external log already holds an event this database does not: the
+// database is behind it (a restore, or a crash after a log write). Nothing
+// changed; the recovery gate must reconcile before anything else happens.
+export class RecoveryRequired extends Error {
+  readonly code = "recovery-required";
+  constructor() {
+    super("the protective event log is ahead of this database; recovery verification is required");
+  }
+}
+
+// A replay tried to advance the head by other than exactly one event:
+// another reconciler got there first, or the order is wrong.
+export class ReplayOutOfOrder extends Error {
+  readonly code = "replay-out-of-order";
+  constructor() {
+    super("protective replay out of order");
+  }
+}
+
+export type TxOptions = {
+  // Reconciliation only (recovery.ts): the function re-applies an event
+  // that is already in the log, so nothing is appended; the state's head
+  // moves to that event instead.
+  replayHead?: JournalHead;
+};
 
 // Internal to adapters: "load this collection and run the function again".
 export class NeedCollection extends Error {
@@ -187,7 +227,14 @@ export type AuditPage = { events: AuditEvent[]; total: number };
 export interface OperationsStore {
   readonly kind: "memory" | "local-file" | "postgres";
   readonly synthetic: boolean;
-  transaction<T>(fn: (tx: OpsTx) => T): Promise<T>;
+  // Protective changes in the transaction (opt-outs, lifts, erasures) are
+  // appended to the external log BEFORE the commit; a log failure aborts
+  // the whole transaction (ProtectiveWriteFailed / RecoveryRequired).
+  transaction<T>(fn: (tx: OpsTx) => T, opts?: TxOptions): Promise<T>;
+  // The last protective event this database includes.
+  protectiveHead(): Promise<JournalHead>;
+  // Where protective events go, if anywhere.
+  readonly protectiveSink: ProtectiveSink | null;
   // A consistent snapshot read. Any write attempted inside is discarded.
   read<T>(fn: (tx: OpsTx) => T): Promise<T>;
   // The audit trail grows without bound, so it is read in pages and ranges
@@ -207,8 +254,79 @@ export function emptyState(now: Date, opts: { synthetic?: boolean; pepper?: stri
     pepper: opts.pepper ?? randomBytes(32).toString("hex"),
     settings: { ...DEFAULT_SETTINGS },
     collections,
+    protectiveHead: { ...EMPTY_HEAD },
   };
 }
+
+type Rec = Record<string, Record<string, unknown>>;
+
+// The protective events implied by a transaction's changes: new
+// suppressions, lifted suppressions, new erasure tombstones. The acting
+// person is taken from the audit event written in the same transaction.
+export function deriveProtective(
+  before: Partial<Record<CollectionName, Rec>>,
+  after: Partial<Record<CollectionName, Rec>>,
+  appends: Partial<Record<CollectionName, Rec>> | undefined,
+  synthetic: boolean,
+  nowIso: string,
+): ProtectiveBody[] {
+  const newAudit = [...Object.values((after.audit ?? {}) as Rec).filter((e) => !(before.audit ?? {})[e.id as string]), ...Object.values((appends?.audit ?? {}) as Rec)];
+  const actorFor = (action: string, objectId: string) => {
+    const e = newAudit.find((a) => a.action === action && a.objectId === objectId);
+    return e && typeof e.actorId === "string" && e.actorId !== "public" ? e.actorId : "system";
+  };
+  const out: ProtectiveBody[] = [];
+  const supBefore = before.suppressions ?? {};
+  for (const sup of Object.values((after.suppressions ?? {}) as Rec)) {
+    const prior = supBefore[sup.id as string];
+    if (!prior) {
+      out.push({ kind: "suppression-added", id: newId("pev"), at: nowIso, actorId: (sup.createdBy as string) === "public" ? "system" : (sup.createdBy as string), synthetic, suppressionId: sup.id as string, emailKey: sup.emailKey as string, scope: sup.scope as never, basis: sup.basis as never, effectiveAt: sup.effectiveAt as string });
+    } else if (!prior.liftedAt && sup.liftedAt) {
+      out.push({ kind: "suppression-lifted", id: newId("pev"), at: nowIso, actorId: actorFor("suppression-lifted", sup.id as string), synthetic, suppressionId: sup.id as string, liftedAt: sup.liftedAt as string });
+    }
+  }
+  const ersBefore = before.erasures ?? {};
+  for (const e of Object.values((after.erasures ?? {}) as Rec)) {
+    if (!ersBefore[e.id as string]) {
+      out.push({ kind: "erasure", id: newId("pev"), at: nowIso, actorId: actorFor("prospect-erased", e.prospectId as string), synthetic, erasureId: e.id as string, prospectId: e.prospectId as string, erasedAt: e.erasedAt as string });
+    }
+  }
+  return out;
+}
+
+// Appends events for the bodies, translating log failures into the
+// store-level errors callers understand. Returns the new head.
+export async function journalBodies(sink: ProtectiveSink | null, requireJournal: boolean, head: JournalHead, bodies: ProtectiveBody[]): Promise<JournalHead> {
+  if (!bodies.length) {
+    return head;
+  }
+  if (!sink) {
+    if (requireJournal) {
+      throw new ProtectiveWriteFailed();
+    }
+    return head;
+  }
+  const events = chainEvents(head, bodies);
+  try {
+    await appendAll(sink, events);
+  } catch (e) {
+    if (e instanceof SinkConflict) {
+      throw new RecoveryRequired();
+    }
+    if (e instanceof SinkUnavailable) {
+      throw new ProtectiveWriteFailed();
+    }
+    throw e;
+  }
+  const last = events[events.length - 1];
+  return { seq: last.seq, hash: last.hash };
+}
+
+export type InProcessStoreOptions = {
+  sink?: ProtectiveSink | null;
+  // When true, a protective change with no sink configured is refused.
+  requireJournal?: boolean;
+};
 
 // The working state a transaction runs against. In-process stores pass a
 // full OpsState. The Postgres adapter passes partially loaded state:
@@ -381,8 +499,19 @@ function sortedAudit(state: OpsState) {
 abstract class SerializedStore implements OperationsStore {
   abstract readonly kind: "memory" | "local-file";
   private queue: Promise<unknown> = Promise.resolve();
+  readonly protectiveSink: ProtectiveSink | null;
+  private readonly requireJournal: boolean;
+  // Test hook: throw from the commit of the next transaction, AFTER its
+  // protective events were written (simulates a crash at the worst moment).
+  failNextCommitAfterLog = false;
 
-  constructor(protected readonly clock: Clock) {}
+  constructor(
+    protected readonly clock: Clock,
+    opts: InProcessStoreOptions = {},
+  ) {
+    this.protectiveSink = opts.sink ?? null;
+    this.requireJournal = opts.requireJournal ?? false;
+  }
 
   protected abstract load(): OpsState;
   protected abstract commit(state: OpsState): void;
@@ -398,16 +527,36 @@ abstract class SerializedStore implements OperationsStore {
     return run;
   }
 
-  transaction<T>(fn: (tx: OpsTx) => T): Promise<T> {
-    return this.exclusive(() => {
-      const working = structuredClone(this.load());
-      const result = fn(makeTx(working, this.clock()));
+  transaction<T>(fn: (tx: OpsTx) => T, opts: TxOptions = {}): Promise<T> {
+    return this.exclusive(async () => {
+      const base = this.load();
+      const working = structuredClone(base);
+      const now = this.clock();
+      const result = fn(makeTx(working, now));
       if (result instanceof Promise) {
         throw new Error("transaction functions must be synchronous");
+      }
+      if (opts.replayHead) {
+        const prior = base.protectiveHead ?? EMPTY_HEAD;
+        if (prior.seq !== opts.replayHead.seq - 1) {
+          throw new ReplayOutOfOrder();
+        }
+        working.protectiveHead = opts.replayHead;
+      } else {
+        const bodies = deriveProtective(base.collections as never, working.collections as never, undefined, working.synthetic, now.toISOString());
+        working.protectiveHead = await journalBodies(this.protectiveSink, this.requireJournal, base.protectiveHead ?? EMPTY_HEAD, bodies);
+        if (bodies.length && this.failNextCommitAfterLog) {
+          this.failNextCommitAfterLog = false;
+          throw new Error("simulated crash after the protective log write");
+        }
       }
       this.commit(working);
       return result;
     });
+  }
+
+  protectiveHead(): Promise<JournalHead> {
+    return this.exclusive(() => ({ ...(this.load().protectiveHead ?? EMPTY_HEAD) }));
   }
 
   read<T>(fn: (tx: OpsTx) => T): Promise<T> {
@@ -430,9 +579,10 @@ export class MemoryOperationsStore extends SerializedStore {
   readonly kind = "memory" as const;
   private state: OpsState;
 
-  constructor(clock: Clock = () => new Date(), initial?: OpsState) {
-    super(clock);
+  constructor(clock: Clock = () => new Date(), initial?: OpsState, opts: InProcessStoreOptions = {}) {
+    super(clock, opts);
     this.state = initial ?? emptyState(clock());
+    this.state.protectiveHead ??= { ...EMPTY_HEAD };
   }
 
   protected load() {
@@ -464,6 +614,7 @@ export function upgradeLocalState(raw: Record<string, unknown>): OpsState {
   for (const c of COLLECTIONS) {
     (state.collections as Record<string, unknown>)[c] ??= {};
   }
+  (state as { protectiveHead?: JournalHead }).protectiveHead ??= { ...EMPTY_HEAD };
   return state as unknown as OpsState;
 }
 
@@ -474,8 +625,9 @@ export class LocalFileOperationsStore extends SerializedStore {
   constructor(
     readonly filePath: string,
     clock: Clock = () => new Date(),
+    opts: InProcessStoreOptions = {},
   ) {
-    super(clock);
+    super(clock, opts);
   }
 
   protected load(): OpsState {

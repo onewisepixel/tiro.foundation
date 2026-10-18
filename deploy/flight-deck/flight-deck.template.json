@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "TIRO Flight Deck 0.2 production foundation (NOT DEPLOYED; requires founder authorization). Dedicated operator identity (separate from the synthetic preservation backend), generated secrets, the scheduled worker (disabled until activated), and a failure alarm. The operations database is NOT created here: provider and region await the founder's decision (docs/flight-deck/integrations.md).",
+  "Description": "TIRO Flight Deck 0.2.1 production foundation (NOT DEPLOYED; requires founder authorization). Dedicated operator identity (separate from the synthetic preservation backend), generated secrets, the scheduled worker (disabled until activated), a failure alarm, and the protective event log bucket. The operations database is NOT created here: provider and region await the founder's decision (docs/flight-deck/integrations.md).",
   "Parameters": {
     "PublicOrigin": {
       "Type": "String",
@@ -15,17 +15,38 @@
     "WorkerScheduleState": {
       "Type": "String",
       "Description": "The worker schedule stays DISABLED until the console gate is recorded and the founder enables it.",
-      "AllowedValues": ["DISABLED", "ENABLED"],
+      "AllowedValues": [
+        "DISABLED",
+        "ENABLED"
+      ],
       "Default": "DISABLED"
     },
     "AlarmEmail": {
       "Type": "String",
       "Description": "Optional address for worker-failure alarms (confirmation email required).",
       "Default": ""
+    },
+    "ProtectiveRetentionDays": {
+      "Type": "Number",
+      "Description": "Object Lock (governance) retention for every protective log object version. Must exceed the longest database backup or point-in-time window. Events are not expired automatically (the event at the database head must always exist); they hold only keyed hashes, opaque ids and codes. Provisional: 35 days for a 14-day PITR window.",
+      "Default": 35,
+      "MinValue": 15,
+      "MaxValue": 400
     }
   },
   "Conditions": {
-    "HasAlarmEmail": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "AlarmEmail" }, ""] }] }
+    "HasAlarmEmail": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "AlarmEmail"
+            },
+            ""
+          ]
+        }
+      ]
+    }
   },
   "Resources": {
     "OperatorPool": {
@@ -35,11 +56,19 @@
       "Properties": {
         "UserPoolName": "tiro-flight-deck-operators",
         "DeletionProtection": "ACTIVE",
-        "UsernameAttributes": ["email"],
-        "AutoVerifiedAttributes": ["email"],
-        "AdminCreateUserConfig": { "AllowAdminCreateUserOnly": true },
+        "UsernameAttributes": [
+          "email"
+        ],
+        "AutoVerifiedAttributes": [
+          "email"
+        ],
+        "AdminCreateUserConfig": {
+          "AllowAdminCreateUserOnly": true
+        },
         "MfaConfiguration": "ON",
-        "EnabledMfas": ["SOFTWARE_TOKEN_MFA"],
+        "EnabledMfas": [
+          "SOFTWARE_TOKEN_MFA"
+        ],
         "Policies": {
           "PasswordPolicy": {
             "MinimumLength": 14,
@@ -50,14 +79,27 @@
             "TemporaryPasswordValidityDays": 2
           }
         },
-        "AccountRecoverySetting": { "RecoveryMechanisms": [{ "Name": "verified_email", "Priority": 1 }] },
-        "UserAttributeUpdateSettings": { "AttributesRequireVerificationBeforeUpdate": ["email"] }
+        "AccountRecoverySetting": {
+          "RecoveryMechanisms": [
+            {
+              "Name": "verified_email",
+              "Priority": 1
+            }
+          ]
+        },
+        "UserAttributeUpdateSettings": {
+          "AttributesRequireVerificationBeforeUpdate": [
+            "email"
+          ]
+        }
       }
     },
     "OperatorGroup": {
       "Type": "AWS::Cognito::UserPoolGroup",
       "Properties": {
-        "UserPoolId": { "Ref": "OperatorPool" },
+        "UserPoolId": {
+          "Ref": "OperatorPool"
+        },
         "GroupName": "flight-deck",
         "Description": "Membership is required to sign in; Flight Deck's own operator table decides the role."
       }
@@ -65,29 +107,57 @@
     "OperatorDomain": {
       "Type": "AWS::Cognito::UserPoolDomain",
       "Properties": {
-        "UserPoolId": { "Ref": "OperatorPool" },
-        "Domain": { "Ref": "CognitoDomainPrefix" }
+        "UserPoolId": {
+          "Ref": "OperatorPool"
+        },
+        "Domain": {
+          "Ref": "CognitoDomainPrefix"
+        }
       }
     },
     "ConsoleClient": {
       "Type": "AWS::Cognito::UserPoolClient",
       "Properties": {
-        "UserPoolId": { "Ref": "OperatorPool" },
+        "UserPoolId": {
+          "Ref": "OperatorPool"
+        },
         "ClientName": "flight-deck-console",
         "GenerateSecret": true,
         "AllowedOAuthFlowsUserPoolClient": true,
-        "AllowedOAuthFlows": ["code"],
-        "AllowedOAuthScopes": ["openid", "email", "profile"],
-        "SupportedIdentityProviders": ["COGNITO"],
-        "CallbackURLs": [{ "Fn::Sub": "${PublicOrigin}/flight-deck/auth/callback" }],
-        "LogoutURLs": [{ "Fn::Sub": "${PublicOrigin}/flight-deck/signed-out" }],
-        "ExplicitAuthFlows": ["ALLOW_REFRESH_TOKEN_AUTH"],
+        "AllowedOAuthFlows": [
+          "code"
+        ],
+        "AllowedOAuthScopes": [
+          "openid",
+          "email",
+          "profile"
+        ],
+        "SupportedIdentityProviders": [
+          "COGNITO"
+        ],
+        "CallbackURLs": [
+          {
+            "Fn::Sub": "${PublicOrigin}/flight-deck/auth/callback"
+          }
+        ],
+        "LogoutURLs": [
+          {
+            "Fn::Sub": "${PublicOrigin}/flight-deck/signed-out"
+          }
+        ],
+        "ExplicitAuthFlows": [
+          "ALLOW_REFRESH_TOKEN_AUTH"
+        ],
         "PreventUserExistenceErrors": "ENABLED",
         "EnableTokenRevocation": true,
         "IdTokenValidity": 60,
         "AccessTokenValidity": 60,
         "RefreshTokenValidity": 1,
-        "TokenValidityUnits": { "IdToken": "minutes", "AccessToken": "minutes", "RefreshToken": "days" }
+        "TokenValidityUnits": {
+          "IdToken": "minutes",
+          "AccessToken": "minutes",
+          "RefreshToken": "days"
+        }
       }
     },
     "EmailHashPepper": {
@@ -97,31 +167,49 @@
       "Properties": {
         "Name": "tiro/flight-deck/email-hash-pepper",
         "Description": "Keys the email hashes used for suppression and deduplication. Never stored with the data. Losing it breaks suppression matching: retain.",
-        "GenerateSecretString": { "PasswordLength": 64, "ExcludePunctuation": true }
+        "GenerateSecretString": {
+          "PasswordLength": 64,
+          "ExcludePunctuation": true
+        }
       }
     },
     "SessionSecret": {
       "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
       "Properties": {
         "Name": "tiro/flight-deck/session-secret",
         "Description": "Signs the sign-in transaction cookie and derives form-token and rate-limit keys.",
-        "GenerateSecretString": { "PasswordLength": 64, "ExcludePunctuation": true }
+        "GenerateSecretString": {
+          "PasswordLength": 64,
+          "ExcludePunctuation": true
+        }
       }
     },
     "WorkerToken": {
       "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
       "Properties": {
         "Name": "tiro/flight-deck/worker-token",
         "Description": "Bearer token the scheduler presents to /flight-deck/internal/worker.",
-        "GenerateSecretString": { "PasswordLength": 48, "ExcludePunctuation": true }
+        "GenerateSecretString": {
+          "PasswordLength": 48,
+          "ExcludePunctuation": true
+        }
       }
     },
     "MonitorToken": {
       "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
       "Properties": {
         "Name": "tiro/flight-deck/monitor-token",
         "Description": "Bearer token an uptime monitor presents to /flight-deck/internal/status.",
-        "GenerateSecretString": { "PasswordLength": 48, "ExcludePunctuation": true }
+        "GenerateSecretString": {
+          "PasswordLength": 48,
+          "ExcludePunctuation": true
+        }
       }
     },
     "WorkerConnection": {
@@ -132,7 +220,9 @@
         "AuthParameters": {
           "ApiKeyAuthParameters": {
             "ApiKeyName": "Authorization",
-            "ApiKeyValue": { "Fn::Sub": "Bearer {{resolve:secretsmanager:${WorkerToken}}}" }
+            "ApiKeyValue": {
+              "Fn::Sub": "Bearer {{resolve:secretsmanager:${WorkerToken}}}"
+            }
           }
         }
       }
@@ -140,8 +230,15 @@
     "WorkerDestination": {
       "Type": "AWS::Events::ApiDestination",
       "Properties": {
-        "ConnectionArn": { "Fn::GetAtt": ["WorkerConnection", "Arn"] },
-        "InvocationEndpoint": { "Fn::Sub": "${PublicOrigin}/flight-deck/internal/worker" },
+        "ConnectionArn": {
+          "Fn::GetAtt": [
+            "WorkerConnection",
+            "Arn"
+          ]
+        },
+        "InvocationEndpoint": {
+          "Fn::Sub": "${PublicOrigin}/flight-deck/internal/worker"
+        },
         "HttpMethod": "POST",
         "InvocationRateLimitPerSecond": 1
       }
@@ -154,9 +251,17 @@
           "Statement": [
             {
               "Effect": "Allow",
-              "Principal": { "Service": "events.amazonaws.com" },
+              "Principal": {
+                "Service": "events.amazonaws.com"
+              },
               "Action": "sts:AssumeRole",
-              "Condition": { "StringEquals": { "aws:SourceAccount": { "Ref": "AWS::AccountId" } } }
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              }
             }
           ]
         },
@@ -165,7 +270,18 @@
             "PolicyName": "invoke-flight-deck-worker",
             "PolicyDocument": {
               "Version": "2012-10-17",
-              "Statement": [{ "Effect": "Allow", "Action": "events:InvokeApiDestination", "Resource": { "Fn::GetAtt": ["WorkerDestination", "Arn"] } }]
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "events:InvokeApiDestination",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "WorkerDestination",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
             }
           }
         ]
@@ -176,25 +292,50 @@
       "Properties": {
         "Description": "Runs one Flight Deck worker tick every five minutes. Idempotent and single-runner.",
         "ScheduleExpression": "rate(5 minutes)",
-        "State": { "Ref": "WorkerScheduleState" },
+        "State": {
+          "Ref": "WorkerScheduleState"
+        },
         "Targets": [
           {
             "Id": "flight-deck-worker",
-            "Arn": { "Fn::GetAtt": ["WorkerDestination", "Arn"] },
-            "RoleArn": { "Fn::GetAtt": ["WorkerInvokeRole", "Arn"] },
-            "RetryPolicy": { "MaximumRetryAttempts": 2, "MaximumEventAgeInSeconds": 240 }
+            "Arn": {
+              "Fn::GetAtt": [
+                "WorkerDestination",
+                "Arn"
+              ]
+            },
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "WorkerInvokeRole",
+                "Arn"
+              ]
+            },
+            "RetryPolicy": {
+              "MaximumRetryAttempts": 2,
+              "MaximumEventAgeInSeconds": 240
+            }
           }
         ]
       }
     },
     "AlarmTopic": {
       "Type": "AWS::SNS::Topic",
-      "Properties": { "TopicName": "tiro-flight-deck-alarms" }
+      "Properties": {
+        "TopicName": "tiro-flight-deck-alarms"
+      }
     },
     "AlarmSubscription": {
       "Type": "AWS::SNS::Subscription",
       "Condition": "HasAlarmEmail",
-      "Properties": { "TopicArn": { "Ref": "AlarmTopic" }, "Protocol": "email", "Endpoint": { "Ref": "AlarmEmail" } }
+      "Properties": {
+        "TopicArn": {
+          "Ref": "AlarmTopic"
+        },
+        "Protocol": "email",
+        "Endpoint": {
+          "Ref": "AlarmEmail"
+        }
+      }
     },
     "WorkerFailureAlarm": {
       "Type": "AWS::CloudWatch::Alarm",
@@ -202,22 +343,266 @@
         "AlarmDescription": "Flight Deck worker invocations are failing (non-2xx from /flight-deck/internal/worker).",
         "Namespace": "AWS/Events",
         "MetricName": "FailedInvocations",
-        "Dimensions": [{ "Name": "RuleName", "Value": { "Ref": "WorkerSchedule" } }],
+        "Dimensions": [
+          {
+            "Name": "RuleName",
+            "Value": {
+              "Ref": "WorkerSchedule"
+            }
+          }
+        ],
         "Statistic": "Sum",
         "Period": 900,
         "EvaluationPeriods": 1,
         "Threshold": 2,
         "ComparisonOperator": "GreaterThanOrEqualToThreshold",
         "TreatMissingData": "notBreaching",
-        "AlarmActions": [{ "Ref": "AlarmTopic" }]
+        "AlarmActions": [
+          {
+            "Ref": "AlarmTopic"
+          }
+        ]
+      }
+    },
+    "ProtectiveLogBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "ObjectLockEnabled": true,
+        "ObjectLockConfiguration": {
+          "ObjectLockEnabled": "Enabled",
+          "Rule": {
+            "DefaultRetention": {
+              "Mode": "GOVERNANCE",
+              "Days": {
+                "Ref": "ProtectiveRetentionDays"
+              }
+            }
+          }
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              },
+              "BucketKeyEnabled": true
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "expire-superseded-checkpoint-versions",
+              "Status": "Enabled",
+              "Prefix": "flight-deck/checkpoints/",
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": {
+                  "Ref": "ProtectiveRetentionDays"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ProtectiveLogBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "ProtectiveLogBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "ProtectiveLogBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${ProtectiveLogBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Sid": "DenyGovernanceBypass",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:BypassGovernanceRetention",
+              "Resource": {
+                "Fn::Sub": "${ProtectiveLogBucket.Arn}/*"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FlightDeckAppPolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Attach to the identity the Flight Deck app runs as. Write-once access to the protective log; no delete, no retention changes.",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AppendAndReadEvents",
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject",
+                "s3:GetObject"
+              ],
+              "Resource": {
+                "Fn::Sub": "${ProtectiveLogBucket.Arn}/flight-deck/*"
+              }
+            },
+            {
+              "Sid": "ListLog",
+              "Effect": "Allow",
+              "Action": "s3:ListBucket",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ProtectiveLogBucket",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringLike": {
+                  "s3:prefix": [
+                    "flight-deck/*"
+                  ]
+                }
+              }
+            },
+            {
+              "Sid": "ReadSecrets",
+              "Effect": "Allow",
+              "Action": "secretsmanager:GetSecretValue",
+              "Resource": [
+                {
+                  "Ref": "EmailHashPepper"
+                },
+                {
+                  "Ref": "SessionSecret"
+                },
+                {
+                  "Ref": "WorkerToken"
+                },
+                {
+                  "Ref": "MonitorToken"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ProtectiveLogReadOnlyPolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Attach to a restore-drill copy of Flight Deck, or to an auditor. Reads the protective log (enough to verify and replay it) but cannot add to it, so a drill can never write events that production would later replay.",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "ReadEvents",
+              "Effect": "Allow",
+              "Action": "s3:GetObject",
+              "Resource": {
+                "Fn::Sub": "${ProtectiveLogBucket.Arn}/flight-deck/*"
+              }
+            },
+            {
+              "Sid": "ListLog",
+              "Effect": "Allow",
+              "Action": "s3:ListBucket",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ProtectiveLogBucket",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringLike": {
+                  "s3:prefix": [
+                    "flight-deck/*"
+                  ]
+                }
+              }
+            }
+          ]
+        }
       }
     }
   },
   "Outputs": {
-    "CognitoRegion": { "Value": { "Ref": "AWS::Region" } },
-    "CognitoUserPoolId": { "Value": { "Ref": "OperatorPool" } },
-    "CognitoClientId": { "Value": { "Ref": "ConsoleClient" } },
-    "CognitoDomain": { "Value": { "Fn::Sub": "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com" } },
-    "SecretNames": { "Value": "tiro/flight-deck/email-hash-pepper, session-secret, worker-token, monitor-token (client secret: read from the Cognito app client)" }
+    "CognitoRegion": {
+      "Value": {
+        "Ref": "AWS::Region"
+      }
+    },
+    "CognitoUserPoolId": {
+      "Value": {
+        "Ref": "OperatorPool"
+      }
+    },
+    "CognitoClientId": {
+      "Value": {
+        "Ref": "ConsoleClient"
+      }
+    },
+    "CognitoDomain": {
+      "Value": {
+        "Fn::Sub": "https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
+      }
+    },
+    "SecretNames": {
+      "Value": "tiro/flight-deck/email-hash-pepper, session-secret, worker-token, monitor-token (client secret: read from the Cognito app client)"
+    },
+    "ProtectiveBucketName": {
+      "Value": {
+        "Ref": "ProtectiveLogBucket"
+      }
+    },
+    "AppPolicyArn": {
+      "Value": {
+        "Ref": "FlightDeckAppPolicy"
+      }
+    },
+    "ProtectiveLogReadOnlyPolicyArn": {
+      "Description": "Read-only access to the protective log, for restore drills and audits.",
+      "Value": {
+        "Ref": "ProtectiveLogReadOnlyPolicy"
+      }
+    }
   }
 }

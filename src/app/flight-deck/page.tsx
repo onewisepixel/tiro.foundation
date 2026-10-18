@@ -14,7 +14,7 @@ export default async function NowPage({ searchParams }: { searchParams: Promise<
   const events = await rt.store.auditSince(since);
   const { b, alerts } = await rt.store.read((tx) => ({
     b: buildBriefing(tx, { operatorIds: OPERATOR_IDS, events }),
-    alerts: computeAlerts(tx, { expectWorker: rt.mode === "production" || rt.flags.backgroundJobs, ledgerConfigured: !!rt.ledgerSink }),
+    alerts: computeAlerts(tx, { expectWorker: rt.mode === "production" || rt.flags.backgroundJobs, logConfigured: !!rt.store.protectiveSink }),
   }));
   const approvals = b.pendingApprovals.outreach + b.pendingApprovals.content + b.pendingApprovals.campaign;
 

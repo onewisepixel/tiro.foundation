@@ -17,6 +17,8 @@ import { createManualProspect, createTask, editProspect, eraseProspect, recordIn
 import { getConsoleRuntime, PROD_SESSION_COOKIE } from "@/lib/flightDeck/runtime";
 import { completeStep, openCase, redactField, resolveCase } from "@/lib/flightDeck/cases";
 import { runWorkerTick } from "@/lib/flightDeck/worker";
+import { checkRecovery, reconcile, requireRecovered } from "@/lib/flightDeck/recovery";
+import { ProtectiveWriteFailed, RecoveryRequired } from "@/lib/flightDeck/store";
 import { signOutUrl } from "@/lib/flightDeck/oidc";
 import { issueSession, SESSION_COOKIE, SESSION_TTL_MS } from "@/lib/flightDeck/session";
 import { CONTENT_TEMPLATES, MESSAGE_TEMPLATES } from "@/lib/flightDeck/templates";
@@ -296,6 +298,7 @@ export async function queueDispatchAction(formData: FormData) {
     if (t === "campaign") {
       throw new GateError("validation-failed");
     }
+    await requireRecovered(rt.store);
     await rt.store.transaction((tx) => queueDispatch(tx, actor, t, s(formData, "id")));
     return "queued";
   });
@@ -306,6 +309,7 @@ export async function manualSendAction(formData: FormData) {
     if (s(formData, "attest") !== "yes") {
       throw new GateError("confirm-required");
     }
+    await requireRecovered(rt.store);
     await rt.store.transaction((tx) => recordManualSend(tx, actor, s(formData, "id")));
     return "manual-sent";
   });
@@ -320,6 +324,7 @@ export async function manualPublishAction(formData: FormData) {
     if (url && !/^https:\/\/\S+$/.test(url)) {
       throw new GateError("validation-failed");
     }
+    await requireRecovered(rt.store);
     await rt.store.transaction((tx) => recordManualPublication(tx, actor, s(formData, "id"), url));
     return "manual-published";
   });
@@ -459,7 +464,7 @@ export async function redactAction(formData: FormData) {
 export async function runWorkerAction(formData: FormData) {
   await act(formData, async ({ rt, actor }) => {
     requireCapability(actor, "dispatch");
-    await runWorkerTick({ store: rt.store, providers: rt.providers, purgeRateLimits: rt.purgeRateLimits, acquireLock: rt.acquireWorkerLock, ledgerSink: rt.ledgerSink });
+    await runWorkerTick({ store: rt.store, providers: rt.providers, purgeRateLimits: rt.purgeRateLimits, acquireLock: rt.acquireWorkerLock, ledgerSink: rt.ledgerSink, identity: rt.identity });
     return "worker-ran";
   });
 }
@@ -477,7 +482,18 @@ export async function operatorAction(formData: FormData) {
     }
     const now = new Date();
     if (op === "deactivate") {
-      await rt.identity.deactivateOperator(id, now);
+      try {
+        await rt.identity.deactivateOperator(id, now, actor.id);
+      } catch (e) {
+        if (e instanceof ProtectiveWriteFailed || e instanceof RecoveryRequired) {
+          // The deactivation could not be made durable, so it was not
+          // applied. Ending every session is still done at once.
+          await rt.identity.revokeAllSessions(id, now);
+          await rt.store.transaction((tx) => audit(tx, actor, "sessions-revoked", "operator", id, "deactivation-not-durable"));
+          return "deactivate-not-durable";
+        }
+        throw e;
+      }
       await rt.store.transaction((tx) => audit(tx, actor, "operator-deactivated", "operator", id, null));
       return "operator-deactivated";
     }
@@ -488,10 +504,43 @@ export async function operatorAction(formData: FormData) {
     }
     const role = s(formData, "role");
     if (op === "role" && (role === "founder" || role === "operator" || role === "reviewer")) {
-      await rt.identity.setRole(id, role);
+      await rt.identity.setRole(id, role, actor.id);
       await rt.store.transaction((tx) => audit(tx, actor, "operator-role-changed", "operator", id, role));
       return "saved";
     }
     throw new GateError("validation-failed");
+  });
+}
+
+// ---------- Recovery (0.2.1) ----------
+
+// Founder: verify the database against the protective log and replay what
+// it lacks (recovery.ts). Clears the contact lock only when verification
+// succeeds end to end.
+export async function reconcileAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    if (actor.role !== "founder") {
+      throw new GateError("founder-required");
+    }
+    await checkRecovery(rt.store);
+    const report = await reconcile(rt.store, actor, { identity: rt.identity });
+    const status = await checkRecovery(rt.store);
+    return report.ok && status.ok ? "recovery-verified" : "recovery-incomplete";
+  });
+}
+
+// Founder: a lift recorded before a restore is NOT replayed automatically;
+// confirming it lifts the suppression again, as a new protective event.
+export async function confirmLiftAction(formData: FormData) {
+  await act(formData, async ({ rt, actor }) => {
+    requireCapability(actor, "settings");
+    const id = s(formData, "suppressionId");
+    await rt.store.transaction((tx) => {
+      liftSuppression(tx, actor, id);
+      for (const t of tx.list("tasks", (t) => t.dedupeKey === `lift-confirm:${id}` && t.status === "open")) {
+        tx.update("tasks", t.id, t.version, { status: "done", resolution: "Lift confirmed by the founder after recovery." });
+      }
+    });
+    return "lift-confirmed";
   });
 }

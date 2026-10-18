@@ -8,7 +8,7 @@ import { AccessDenied, type Actor } from "@/lib/flightDeck/access";
 import { GateError } from "@/lib/flightDeck/approvals";
 import { getActor, getConsoleRuntime, type Runtime } from "@/lib/flightDeck/runtime";
 import { ValidationError } from "@/lib/flightDeck/schema";
-import { StoreError, StoreUnavailable } from "@/lib/flightDeck/store";
+import { ProtectiveWriteFailed, RecoveryRequired, StoreError, StoreUnavailable } from "@/lib/flightDeck/store";
 
 export async function requirePage(): Promise<{ rt: Runtime; actor: Actor }> {
   const rt = await getConsoleRuntime();
@@ -38,6 +38,12 @@ export function errorCode(e: unknown): string {
   if (e instanceof StoreUnavailable) {
     return "storage-unavailable";
   }
+  if (e instanceof ProtectiveWriteFailed) {
+    return "protective-log-unavailable";
+  }
+  if (e instanceof RecoveryRequired) {
+    return "recovery-required";
+  }
   return "error";
 }
 
@@ -66,7 +72,7 @@ export async function act(formData: FormData, fn: (ctx: { rt: Runtime; actor: Ac
     const r = await fn({ rt, actor });
     target = r && typeof r === "object" ? `${safeReturn(r.to)}?notice=${encodeURIComponent(r.notice)}` : `${back}?notice=${encodeURIComponent(r ?? "saved")}`;
   } catch (e) {
-    if (!(e instanceof AccessDenied || e instanceof GateError || e instanceof ValidationError || e instanceof StoreError || e instanceof StoreUnavailable)) {
+    if (!(e instanceof AccessDenied || e instanceof GateError || e instanceof ValidationError || e instanceof StoreError || e instanceof StoreUnavailable || e instanceof ProtectiveWriteFailed || e instanceof RecoveryRequired)) {
       // Unexpected: log the class only. Never log form contents.
       console.error("flight-deck action failed:", e instanceof Error ? e.name : "unknown");
     }

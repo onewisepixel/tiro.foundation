@@ -5,7 +5,8 @@ import { can } from "@/lib/flightDeck/access";
 import { privacyNoticeIsDraft, PRIVACY_NOTICE_VERSION } from "@/lib/flightDeck/config";
 import { displayNameFor } from "@/lib/flightDeck/identities";
 import { computeAlerts } from "@/lib/flightDeck/worker";
-import { liftSuppressionAction, operatorAction, pauseAction, resetSeedAction, retryJobAction, runWorkerAction } from "../actions";
+import { confirmLiftAction, liftSuppressionAction, operatorAction, pauseAction, reconcileAction, resetSeedAction, retryJobAction, runWorkerAction } from "../actions";
+import { checkRecovery } from "@/lib/flightDeck/recovery";
 import { requirePage } from "../guard";
 
 type Tone = "done" | "blocked" | "attention";
@@ -15,6 +16,10 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const { rt, actor } = await requirePage();
   const params = await searchParams;
   const here = "/flight-deck/health";
+  // Detects a stale or inconsistent database every time Health is opened.
+  const recovery = await checkRecovery(rt.store).catch(() => null);
+  const head = await rt.store.protectiveHead();
+  const pendingLifts = await rt.store.read((tx) => tx.list("tasks", (t) => t.status === "open" && (t.dedupeKey ?? "").startsWith("lift-confirm:")).map((t) => t.dedupeKey!.slice("lift-confirm:".length)));
   const production = rt.mode === "production";
   const d = await rt.store.read((tx) => {
     const soon = new Date(tx.now.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
@@ -29,7 +34,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       funnel: tx.list("funnel").sort((a, b) => b.day.localeCompare(a.day)).slice(0, 40),
       prospectCount: tx.list("prospects").length,
       runs: tx.list("workerRuns").sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 8),
-      alerts: computeAlerts(tx, { expectWorker: production || rt.flags.backgroundJobs, ledgerConfigured: !!rt.ledgerSink }),
+      alerts: computeAlerts(tx, { expectWorker: production || rt.flags.backgroundJobs, logConfigured: !!rt.store.protectiveSink }),
     };
   });
   const operators = rt.identity ? await rt.identity.listOperators() : null;
@@ -69,6 +74,60 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
           </ul>
         </Section>
       ) : null}
+
+      <Section title="Recovery and the protective log">
+        <p className="mb-3 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
+          Opt-outs, lifts, erasures, operator deactivations, role changes and gate approvals are written to a log outside the database before they take effect. If the
+          database is ever behind that log (after a restore, or an interrupted write), all contact stops until the missing events are replayed and verified.
+        </p>
+        <dl className="mb-3 text-sm">
+          <div className="tiro-kv">
+            <dt className="k">Log</dt>
+            <dd className="v">{rt.store.protectiveSink?.label ?? "not configured"}</dd>
+          </div>
+          <div className="tiro-kv">
+            <dt className="k">Database includes events up to</dt>
+            <dd className="v">#{head.seq}</dd>
+          </div>
+          <div className="tiro-kv">
+            <dt className="k">Status</dt>
+            <dd className="v">
+              {recovery?.ok ? (
+                <Badge tone="done" glyph="✓">
+                  Verified: contact allowed
+                </Badge>
+              ) : (
+                <Badge tone="blocked" glyph="■">
+                  Contact blocked: {recovery ? recovery.reason : "log unreachable"}
+                </Badge>
+              )}
+            </dd>
+          </div>
+        </dl>
+        {actor.role === "founder" ? (
+          <form action={reconcileAction}>
+            <Return to={here} />
+            <SubmitButton tone={recovery?.ok ? undefined : "primary"}>Verify and replay now</SubmitButton>
+          </form>
+        ) : null}
+        {pendingLifts.length ? (
+          <div className="mt-4">
+            <p className="text-sm">Lifted opt-outs back in force after a recovery (a founder must confirm each lift again, only if the person asked):</p>
+            {pendingLifts.map((id) => (
+              <div key={id} className="fd-row flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="fd-hash">{id}</span>
+                {can(actor, "settings") ? (
+                  <form action={confirmLiftAction}>
+                    <Return to={here} />
+                    <input type="hidden" name="suppressionId" value={id} />
+                    <SubmitButton>Confirm lift again</SubmitButton>
+                  </form>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Section>
 
       <Section title="Outbound activity">
         {d.settings.allOutboundPaused ? (

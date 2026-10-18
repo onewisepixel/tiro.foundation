@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Notice, PageTitle } from "@/components/flight-deck/ui";
 import { SubmitButton } from "@/components/flight-deck/client";
 import { DEMO_IDENTITIES } from "@/lib/flightDeck/identities";
-import { getConsoleRuntime } from "@/lib/flightDeck/runtime";
+import { getBootstrapRuntime } from "@/lib/flightDeck/runtime";
 import { signIn } from "../actions";
 
 const ROLE_TEXT = {
@@ -12,7 +12,7 @@ const ROLE_TEXT = {
 };
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const rt = await getConsoleRuntime();
+  const rt = await getBootstrapRuntime();
   if (!rt) {
     notFound();
   }

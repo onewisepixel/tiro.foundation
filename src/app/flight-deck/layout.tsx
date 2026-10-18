@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FlightDeckNav } from "@/components/flight-deck/client";
 import { SyntheticBanner } from "@/components/flight-deck/ui";
-import { getActor, getConsoleRuntime } from "@/lib/flightDeck/runtime";
+import { getActor, getBootstrapRuntime, getConsoleRuntime } from "@/lib/flightDeck/runtime";
 import { signOut } from "./actions";
 
 export const metadata: Metadata = {
@@ -13,19 +13,22 @@ export const metadata: Metadata = {
 // Private operations instrument. The proxy already answers 404 outside a
 // local-demo request; this checks again on the server for every render.
 export default async function FlightDeckLayout({ children }: { children: React.ReactNode }) {
-  const rt = await getConsoleRuntime();
+  // Before the console gate only sign-in and the gate page exist; each
+  // page enforces that itself. The navigation appears only once open.
+  const rt = await getBootstrapRuntime();
   if (!rt) {
     notFound();
   }
+  const consoleOpen = !!(await getConsoleRuntime());
   const actor = await getActor(rt);
-  const approvals = actor
+  const approvals = actor && consoleOpen
     ? await rt.store.read((tx) => tx.list("outreach", (d) => d.status === "needs-review").length + tx.list("content", (d) => d.status === "needs-review").length + tx.list("campaigns", (c) => c.status === "needs-review").length)
     : 0;
 
   return (
     <div className="min-h-screen bg-[var(--tiro-bg)] pt-[61px] text-[var(--tiro-text)]">
       {rt.store.synthetic ? <SyntheticBanner /> : null}
-      {actor ? (
+      {actor && consoleOpen ? (
         <div className="sticky top-[61px] z-30 border-b border-[var(--tiro-border)] bg-[var(--tiro-bg)]">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 px-[var(--lt-gutter)] md:px-6">
             <FlightDeckNav approvals={approvals} />

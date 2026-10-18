@@ -14,6 +14,6 @@ export async function POST(request: Request) {
   if (!bearerOk(request, rt, "worker")) {
     return new Response(JSON.stringify({ ok: false }), { status: 401, headers: NO_STORE });
   }
-  const summary = await runWorkerTick({ store: rt.store, providers: rt.providers, purgeRateLimits: rt.purgeRateLimits, acquireLock: rt.acquireWorkerLock, ledgerSink: rt.ledgerSink });
+  const summary = await runWorkerTick({ store: rt.store, providers: rt.providers, purgeRateLimits: rt.purgeRateLimits, acquireLock: rt.acquireWorkerLock, ledgerSink: rt.ledgerSink, identity: rt.identity });
   return new Response(JSON.stringify({ ok: summary.outcome !== "failed", ...summary }), { status: summary.outcome === "failed" ? 503 : 200, headers: NO_STORE });
 }

@@ -3,6 +3,7 @@
 // needs a person, 503 when something does (so a plain HTTP monitor can
 // alert on status alone).
 import { computeAlerts } from "@/lib/flightDeck/worker";
+import { checkRecovery } from "@/lib/flightDeck/recovery";
 import { getConsoleRuntime } from "@/lib/flightDeck/runtime";
 import { bearerOk, NO_STORE } from "../auth";
 
@@ -20,11 +21,14 @@ export async function GET(request: Request) {
     return new Response(JSON.stringify({ ok: false }), { status: 401, headers: NO_STORE });
   }
   try {
+    // Detects a restored or inconsistent database (and locks contact) even
+    // when nobody is using the console.
+    const recovery = await checkRecovery(rt.store);
     const body = await rt.store.read((tx) => {
       const runs = tx.list("workerRuns").sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-      const alerts = computeAlerts(tx, { expectWorker: rt.mode === "production", ledgerConfigured: !!rt.ledgerSink });
+      const alerts = computeAlerts(tx, { expectWorker: rt.mode === "production", logConfigured: !!rt.store.protectiveSink });
       return {
-        ok: !alerts.some((a) => a.severity === "action"),
+        ok: recovery.ok && !alerts.some((a) => a.severity === "action"),
         mode: rt.mode,
         store: "ok",
         worker: runs[0] ? { lastOutcome: runs[0].outcome, lastStartedAgoSeconds: Math.round((tx.now.getTime() - Date.parse(runs[0].startedAt)) / 1000) } : null,
@@ -35,6 +39,7 @@ export async function GET(request: Request) {
           openCases: tx.list("cases", (c) => c.status !== "resolved").length,
         },
         outboundPaused: tx.settings().allOutboundPaused,
+        recovery: recovery.ok ? "verified" : recovery.reason,
       };
     });
     return new Response(JSON.stringify(body), { status: body.ok ? 200 : 503, headers: NO_STORE });

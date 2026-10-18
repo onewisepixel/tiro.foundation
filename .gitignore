@@ -54,5 +54,5 @@ listing-backfill-*.log.jsonl
 
 # Flight Deck local demo: synthetic local store and dry-run outbox
 /.flight-deck/
-/.next-flight-deck/
+/.next-flight-deck*/
 !.env.example

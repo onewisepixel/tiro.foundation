@@ -119,6 +119,16 @@ export function nullable<T>(inner: Schema<T>): Schema<T | null> {
   };
 }
 
+// Like nullable(), but a missing key also reads as null: for fields added
+// after rows were first written (e.g. settings stored by an earlier version).
+export function nullish<T>(inner: Schema<T>): Schema<T | null> {
+  return {
+    parse(input, path = "") {
+      return input === null || input === undefined ? ok(null) : inner.parse(input, path);
+    },
+  };
+}
+
 export function arrayOf<T>(inner: Schema<T>, opts: { max: number }): Schema<T[]> {
   return {
     parse(input, path = "") {

@@ -55,6 +55,14 @@ export const ERROR_TEXT: Record<string, string> = {
   "not-an-operator": "That account is not a named Flight Deck operator. Ask the founder to add you.",
   "subject-mismatch": "That account does not match the operator it claims to be. Contact the founder.",
   "cannot-deactivate-self": "You cannot deactivate your own account here.",
+  "recovery-unverified": "Contact is paused: this database has not yet been checked against the protective log (Health → Recovery). Nothing was sent or recorded.",
+  "recovery-required": "The protective log is ahead of this database (a restore or an interrupted write). Nothing was changed. Run recovery on Health, then try again.",
+  "protective-log-unavailable": "The protective log could not be written, so nothing was changed. Contact is paused until the log is reachable again.",
+  "reauth-required": "For a launch approval, sign in again first (within the last 10 minutes, with your second factor).",
+  "console-gate-first": "Approve the console gate before the public form.",
+  "notice-is-draft": "The privacy notice is still a draft. The form cannot be approved until the reviewed notice is in place.",
+  "notice-changed": "The privacy notice has changed since this page was opened. Reload and review it.",
+  "written-approval-required": "Enter the reference of your separate written authorization (for example its document title and date).",
   error: "Something went wrong. Nothing was changed.",
 };
 
@@ -84,4 +92,9 @@ export const NOTICE_TEXT: Record<string, string> = {
   "operator-deactivated": "Operator deactivated and every session they had was revoked.",
   "sessions-revoked": "Sessions revoked.",
   "worker-ran": "Worker tick completed.",
+  "recovery-verified": "Recovery verified: the database matches the protective log. Contact may resume.",
+  "recovery-incomplete": "Recovery did not complete. Contact stays paused; see the recovery status below.",
+  "lift-confirmed": "Lift confirmed and recorded in the protective log.",
+  "gate-approved": "Approval recorded, signed, and written to the protective log.",
+  "deactivate-not-durable": "Signed out everywhere now. The deactivation itself could NOT be recorded in the protective log, so it was not applied: retry when Health shows the log is reachable.",
 };

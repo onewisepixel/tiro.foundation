@@ -1,8 +1,8 @@
 {
-  "at": "2026-10-17T23:00:30.423Z",
-  "base": "http://localhost:3100",
-  "seconds": 34,
-  "passed": 51,
+  "at": "2026-10-18T20:39:51.635Z",
+  "base": "http://localhost:3150",
+  "seconds": 40,
+  "passed": 52,
   "failed": 0,
   "results": [
     {
@@ -168,7 +168,7 @@
     {
       "name": "representative review session completed without a spreadsheet",
       "ok": true,
-      "detail": "7s of automated interaction"
+      "detail": "10s of automated interaction"
     },
     {
       "name": "axe: Open a case has no serious or critical WCAG violations",
@@ -192,6 +192,16 @@
     },
     {
       "name": "deletion request resolved with every step recorded",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Health shows the protective log, its head, and verified recovery",
+      "ok": true,
+      "detail": "head #2"
+    },
+    {
+      "name": "a founder can verify the log against the database on demand",
       "ok": true,
       "detail": ""
     },
@@ -254,11 +264,6 @@
       "name": "every visible /pilot form control has a label",
       "ok": true,
       "detail": "0 unlabeled"
-    },
-    {
-      "name": "production build: /pilot form is closed and accepts nothing",
-      "ok": true,
-      "detail": ""
     }
   ],
   "axe": [

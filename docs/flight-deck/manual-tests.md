@@ -1,44 +1,115 @@
-# Flight Deck: manual tests still to perform
+# Flight Deck: manual acceptance still to perform (0.2.1)
 
-Status: **Not performed.** Automated checks cannot replace these. Each must be run by a person and its result recorded here (date, who, device, outcome, issues) before launch.
-Revision date: 2026-10-17.
+Status: **Not performed.** Automated checks cannot replace these. Each must be run by a person, and its result recorded here (date, who, device, outcome, issues) before launch.
+Revision date: 2026-10-18. Supersedes the 0.2 version of this file.
 
-## 1. Manual accessibility (not performed)
+## 1. What can be done locally, and what needs something real
 
-Automated coverage so far: axe-core (WCAG 2.0/2.1/2.2 A and AA rules) on eleven page states, including light theme, with no violations of any severity after one contrast defect was fixed; keyboard reachability of the skip link; labels on every form control; announced errors and focus moved to outcomes; no horizontal overflow at 390 px. Automation does not show whether the pages are usable with real assistive technology.
-
-Use the protocol in `docs/design/accessibility-manual-test.md`, applied to:
-
-| Flow | Pages | What to confirm |
+| Check | Local, now | Needs a real account, device, service, or reviewer |
 | --- | --- | --- |
-| Public inquiry | `/pilot` | Form completes with keyboard only; with NVDA (Windows) or VoiceOver (macOS/iOS), every field, radio group, topic group and checkbox is announced with its label and hint; a validation error is announced and entries survive; the confirmation is announced; 200% zoom and 320 px reflow; reduced motion; both themes |
-| Founder review | `/flight-deck`, a relationship, Approvals, an outreach draft | Navigation landmarks; the approval fingerprint and the "Approve this exact version" button are reachable and understandable; status badges read as words, not colours |
-| Exceptions | Open a case, a case, the redaction tool | The case kinds and their deadlines are announced; checklist state is clear without colour; "Mark done" buttons have distinguishable context |
-| Mobile | Now, Approvals, a case | iOS VoiceOver and Android TalkBack on a physical phone; touch targets; no trapped focus in the sub-navigation |
+| Domain rules, recovery gate, restore from earlier backups, tampered history | **Done**: 452 unit, 22 PostgreSQL tests | — |
+| S3 log adapter (conditional writes, checksums, outage, timeout) | **Done** against an S3-compatible test server | Real S3 with Object Lock and IAM: **AWS account** (`staging-acceptance.md` C) |
+| Production build, TLS-only database, gates, status, worker | **Done**: rehearsal 34 / 34 | Hosted PostgreSQL, real Cognito: **AWS account, spending** (A, B) |
+| Provider point-in-time restore + recovery | Simulated with PostgreSQL clones | **Provider + AWS** (D) |
+| Scheduled worker, alarm, uptime monitor | Worker endpoint tested | **EventBridge, SNS, a monitor service** (E) |
+| MFA sign-in and re-authentication for gates | Token verification tested with real RSA keys | **Cognito + a phone authenticator** (A3 to A6) |
+| CloudFormation template | `cfn-lint` clean; structural tests | `validate-template` and a deploy: **AWS credentials** (A1) |
+| Automated accessibility (axe, keyboard reachability, reflow) | **Done** on 11 page states | — |
+| Screen readers and phones | — | **Real devices and a tester**, ideally one who uses assistive technology daily (§2) |
+| Founder weekly review at human pace | Kit ready (§3) | **The founder's time** (or a colleague who has not seen the code) |
+| Privacy notice, lawful basis, retention | Draft and questions (`privacy-launch-gates.md`) | **Counsel** |
+| Dual control | Reviewer role built | **An independent reviewer**, once appointed |
 
-Record: date, tester, assistive technology and version, browser, outcome per flow, issues with severity.
+## 2. Assistive-technology test (not performed)
 
-## 2. Human-paced founder review (not performed)
+**Who.** Preferably someone who uses a screen reader daily. Otherwise the founder, following the protocol exactly. Note which it was: findings from a daily user count for more.
 
-The automated browser run completes the representative session in about 10 seconds; that says nothing about the four-hour weekly target. Measure it:
+**Setup.** Use the local demo (`npm run dev:flight-deck`, then Health → Reset) or staging. Devices and assistive technology are as in `docs/design/accessibility-manual-test.md`:
 
-1. Reset the local demo (`npm run dev:flight-deck`, Health → Reset).
-2. A person who has not seen the code, ideally the founder, starts a timer and works from the Now board only:
-   - find the newest inquiry and read its context;
-   - draft a reply from the template and fill the placeholders;
-   - send it for review, approve the exact version, and record it as sent by hand;
-   - confirm the follow-up reminder exists;
-   - open and work a deletion-request case to completion;
-   - open the weekly review, read the digest, and mark the review complete.
-3. Record: total minutes, each step's minutes, every moment of hesitation or confusion, and anything they looked for and could not find.
+- iPhone with VoiceOver;
+- Android with TalkBack;
+- Mac with VoiceOver;
+- Windows with NVDA;
+- keyboard only;
+- 200% and 400% zoom;
+- reduced motion;
+- forced colours.
 
-Target: the representative session in **15 minutes or less** without help or a spreadsheet. Repeat on a phone.
+Cover at least **one phone and one desktop screen reader**.
 
-## 3. Production rehearsal on real infrastructure (not performed)
+**Tasks.** Each is a task, not a page tour. Write down what was announced, where you got stuck, and how long it took.
 
-The local rehearsal (`npm run rehearse:flight-deck`) proves the production build's gates against a TLS-only PostgreSQL, but with a fictitious Cognito pool. After the pool exists, on staging:
+| # | Task | Pages | Pass when |
+| --- | --- | --- | --- |
+| 1 | Send an inquiry as a member of the public (demo only: the form is closed in production) | `/pilot` | Every field, radio group, topic choice, and checkbox is announced with its label and hint. A deliberate error is announced and entries survive. The confirmation is announced. Works at 320 px and at 200% zoom |
+| 2 | Find this week's most urgent item and open it | Now | Landmarks and headings let you jump; status badges read as words, not colours |
+| 3 | Review and approve an outreach draft | Approvals, an outreach item | The fingerprint and "Approve this exact version" are reachable and understandable; the outcome is announced |
+| 4 | Record an opt-out and confirm it took effect | A relationship, Exceptions | The outcome message is announced; you can tell the person is now blocked |
+| 5 | Work a deletion request to the end | A case | Deadlines and checklist state are clear without colour; "Mark done" buttons say which step they complete |
+| 6 | Check whether contact is safe after a restore (new in 0.2.1) | Health → Recovery | The status ("Verified: contact allowed" / "Contact blocked: …") is read as text, and "Verify and replay now" is reachable. Any lift-confirmation rows are understandable |
+| 7 | Approve a launch gate (staging only, needs Cognito) | `/flight-deck/gates` | The statement, the checkbox, the freshness notice and "Sign in again" link, and the result are all announced |
 
-- sign in with a real operator account, including MFA enrolment, and sign out (the session must end on the server);
-- deactivate a second test operator while they are signed in; their next click must fail;
-- complete the restore drill in `operations.md` §6 against the chosen provider's point-in-time restore;
-- enable the worker schedule for a day and confirm runs, the status endpoint, and the alarm (by deliberately breaking the worker token once).
+**Record.**
+
+| Task | Device / OS | Browser | Assistive technology and version | Pass / fail | Time | What was announced; what went wrong | Severity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| | | | | | | | |
+
+**Severity:**
+
+- **Blocker**: the task cannot be completed.
+- **Serious**: completed only with workarounds.
+- **Minor**: friction.
+
+Blockers and serious issues are fixed before launch.
+
+## 3. Founder-run weekly review at human pace (not performed)
+
+The whole automated browser run, which includes the representative session, takes about 40 seconds. That says nothing about the target of **four hours of founder attention a week**. This kit measures both the session and a simulated week.
+
+### 3.1 Preparation (5 minutes)
+
+1. Start the demo with `npm run dev:flight-deck` and open `http://localhost:3100/flight-deck`. Choose "Continue as founder", then Health → Reset to synthetic seed.
+2. Have this page open on another screen, a timer, and the timing sheet below. Do **not** read the code or the docs during the run. If you need something you cannot find, note it: that is a finding.
+3. Optional: an observer who stays silent and writes down hesitations. The observer must not help.
+
+### 3.2 The session (target: 15 minutes or less)
+
+Work only from **Now** unless a step says otherwise.
+
+| # | Step | Start | End | Minutes | Hesitations, or what you looked for and could not find |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Find the newest inquiry and read its context | | | | |
+| 2 | Draft a reply from the template; fill every placeholder | | | | |
+| 3 | Send it for review, approve the exact version, record it as sent by hand | | | | |
+| 4 | Confirm the follow-up reminder exists | | | | |
+| 5 | A person asks to stop being contacted: record it | | | | |
+| 6 | Open a deletion request and work it to completion | | | | |
+| 7 | Check on Health that contact is verified safe after those changes | | | | |
+| 8 | Open the weekly review, read the digest, mark the review complete | | | | |
+| | **Total** | | | | |
+
+### 3.3 The simulated week (four sittings, four hours in all)
+
+Use the weekly review's four blocks as sittings, on different days if possible:
+
+- approvals, 30 minutes;
+- conversations, 90 minutes;
+- exceptions and permissions, 60 minutes;
+- progress and strategy, 60 minutes.
+
+For each sitting, note the minutes actually needed, what you postponed, and anything you had to keep in your head or in a spreadsheet because Flight Deck did not hold it. Sum the minutes. Pass: under four hours, with nothing kept outside Flight Deck.
+
+### 3.4 Afterwards
+
+Rate how confident you are, from 1 to 5, that nothing was missed. List the three biggest frictions. Then repeat steps 1, 2, and 5 on a phone.
+
+**Record:**
+
+| Date | Who | Device | Session minutes | Week minutes | Confidence (1 to 5) | Top frictions |
+| --- | --- | --- | --- | --- | --- | --- |
+| | | | | | | |
+
+## 4. Staging
+
+The staging stages (real Cognito MFA, hosted PostgreSQL, the log bucket, restore drills, worker monitoring, and incident recovery) are in `staging-acceptance.md`. Record them in `acceptance.md` §7.

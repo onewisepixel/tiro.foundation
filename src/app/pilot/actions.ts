@@ -6,6 +6,7 @@
 // checked in src/lib/flightDeck/intake.ts.
 import { processInterest, type IntakeResult } from "@/lib/flightDeck/intake";
 import { getRuntime, isPublicFormOpen, requestClientKey } from "@/lib/flightDeck/runtime";
+import { checkRecovery } from "@/lib/flightDeck/recovery";
 
 // What the person typed, echoed back (never stored) so a validation error
 // does not wipe their entries: React resets a form after its action runs.
@@ -36,6 +37,7 @@ export async function submitInterest(_prev: PilotFormState, formData: FormData):
   }
   const result = await processInterest(formData.entries(), {
     store: runtime.store,
+    recoveryOk: async () => (await checkRecovery(runtime.store)).ok,
     tokens: runtime.tokens,
     limiter: runtime.limiter,
     clientKey: await requestClientKey(runtime.clientSecret),

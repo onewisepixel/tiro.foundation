@@ -1,6 +1,6 @@
 {
-  "at": "2026-10-17T22:55:03.040Z",
-  "passed": 27,
+  "at": "2026-10-18T20:37:49.641Z",
+  "passed": 34,
   "failed": 0,
   "results": [
     {
@@ -16,7 +16,7 @@
     {
       "name": "admin: migrations apply over verified TLS",
       "ok": true,
-      "detail": "applied: 0001_operations_core, 0002_rate_limits, 0003_identity_and_activation; already applied: 0"
+      "detail": "applied: 0001_operations_core, 0002_rate_limits, 0003_identity_and_activation, 0004_protective_log_and_recovery; already applied: 0"
     },
     {
       "name": "admin: database marked as real data",
@@ -24,7 +24,7 @@
       "detail": ""
     },
     {
-      "name": "admin: the console gate is refused before any founder exists",
+      "name": "admin: a gate cannot be recorded from the script (console approval only)",
       "ok": true,
       "detail": ""
     },
@@ -34,12 +34,22 @@
       "detail": "added operator usr_… (founder); they must also exist in the Cognito pool and the \"flight-deck\" group"
     },
     {
-      "name": "admin: the public-form gate is refused while the privacy notice is a draft",
+      "name": "admin: list-gates reports the unsigned row as not valid",
+      "ok": true,
+      "detail": "console      approved by Rehearsal Founder at 2026-10-18T20:37:14.563Z  NOT VALID (unsigned)"
+    },
+    {
+      "name": "before the console gate, sign-in is reachable (bootstrap) and offers Cognito only",
       "ok": true,
       "detail": ""
     },
     {
-      "name": "before the console gate, /flight-deck is 404",
+      "name": "before the console gate, the console is 404 even with an unsigned gate row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "before the console gate, the gates page requires a session",
       "ok": true,
       "detail": ""
     },
@@ -59,7 +69,17 @@
       "detail": ""
     },
     {
-      "name": "admin: console gate recorded with a founder present",
+      "name": "console gate approved through the console's approval code (signed, journaled)",
+      "ok": true,
+      "detail": "{\"ok\":true,\"gate\":\"console\"}"
+    },
+    {
+      "name": "the approval is event 1 in the protective log (S3, conditional write)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the protective log holds no address or name",
       "ok": true,
       "detail": ""
     },
@@ -106,7 +126,7 @@
     {
       "name": "status before any worker run reports an action-level alert (503)",
       "ok": true,
-      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":null,\"alerts\":[{\"key\":\"ledger-missing\",\"severity\":\"warning\"},{\"key\":\"worker-stale\",\"severity\":\"action\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false}"
+      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":null,\"alerts\":[{\"key\":\"worker-stale\",\"severity\":\"action\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"verified\"}"
     },
     {
       "name": "worker with no token or the monitor token is 401",
@@ -116,12 +136,17 @@
     {
       "name": "a scheduled worker tick runs against the production database",
       "ok": true,
-      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_f2NTVccq5J7LnPxQ\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_LgTLZwWxoPLfWUzo\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
     },
     {
-      "name": "status after the tick is healthy (200); the missing ledger is a warning",
+      "name": "the tick wrote a reconciliation checkpoint to the protective log",
       "ok": true,
-      "detail": "{\"ok\":true,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[{\"key\":\"ledger-missing\",\"severity\":\"warning\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false}"
+      "detail": "fd-rehearsal-protective-log/flight-deck/checkpoints/000000000001.json"
+    },
+    {
+      "name": "status after the tick is healthy (200) with recovery verified and no alerts",
+      "ok": true,
+      "detail": "{\"ok\":true,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"verified\"}"
     },
     {
       "name": "the status body carries no names, addresses, or ids",
@@ -137,6 +162,16 @@
       "name": "no audit event contains an address or a name",
       "ok": true,
       "detail": ""
+    },
+    {
+      "name": "with the protective log unreachable, status is 503 and reports it",
+      "ok": true,
+      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"sink-unavailable\"}"
+    },
+    {
+      "name": "with the protective log unreachable, the worker dispatches nothing",
+      "ok": true,
+      "detail": "{\"ok\":true,\"outcome\":\"recovery-locked\",\"runId\":\"run_w49Nu2cKcRqQjUwd\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
     }
   ]
 }

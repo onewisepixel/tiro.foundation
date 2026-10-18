@@ -5,8 +5,14 @@
 // accepts TLS, with certificate and hostname verification against a
 // self-signed CA, then probes it over HTTP with the configured Host header.
 // The Cognito settings are well-formed but fictitious: no probe reaches
-// Cognito, and no network service is contacted. Requires `npm run build`
-// first and `openssl` on PATH.
+// Cognito. The protective event log is the real S3 adapter pointed at a
+// local S3-compatible test server (fake-s3.mjs). No network service outside
+// this machine is contacted. Requires `npm run build` first and `openssl`
+// on PATH.
+//
+// The one step a rehearsal cannot perform is a Cognito sign-in with MFA, so
+// the console gate is approved by rehearse-approve-gate.ts, which binds a
+// fictitious subject and then runs the console's own approval code.
 //
 //   npm run build && npm run rehearse:flight-deck
 //
@@ -63,6 +69,11 @@ fs.writeFileSync(path.join(dataDir, "pg_hba.conf"), "hostssl all all 127.0.0.1/3
   await c.end();
 }
 
+const { startFakeS3 } = await import("./fake-s3.mjs");
+const s3 = await startFakeS3();
+const BUCKET = "fd-rehearsal-protective-log";
+const s3Keys = (part) => [...s3.objects.keys()].filter((k) => k.startsWith(`${BUCKET}/flight-deck/${part}`));
+
 const HOST = "ops.rehearsal.invalid";
 const PORT = 3300 + randomInt(0, 200);
 const tokens = { worker: secret(), monitor: secret() };
@@ -83,6 +94,12 @@ const env = {
   FLIGHT_DECK_COGNITO_CLIENT_SECRET: secret(),
   FLIGHT_DECK_COGNITO_DOMAIN: "https://tiro-rehearsal.auth.eu-west-2.amazoncognito.com",
   FLIGHT_DECK_PUBLIC_ORIGIN: `https://${HOST}`,
+  FLIGHT_DECK_PROTECTIVE_BUCKET: BUCKET,
+  FLIGHT_DECK_PROTECTIVE_REGION: "eu-west-2",
+  FLIGHT_DECK_PROTECTIVE_ENDPOINT: s3.endpoint,
+  // The test server does not check signatures; these are not credentials.
+  AWS_ACCESS_KEY_ID: "rehearsal",
+  AWS_SECRET_ACCESS_KEY: "rehearsal",
   // Deliberately ON, to prove it opens nothing by itself.
   FLIGHT_DECK_PUBLIC_FORM_ENABLED: "true",
   FLIGHT_DECK_OUTBOUND_EMAIL_ENABLED: "true",
@@ -90,13 +107,26 @@ const env = {
 delete env.FLIGHT_DECK_DIST_DIR;
 
 const tsx = path.join(ROOT, "node_modules/tsx/dist/cli.mjs");
-function admin(...args) {
+const admin = (...args) => runTs("scripts/flight-deck/admin.ts", ...args);
+function runTs(script, ...args) {
   try {
-    const out = execFileSync(process.execPath, [tsx, "--import", "./scripts/test/server-only-hook.mjs", "scripts/flight-deck/admin.ts", ...args], { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const out = execFileSync(process.execPath, [tsx, "--import", "./scripts/test/server-only-hook.mjs", script, ...args], { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     return { ok: true, out: out.trim() };
   } catch (e) {
     return { ok: false, out: `${e.stdout ?? ""}${e.stderr ?? ""}`.trim() };
   }
+}
+
+// Asynchronous, for scripts that call the in-process S3 test server (a
+// synchronous child would block this process and so that server).
+function runTsAsync(script, ...args) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [tsx, "--import", "./scripts/test/server-only-hook.mjs", script, ...args], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (c) => (out += c));
+    child.stderr.on("data", (c) => (out += c));
+    child.on("close", (code) => resolve({ ok: code === 0, out: out.trim() }));
+  });
 }
 
 function request(method, pathname, { host = HOST, headers = {}, body } = {}) {
@@ -126,11 +156,20 @@ try {
   const migrated = admin("migrate");
   check("admin: migrations apply over verified TLS", migrated.ok && /applied: 0001/.test(migrated.out), migrated.out);
   check("admin: database marked as real data", admin("init", "--real").ok);
-  check("admin: the console gate is refused before any founder exists", !admin("record-gate", "console", "--by", "Rehearsal").ok);
+  const scripted = admin("record-gate", "console", "--by", "Rehearsal");
+  check("admin: a gate cannot be recorded from the script (console approval only)", !scripted.ok && /use \/flight-deck\/gates/.test(scripted.out));
   const added = admin("add-operator", "--email", "founder@rehearsal.invalid", "--name", "Rehearsal Founder", "--role", "founder");
   check("admin: named founder operator added", added.ok, added.out.replace(/usr_\w+/, "usr_…"));
-  const formGate = admin("record-gate", "public-form", "--by", "Rehearsal", "--notice-version", "pilot-privacy-draft-0.2");
-  check("admin: the public-form gate is refused while the privacy notice is a draft", !formGate.ok && /still a draft/.test(formGate.out));
+  // A gate row written straight into the database, as the 0.2 script did
+  // (a free-text name, no signature), must open nothing.
+  {
+    const c = new pg.Client({ connectionString: `postgresql://fd_owner:${pgPassword}@localhost:${pgPort}/flight_deck_rehearsal`, ssl: { ca, rejectUnauthorized: true } });
+    await c.connect();
+    await c.query("insert into fd_activation_gates (gate, approved_by, approved_at, detail) values ('console', 'Rehearsal Founder', now(), '{}')");
+    await c.end();
+  }
+  const listed = admin("list-gates");
+  check("admin: list-gates reports the unsigned row as not valid", listed.ok && /NOT VALID \(unsigned\)/.test(listed.out), listed.out);
 
   next = spawn(process.execPath, [require.resolve("next/dist/bin/next"), "start", "-p", String(PORT), "-H", "127.0.0.1"], { cwd: ROOT, env, stdio: "ignore" });
   for (let i = 0; i < 60; i++) {
@@ -142,14 +181,22 @@ try {
     }
   }
 
-  // Before the console gate: nothing private exists.
-  check("before the console gate, /flight-deck is 404", (await request("GET", "/flight-deck/sign-in")).status === 404);
+  // Before a valid console gate: only sign-in and the gates page exist, so
+  // a founder can approve; the console and machine endpoints do not.
+  const boot = await request("GET", "/flight-deck/sign-in");
+  check("before the console gate, sign-in is reachable (bootstrap) and offers Cognito only", boot.status === 200 && boot.body.includes("Continue to sign in") && !boot.body.includes("Demo Founder"));
+  check("before the console gate, the console is 404 even with an unsigned gate row", (await request("GET", "/flight-deck")).status === 404 && (await request("GET", "/flight-deck/relationships")).status === 404);
+  check("before the console gate, the gates page requires a session", (await request("GET", "/flight-deck/gates")).status === 307);
   check("a request on any other host is 404", (await request("GET", "/flight-deck/sign-in", { host: "localhost" })).status === 404);
   check("machine endpoints are 404 before the gate", (await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } })).status === 404);
   const pilot = await request("GET", "/pilot");
   check("/pilot form stays closed in production with its flag on (draft notice, no gate)", pilot.status === 200 && pilot.body.includes("Form not yet open") && !/name="email"/.test(pilot.body));
 
-  check("admin: console gate recorded with a founder present", admin("record-gate", "console", "--by", "Rehearsal Founder").ok);
+  const approved = await runTsAsync("scripts/flight-deck/rehearse-approve-gate.ts", "founder@rehearsal.invalid", "rehearsal-subject-0001");
+  check("console gate approved through the console's approval code (signed, journaled)", approved.ok, approved.out);
+  const ev1 = s3.objects.get(`${BUCKET}/flight-deck/events/000000000001.json`)?.toString("utf8") ?? "";
+  check("the approval is event 1 in the protective log (S3, conditional write)", /"kind":"gate-recorded"/.test(ev1) && s3.requests.some((r) => r.method === "PUT" && r.ifNoneMatch === "*"));
+  check("the protective log holds no address or name", !/@|Rehearsal Founder/.test(JSON.stringify([...s3.objects.values()].map(String))));
   await sleep(31_000); // gate cache: 30 s
 
   const signIn = await request("GET", "/flight-deck/sign-in");
@@ -180,9 +227,10 @@ try {
   const tick = await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } });
   const t = JSON.parse(tick.body);
   check("a scheduled worker tick runs against the production database", tick.status === 200 && t.outcome === "ok", tick.body);
+  check("the tick wrote a reconciliation checkpoint to the protective log", s3Keys("checkpoints/").length === 1, s3Keys("checkpoints/").join(","));
   const status2 = await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } });
   const s2 = JSON.parse(status2.body);
-  check("status after the tick is healthy (200); the missing ledger is a warning", status2.status === 200 && s2.worker?.lastOutcome === "ok" && s2.alerts.some((a) => a.key === "ledger-missing" && a.severity === "warning"), status2.body);
+  check("status after the tick is healthy (200) with recovery verified and no alerts", status2.status === 200 && s2.worker?.lastOutcome === "ok" && s2.recovery === "verified" && s2.alerts.length === 0, status2.body);
   check("the status body carries no names, addresses, or ids", !/@|prs_|usr_|Rehearsal/.test(status2.body));
 
   // Database-side facts.
@@ -195,10 +243,20 @@ try {
   await db.end();
   check("the database is marked real, holds one worker run, and its connections use TLS", meta === false && runs === 1 && sslInUse === true);
   check("no audit event contains an address or a name", !/@|Rehearsal Founder/.test(audit));
+
+  // The protective log becomes unreachable: contact must stop and the
+  // monitor must say so.
+  await s3.stop();
+  const status3 = await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } });
+  const s3body = JSON.parse(status3.body);
+  check("with the protective log unreachable, status is 503 and reports it", status3.status === 503 && s3body.recovery === "sink-unavailable", status3.body);
+  const tick2 = JSON.parse((await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } })).body);
+  check("with the protective log unreachable, the worker dispatches nothing", tick2.outcome !== "ok" && tick2.jobsClaimed === 0, JSON.stringify(tick2));
 } catch (e) {
   check("rehearsal completed", false, e instanceof Error ? e.message : String(e));
 } finally {
   next?.kill();
+  await s3.stop().catch(() => undefined);
   await sleep(500);
   await server.stop().catch(() => undefined);
   fs.rmSync(work, { recursive: true, force: true });

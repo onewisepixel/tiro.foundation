@@ -82,6 +82,7 @@ function outreachGate(tx: OpsTx, draft: OutreachDraft) {
 
 export function queueDispatch(tx: OpsTx, actor: Actor, type: "outreach" | "content", id: string): DispatchJob {
   requireCapability(actor, "dispatch");
+  assertRecovered(tx);
   const check = currentApproval(tx, type, id);
   if (!check.ok) {
     throw new GateError(check.reason);
@@ -145,12 +146,28 @@ type Prepared =
   | { kind: "social"; jobId: string; channel: string; body: string; key: string }
   | { kind: "newsletter"; jobId: string };
 
-export type RunSummary = { paused: boolean; claimed: number; outcomes: Record<string, number> };
+// blocked: "paused" (the founder's global pause) or "recovery" (the
+// database has not been reconciled with the protective log; recovery.ts).
+export type RunSummary = { paused: boolean; blocked: "paused" | "recovery" | null; claimed: number; outcomes: Record<string, number> };
+
+// Nothing contacts anyone while the database is unreconciled with the
+// protective log: it may be missing an opt-out or an erasure.
+export function assertRecovered(tx: OpsTx) {
+  if (tx.settings().recoveryLock) {
+    throw new GateError("recovery-unverified");
+  }
+}
 
 export async function runDueJobs(store: OperationsStore, providers: Providers, actor: Actor = SYSTEM): Promise<RunSummary> {
   requireCapability(actor, "dispatch");
+  let blocked: "paused" | "recovery" | null = null;
   const claimed = await store.transaction((tx) => {
+    if (tx.settings().recoveryLock) {
+      blocked = "recovery";
+      return null;
+    }
     if (tx.settings().allOutboundPaused) {
+      blocked = "paused";
       return null;
     }
     const due = tx.list("jobs", (j) => (j.status === "queued" && (j.nextAttemptAt ?? "") <= tx.nowIso) || (j.status === "running" && (j.nextAttemptAt ?? "") <= tx.nowIso));
@@ -160,7 +177,7 @@ export async function runDueJobs(store: OperationsStore, providers: Providers, a
     return due.map((j) => j.id);
   });
   if (claimed === null) {
-    return { paused: true, claimed: 0, outcomes: {} };
+    return { paused: true, blocked, claimed: 0, outcomes: {} };
   }
   const outcomes: Record<string, number> = {};
   const tally = (k: string) => (outcomes[k] = (outcomes[k] ?? 0) + 1);
@@ -185,7 +202,7 @@ export async function runDueJobs(store: OperationsStore, providers: Providers, a
     await store.transaction((tx) => settle(tx, jobId, result));
     tally(result.kind);
   }
-  return { paused: false, claimed: claimed.length, outcomes };
+  return { paused: false, blocked: null, claimed: claimed.length, outcomes };
 }
 
 function hold(tx: OpsTx, job: DispatchJob, reason: string, cancel: boolean): Prepared {
@@ -217,7 +234,7 @@ function prepare(tx: OpsTx, jobId: string): Prepared {
     tx.update("jobs", job.id, job.version, { status: receipt.result === "simulated" ? "simulated" : "succeeded", nextAttemptAt: null });
     return { kind: "skip" };
   }
-  if (tx.settings().allOutboundPaused) {
+  if (tx.settings().allOutboundPaused || tx.settings().recoveryLock) {
     tx.update("jobs", job.id, job.version, { status: "queued", nextAttemptAt: tx.nowIso });
     return { kind: "skip" };
   }
@@ -365,6 +382,7 @@ function markManualReady(tx: OpsTx, type: "outreach" | "content", id: string) {
 // attestation, never as a provider confirmation.
 export function recordManualSend(tx: OpsTx, actor: Actor, outreachId: string) {
   requireCapability(actor, "dispatch");
+  assertRecovered(tx);
   if (tx.settings().allOutboundPaused) {
     throw new GateError("outbound-paused");
   }
@@ -404,6 +422,7 @@ export function recordManualSend(tx: OpsTx, actor: Actor, outreachId: string) {
 
 export function recordManualPublication(tx: OpsTx, actor: Actor, contentId: string, externalUrl: string | null) {
   requireCapability(actor, "dispatch");
+  assertRecovered(tx);
   if (tx.settings().allOutboundPaused) {
     throw new GateError("outbound-paused");
   }

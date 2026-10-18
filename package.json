@@ -11,15 +11,16 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --import ./scripts/test/server-only-hook.mjs --test src/lib/recordKind.test.ts src/data/memories.test.ts src/lib/publicMemoryApi.test.ts src/lib/livingTrace/projection.test.ts src/lib/livingTrace/layout.test.ts src/lib/flightDeck/flightDeck.test.ts src/lib/flightDeck/production.test.ts src/lib/flightDeck/deployTemplate.test.ts \"backend/src/**/*.test.ts\"",
+    "test": "tsx --import ./scripts/test/server-only-hook.mjs --test src/lib/recordKind.test.ts src/data/memories.test.ts src/lib/publicMemoryApi.test.ts src/lib/livingTrace/projection.test.ts src/lib/livingTrace/layout.test.ts src/lib/flightDeck/flightDeck.test.ts src/lib/flightDeck/production.test.ts src/lib/flightDeck/deployTemplate.test.ts src/lib/flightDeck/protective.test.ts src/lib/flightDeck/s3Sink.test.ts \"backend/src/**/*.test.ts\"",
     "verify:disclosure": "node scripts/test/verify-disclosure.mjs",
     "dev:flight-deck": "node scripts/flight-deck/dev.mjs",
     "e2e:flight-deck": "node scripts/flight-deck/e2e.mjs",
-    "test:flight-deck-pg": "tsx --import ./scripts/test/server-only-hook.mjs --test --test-concurrency=1 src/lib/flightDeck/postgres/postgres.test.ts",
+    "test:flight-deck-pg": "tsx --import ./scripts/test/server-only-hook.mjs --test --test-concurrency=1 src/lib/flightDeck/postgres/postgres.test.ts src/lib/flightDeck/postgres/recovery.test.ts",
     "flight-deck:admin": "tsx --import ./scripts/test/server-only-hook.mjs scripts/flight-deck/admin.ts",
     "rehearse:flight-deck": "node scripts/flight-deck/rehearse-production.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1146.0",
     "next": "^16.3.4",
     "pg": "8.16.3",
     "react": "^19.0.0",

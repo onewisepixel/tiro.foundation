@@ -1,7 +1,7 @@
 # Flight Deck: privacy and launch gates
 
 Status: **Proposal for founder and legal review. Nothing here is a finalized legal policy.** The public form must stay closed until every gate in §5 is met and recorded.
-Revision date: 2026-10-17 (0.2: free-text note removed; gates updated).
+Revision date: 2026-10-18 (0.2: free-text note removed. 0.2.1: gates approved in the console by a verified founder; protective event log).
 
 ## 1. Data inventory (prospective contacts only)
 
@@ -17,6 +17,7 @@ Revision date: 2026-10-17 (0.2: free-text note removed; gates updated).
 | Interaction summaries | Staff | Continuity | Operations store | Same as the prospect |
 | Source evidence link and reason (researched contacts) | Staff | Legitimate-interest record | Operations store | Same |
 | Audit events | System | Accountability | Operations store (insert-only) | Proposed 24 months; contains no personal text |
+| Protective events (opt-outs, lifts, erasures, operator changes, gate approvals) | System | A restore must never undo them | Separate S3 bucket, Object Lock (not provisioned) | Kept while any backup could need them: at least the backup window plus margin (default 35 days of locked retention; objects are not deleted automatically). Opaque ids, keyed email hashes, codes, and times only: no name, address, or text |
 | Aggregate form counters | System | Abuse monitoring | Operations store | Proposed 24 months; no identifiers |
 | Client network address | Request | Rate limiting | **In memory only, as a keyed hash; never stored** | Minutes |
 
@@ -44,7 +45,7 @@ Data location and transfer path; sub-processors; encryption at rest and in trans
 
 ## 5. Gates before real forms or real contacts
 
-All must be met, with dated evidence, before a real contact is entered or the public form is opened. Software now enforces the last two lines: the admin script refuses the console gate without an active founder operator, and refuses the public-form gate while the notice version contains "draft".
+All must be met, with dated evidence, before a real contact is entered or the public form is opened. Software enforces the last two lines. Both gates are approved only at `/flight-deck/gates`, by an active founder who signed in through Cognito with MFA within the last 10 minutes; each approval is signed by the server, written to the protective log, and re-checked every time it is used. The public-form approval is additionally refused while the notice version contains "draft", before the console gate, and without a reference to the founder's separate written authorization. That written authorization stays outside Flight Deck and is still required.
 
 Built in 0.2 (prepared, tested locally, not provisioned):
 - [x] A production adapter for the store contract (PostgreSQL), passing the integration suite against real PostgreSQL.
@@ -53,18 +54,24 @@ Built in 0.2 (prepared, tested locally, not provisioned):
 - [x] Exception procedures (sensitive material, opt-out, deletion, access, complaints, incidents) as tracked cases.
 - [x] Restore ledger and replay procedure.
 
+Built in 0.2.1 (prepared, tested locally, not provisioned):
+- [x] Protective event log written before every opt-out, lift, erasure, deactivation, role change, and gate approval commits; S3 adapter tested through the AWS SDK.
+- [x] Recovery gate: no contact after a restore until the log is replayed and verified; lifts reconfirmed by a founder; tampered history locks for a founder (`recovery-guarantees.md`).
+- [x] Gate approvals attributable to a verified, freshly authenticated founder.
+
 Requiring decisions, accounts, or spending:
 - [ ] Database provider and region chosen (`integrations.md` §4); provisioned in a TIRO-controlled account with TLS, encryption, backups with a stated retention window, and a successful restore drill.
 - [ ] Cognito pool deployed from the template, MFA enrolment tested, founder operator added and signed in once.
 - [ ] Secrets in Secrets Manager and injected by the host; `check-config` reports complete.
-- [ ] Restore-ledger object store provisioned (versioned, write-once).
+- [ ] Protective log bucket deployed from the template (versioned, Object Lock); app policy attached; read-only policy used for drills; restore drills passed (`staging-acceptance.md` C, D).
 - [ ] Worker schedule enabled and the alarm subscribed; status endpoint monitored.
 - [ ] Privacy notice reviewed by counsel, controller named, version bumped without "draft", and published.
 - [ ] Retention periods approved; a deletion request run end to end on staging.
 - [ ] Communications rules reviewed for introductions and follow-ups; message footers approved.
 - [ ] Manual accessibility test of `/pilot` and `/flight-deck` performed and recorded (`manual-tests.md`).
 - [ ] Human-paced founder review timed and recorded (`manual-tests.md`).
-- [ ] Founder records the console gate (`record-gate console`), naming the operators.
-- [ ] Separately, in writing: the founder authorizes opening the public form, then records the public-form gate.
+- [ ] A named backup operator appointed before any unattended collection; an independent reviewer before relying on dual control.
+- [ ] Founder approves the console gate at `/flight-deck/gates` after a fresh MFA sign-in.
+- [ ] Separately, in writing: the founder authorizes opening the public form, then approves the public-form gate at `/flight-deck/gates`, citing that authorization.
 
 None of these is met today. **This is not collection readiness**: real testimony remains subject to the separate gates in `collection-readiness-future.md` and `docs/ethos.txt` §6.1.

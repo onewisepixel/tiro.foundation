@@ -1,8 +1,93 @@
-# Flight Deck: acceptance evidence (0.2 production foundation)
+# Flight Deck: acceptance evidence (0.2.1 recovery hardening and staging readiness)
 
-Status: **Local evidence, 2026-10-17.** Nothing is deployed, no AWS resource or account exists, no real contact data exists, no message has been sent, and no post has been published. The 0.1 evidence is in git history (commit `2ab612e`).
+Status: **Local evidence, 2026-10-18.** Nothing is deployed. No AWS resource or account exists, there is no real contact data, no message has been sent, and no post has been published. The public form is closed. The 0.2 evidence follows in §8 and is unchanged.
 
-## 1. Live / prepared / not built
+## 1. Live / prepared / not built (0.2.1)
+
+| Capability | State |
+| --- | --- |
+| Protective event log (opt-outs, lifts, erasures, deactivations, role changes, gate approvals) | **Prepared and tested**: local file log in the demo; S3 adapter tested through the AWS SDK against an S3-compatible test server; bucket in the template, **not created** |
+| Recovery gate (no contact after a restore until verified) | **Built and tested** on in-process stores and real PostgreSQL clones |
+| Gate approval by a verified, freshly authenticated founder | **Built**; exercised in the production rehearsal with the console's approval code (a real Cognito sign-in is a staging step) |
+| Provider comparison with costs | **Done** (`integrations.md` §4) |
+| CloudFormation template | **Linted, not deployed** |
+| Staging acceptance plan | **Written** (`staging-acceptance.md`), not run |
+| Manual accessibility and human-paced review | **Kits ready** (`manual-tests.md`), not run |
+
+## 2. Commands and measured results (0.2.1)
+
+Windows 11, Node 22.17.1, Next.js 16.3.8, PostgreSQL 17.10 (embedded, temporary).
+
+| Command | Result |
+| --- | --- |
+| `npm test` | **452 / 452** |
+| `npm run test:flight-deck-pg` | **22 / 22** against real PostgreSQL (15 from 0.2, 7 recovery tests on database clones) |
+| `npx tsc --noEmit` | Clean |
+| `npm run lint` | 0 errors; the 2 pre-existing `backend/` warnings only |
+| `npm run build` | Succeeds |
+| `npm run verify:disclosure` | "disclosure boundary holds in the production build" |
+| Client-bundle scan for the new server-only code (S3 sink, journal, gate-signing key, session secret, PostgreSQL store) | **0 matches** |
+| `npm run rehearse:flight-deck`: production build, TLS-only PostgreSQL, the real S3 adapter against a local test server | **34 / 34** (`screens/production-rehearsal.json`). Covers:<ul><li>script gate refused;</li><li>an unsigned gate row opens nothing;</li><li>bootstrap sign-in;</li><li>a signed approval journaled to S3 with a conditional write;</li><li>no address in the log;</li><li>a checkpoint written;</li><li>status `recovery: verified`;</li><li>a log outage gives 503 `sink-unavailable` and nothing dispatched.</li></ul> |
+| `npm run e2e:flight-deck`: browser, **local file store** | **52 / 52**, including the Health recovery section (head advanced by the opt-out and erasure) and founder verification |
+| Same browser run on **local PostgreSQL** | **52 / 52** |
+| `cfn-lint` 1.57.1, all rules including informational, regions eu-west-2, us-east-1, af-south-1, eu-central-1 | **0 findings** (and confirmed to report errors on a deliberately broken copy) |
+| `npm audit --omit=dev` | 1 high: `brace-expansion` inside `aws-cdk-lib`'s bundled dependencies (the `infra/` workspace, which this work may not change). The Flight Deck runtime packages (`next`, `react`, `pg`, `@aws-sdk/client-s3`) report none |
+
+## 3. 0.2.1 requirements
+
+| Requirement | Evidence | Result |
+| --- | --- | --- |
+| Append-only external sink; versioned S3 adapter; local test adapter | `protective.ts`, `s3Sink.ts`, template bucket (versioning, Object Lock, deny bypass, TLS-only, app may not delete); file sink created exclusively and read-only | Pass (locally) |
+| Restoring older content cannot undo opt-outs, erasures, or later authorized changes | Restores from before and after each kind of decision, in memory and on PostgreSQL clones | Pass |
+| A failure between DB write and log write is handled explicitly; nothing reported as done without durability | The log is written before commit and a failure rolls back. A crash after the log write is detected and replayed. S3 calls are bounded. Deactivation with the log down ends sessions and says it is not durable | Pass |
+| Data minimization in events | Test over every kind; rehearsal checks the S3 bytes | Pass |
+| Periodic ledger kept as a checkpoint | The worker writes `checkpoints/{seq}.json`; `replay-ledger` kept, lifts now never re-applied | Pass |
+| Recovery gate blocks contact until replayed and verified | Dispatch, manual send and publication, queueing, and the public form all refuse while locked or while the log is unreachable | Pass |
+| Interrupted recovery, missing, duplicate, failed writes, tampered and out-of-order history | `protective.test.ts`, `recovery.test.ts` | Pass |
+| Guarantees and remaining windows documented | `recovery-guarantees.md` (G1 to G8, W1 to W10) | Done |
+| Gate recording attributable to a verified, active, authorized founder | `gates.ts`, `/flight-deck/gates`; the script's `record-gate` now refuses and points to the console; the written approval for the public form still required | Pass (locally); Cognito re-authentication is a staging step |
+| Provider comparison | `integrations.md` §4: official AWS price list (2026-10-18) for four regions; Neon from secondary sources (flagged) | Done |
+| Template validated without deploying | `cfn-lint` clean; structural tests | Pass; `validate-template` needs credentials |
+| Staged acceptance plan | `staging-acceptance.md` | Done |
+| CI verification | The 0.2 commit's run (39112762127) passed every step, including the PostgreSQL integration tests. 0.2.1 is not committed, so it has not run in CI | Partly: rerun in CI after commit |
+| Dependency triage without blanket upgrades | §2: the only runtime finding is outside Flight Deck and inside `infra/`. Development-only findings are DoS advisories in the lint toolchain. `npm audit fix --force` would downgrade `eslint-config-next` to 14, so it was not applied | Done; no upgrade applied |
+| Manual acceptance kits, local vs real | `manual-tests.md` §1 to §3 | Done (not performed) |
+
+## 4. Defects found and fixed during 0.2.1
+
+1. **Reconciliation could loop forever on reordered log objects** (found by the tampering test as an out-of-memory crash). Paging now requires strictly increasing sequence numbers.
+2. **A lifecycle rule could have expired the event at the database's head**, which would lock contact permanently. Events are never expired; only superseded checkpoint versions are.
+3. **An unreachable log did not block manual sends** (the condition was not persisted). Manual send, publication, and queueing now check recovery directly.
+4. **A hung S3 call could hold a database transaction until the server killed it** (found by the rehearsal). Every S3 call is now bounded at 5 seconds, retries included.
+5. **The admin script bypassed the protective log on real data, and ledger replay re-applied lifts.** The script now journals through the same log (and refuses without it on real data). Ledger replay turns lifts into founder confirmation tasks.
+6. **A restore-drill copy could have written events to the production log**, which production would then replay. Fixed with a read-only log policy in the template and the drill procedure.
+7. **A provider restore with nothing to replay was never explicitly verified, and a session signed out after the backup could revive.** Fixed with `mark-restored` (lock plus end all sessions).
+
+## 5. Not performed (0.2.1)
+
+These need a real account, device, service, or reviewer (`manual-tests.md` §1):
+
+- anything on AWS: Cognito MFA and re-authentication, a hosted database, S3 Object Lock and IAM in effect, a point-in-time restore, EventBridge and the alarm;
+- `validate-template` and a staging deploy;
+- screen-reader and phone testing;
+- the human-paced founder review;
+- CI on the 0.2.1 changes.
+
+## 6. Screenshots
+
+As in 0.2, plus `health-recovery-desktop.png` (Health with the protective log verified). All synthetic.
+
+## 7. Staging records
+
+To be filled from `staging-acceptance.md`.
+
+| Stage | Date | Who | Outcome | Defects |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
+## 8. 0.2 evidence (2026-10-17, unchanged)
+
+### 8.1 Live / prepared / not built
 
 | Capability | State |
 | --- | --- |
@@ -14,7 +99,7 @@ Status: **Local evidence, 2026-10-17.** Nothing is deployed, no AWS resource or 
 | Restore ledger sink | **Not provisioned** (warning shown) |
 | Email, social, AI drafting, archive intake | **Off** by decision; no live implementation exists |
 
-## 2. Commands and measured results
+### 8.2 Commands and measured results
 
 Windows 11, Node 22.17.1, Next.js 16.3.8, PostgreSQL 17.10 (embedded, temporary).
 
@@ -33,7 +118,7 @@ Windows 11, Node 22.17.1, Next.js 16.3.8, PostgreSQL 17.10 (embedded, temporary)
 | `npm run rehearse:flight-deck`: production build against a TLS-only PostgreSQL with certificate verification | **27 / 27** (`screens/production-rehearsal.json`) |
 | `npm run flight-deck:admin -- check-config` with no production settings | Lists the 11 missing settings by name only; exit 1 |
 
-## 3. 0.2 validation requirements
+### 8.3 0.2 validation requirements
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
@@ -52,16 +137,16 @@ Windows 11, Node 22.17.1, Next.js 16.3.8, PostgreSQL 17.10 (embedded, temporary)
 | Exceptions | Unit: opt-out case suppresses at once; deletion case holds outreach and completes on erasure; redaction leaves no trace of content; founder-only resolution; incident pause. E2E: a deletion request worked end to end in the browser | Pass |
 | Regression of 0.1 guarantees | All 0.1 tests (exact-version approvals, dispatch-time checks, pause, audit safety, separation from the archive) still pass | Pass |
 
-## 4. Defects found and fixed during 0.2
+### 8.4 Defects found and fixed during 0.2
 
 1. **Process crash on a dropped database connection** (no `error` listener on pool clients). Found by the killed-connection test; fixed.
 2. **A CA certificate silently ignored** when `sslmode` appears in the connection URL (a node-postgres precedence rule). Found while building the rehearsal; fixed and covered by the TLS-only rehearsal.
 3. **Primary button contrast 2.04:1** on `/pilot` (light text on gold, from 0.1, caused by CSS layer order). Found by axe; fixed.
 
-## 5. Not performed
+### 8.5 Not performed
 
 Manual screen-reader and device testing; human-paced timing of the founder review; any test with a real Cognito pool, real database provider, or provider point-in-time restore; `validate-template` or a staging deploy of the CloudFormation template; the new CI step on GitHub's runners (added, not yet run there). Protocols: `manual-tests.md`.
 
-## 6. Screenshots
+### 8.6 Screenshots
 
 `docs/flight-deck/screens/`: the public form with topic choices, a validation error with entries preserved, the confirmation, mobile and reduced-motion views; Now, a relationship, Approvals, an outreach item ready to send by hand, Health with the worker, the weekly review, a deletion-request case; light theme. All synthetic.

@@ -77,7 +77,9 @@ export function openTransaction(value: string | undefined, secret: string, now: 
   }
 }
 
-export function authorizeUrl(c: CognitoConfig, t: LoginTransaction): string {
+// reauth: force a fresh sign-in (launch-gate approvals), not a silent
+// reuse of the identity provider's session.
+export function authorizeUrl(c: CognitoConfig, t: LoginTransaction, opts: { reauth?: boolean } = {}): string {
   const u = new URL("/oauth2/authorize", c.domain);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", c.clientId);
@@ -87,6 +89,10 @@ export function authorizeUrl(c: CognitoConfig, t: LoginTransaction): string {
   u.searchParams.set("nonce", t.nonce);
   u.searchParams.set("code_challenge", pkceChallenge(t.verifier));
   u.searchParams.set("code_challenge_method", "S256");
+  if (opts.reauth) {
+    u.searchParams.set("prompt", "login");
+    u.searchParams.set("max_age", "0");
+  }
   return u.toString();
 }
 
