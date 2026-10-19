@@ -11,6 +11,8 @@
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 import { eventKey, SinkConflict, SinkUnavailable, type ProtectiveEvent, type ProtectiveSink } from "./protective";
 
+const FENCE = "checkpoints/fence.json";
+
 export type S3SinkConfig = {
   bucket: string;
   region: string;
@@ -109,6 +111,25 @@ export class S3ProtectiveSink implements ProtectiveSink {
       }
     }
     return out;
+  }
+
+  // The restore fence: one overwritable object beside the checkpoints, so
+  // the template's lifecycle rule expires its superseded versions.
+  async readFence(): Promise<number | null> {
+    try {
+      const res = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: this.key(FENCE) }), bounded());
+      const n = (JSON.parse((await res.Body?.transformToString("utf8")) ?? "{}") as { fence?: unknown }).fence;
+      return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : null;
+    } catch (err) {
+      if (status(err) === 404 || name(err) === "NoSuchKey") {
+        return null;
+      }
+      throw new SinkUnavailable();
+    }
+  }
+
+  async writeFence(n: number): Promise<void> {
+    await this.writeCheckpoint("fence.json", JSON.stringify({ fence: n }));
   }
 
   async writeCheckpoint(nameOf: string, body: string): Promise<void> {

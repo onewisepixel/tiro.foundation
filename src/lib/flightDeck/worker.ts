@@ -22,7 +22,7 @@ import { audit, SYSTEM } from "./access";
 import { runDueJobs } from "./dispatch";
 import { buildLedger, type LedgerSink } from "./ledger";
 import type { IdentityStore } from "./identity";
-import { checkRecovery, reconcile } from "./recovery";
+import { advanceFence, checkRecovery, reconcile } from "./recovery";
 import { newId } from "./ids";
 import type { Providers } from "./providers";
 import type { OperationsStore, OpsTx } from "./store";
@@ -154,6 +154,9 @@ export async function runWorkerTick(deps: WorkerDeps): Promise<TickSummary> {
       if (deps.ledgerSink) {
         await deps.ledgerSink.write(ledger);
       }
+      // Restore fence: a copy of this database restored from before now will
+      // be behind the bucket and locked, even if no protective event is lost.
+      await advanceFence(deps.store);
     }
     const outcome = !recovery.ok ? "recovery-locked" : jobs.paused ? "paused" : "ok";
     const id = run.id;

@@ -1,7 +1,7 @@
-# Flight Deck: recovery guarantees and remaining failure windows (0.2.1)
+# Flight Deck: recovery guarantees and remaining failure windows (0.2.1, with review corrections)
 
 Status: **Describes the code as built and tested locally.** Nothing here has run against AWS. The guarantees that depend on S3 Object Lock, IAM, or a provider's point-in-time restore are design guarantees until the staging drills in `staging-acceptance.md` have passed.
-Revision date: 2026-10-18.
+Revision date: 2026-10-19. Supersedes the 2026-10-18 version: replay is now conservative about anything that increases access (§2 G3), restored copies are detected and isolated mechanically (G7, G9), and the corrections' test results are in §4.
 
 ## 1. What is protected
 
@@ -16,75 +16,94 @@ Six kinds of decision are **protective events**:
 
 Each is written to an append-only log outside the database (`protective.ts`; production: `s3Sink.ts` and the Object Lock bucket in `deploy/flight-deck/`).
 
-Each event carries only opaque ids, keyed email hashes, codes, and timestamps: never a name, an address, a note, or a message body. A test checks this on every kind. The production rehearsal checks the bytes written to S3.
+Each event carries only opaque ids, keyed email hashes, codes, and timestamps: never a name, an address, a note, or a message body. A test checks this on every kind, and the production rehearsal checks the bytes written to S3.
 
 ## 2. Guarantees
 
-**G1. The log is written before the decision commits.** The event is appended inside the database transaction, after the change is computed and before `COMMIT` (`store.ts`, `postgres/store.ts`, `identity.ts`). The log's head row is locked (`FOR UPDATE`), so appends are serialized.
+**G1. The log is written before the decision commits.** The event is appended inside the database transaction, after the change is computed and before `COMMIT`. The log's head row is locked, so appends are serialized.
 
-- If the append fails, the transaction rolls back and the person sees "not done". The UI never says an opt-out, erasure, or deactivation succeeded unless its event is in the log.
-- Each S3 call is bounded at 5 seconds, retries included, inside the database's 15-second transaction limit. A hung log ends as "unavailable", not as a transaction killed by the server.
-- One exception is deliberate. If deactivating an operator cannot be journaled, their sessions are still ended at once, and the founder is told the deactivation itself is **not durable** and must be repeated.
+- If the append fails, the transaction rolls back and the person is told "not done".
+- Each S3 call is bounded at 5 seconds, retries included, inside the database's 15-second transaction limit.
+- One deliberate exception: if an operator's deactivation cannot be journaled, their sessions are still ended at once, and the founder is told the deactivation itself is not durable.
 
-**G2. A restore never yields less protection than the log records.** After any restore:
+**G2. A restore never yields less protection than the log records.** After any restore, every contact path refuses until the missing events are replayed and verified. Opt-outs, erasures, and deactivations made after the backup are re-applied, as are role changes that only remove capabilities.
 
-- if the database is behind the log, every contact path refuses until the missing events are replayed and verified. Contact paths are dispatch, manual sends, manual publications, queueing, and the public form;
-- opt-outs, erasures, deactivations, role changes, and gate approvals made after the backup are re-applied;
-- tests cover restores from backups taken before and after each kind of decision (`protective.test.ts`; `postgres/recovery.test.ts` on real PostgreSQL clones; `s3Sink.test.ts` through the AWS SDK).
+**G3. Nothing that would increase access is re-applied from the log.** An event beyond the database's head may belong to a transaction that **never committed**, because the log is written first. So recovery re-applies an event only if it cannot increase anyone's access:
 
-**G3. Lifts are never re-applied automatically.** A lift reduces protection. After a restore, the opt-out stays in force and the founder gets a confirmation task (Health → Recovery). Confirming it journals a new lift. The checkpoint ledger replay follows the same rule (`ledger.ts`).
+| Event | Re-applied by recovery? |
+| --- | --- |
+| Opt-out, erasure, deactivation | Yes |
+| Role change to a role whose capabilities are a **subset** of the operator's current role (for example founder → operator) | Yes, by compare-and-set against the current role |
+| Role change that adds any capability, including promotion to founder and the lateral operator ↔ reviewer changes | **No.** A founder task is opened ("redo it in Health only if still intended") |
+| Suppression lift | **No.** The opt-out stays in force; founder confirmation task |
+| Launch-gate approval (console or public form) | **No, ever.** A founder task is opened; the founder approves again at `/flight-deck/gates`, with a fresh MFA sign-in |
 
-**G4. Broken history is never applied.** Reconciliation verifies the whole chain before applying anything: contiguous sequence numbers, each event linked to the previous hash, and each hash recomputed from content. A gap, an altered event, an inserted or reordered event, a re-chained rewrite, or an unknown kind locks contact as `journal-integrity`. Only a founder can clear that lock, and the worker never can. Duplicates are applied once.
+The consequence is deliberate. A gate approval or promotion that *did* commit but was lost to a restore must be made again. A failed approval can never open the console or the public form. Tested on PostgreSQL with crash injection (§4).
 
-**G5. Recovery is resumable and exact.** Each event is applied in its own transaction, which advances the database's head by exactly one. An interrupted recovery stays locked and resumes where it stopped. Two concurrent reconcilers cannot apply the same event twice (`ReplayOutOfOrder`).
+**G4. Broken history is never applied.** Reconciliation verifies the whole chain before applying anything: contiguous sequence numbers, each event linked to the previous hash, and each hash recomputed from content. Any failure locks contact as `journal-integrity`. Only a founder can clear that lock, and the worker never can.
 
-**G6. A crash between the log write and the commit is caught.** The log then holds an event the database lacks. Three things detect it, and contact stays blocked until the event is replayed:
+**G5. Recovery is safe to interrupt.**
 
-- the next protective write, whose append collides, is refused;
-- the worker's next run, which also replays it automatically;
-- any contact path.
+- Database-side events (opt-outs, erasures) and every skipped event's founder task are applied in the same transaction that advances the head by exactly one.
+- Identity changes that are re-applied (deactivation, demotion) are applied first and idempotently (compare-and-set), and the head advances only afterwards. An interruption between the two makes the next run re-apply a no-op and then advance.
+- Two concurrent reconcilers cannot apply the same event twice.
 
-The person's request is therefore honoured even though they saw an error. That is the safe direction.
+All of this is tested by injecting crashes at each point (§4).
 
-**G7. Every provider restore is verified explicitly.** `flight-deck:admin -- mark-restored` locks contact as `restore-in-progress` and ends every session. It is run once against a database restored by the provider, before it serves traffic. This covers a restore with nothing to replay, and sessions signed out after the backup. `import-snapshot` sets the same lock. The worker verifies and clears it on its next run; a founder can do it at once from Health.
+**G6. A crash between the log write and the commit is caught.** The next protective write, the worker's next run, or any page or contact path sees the log ahead of the database and stops until it is reconciled. Under G3, a protection-increasing event is then honoured, and an access-increasing one is not.
+
+**G7. A restored copy is detected without anyone being told.** Two independent signals, checked on every console request, every contact path, the status endpoint, and every worker run:
+
+1. **The journal head.** The copy is missing an event the log holds.
+2. **The restore fence.** Each healthy worker run raises a counter in the database and then copies it to the log bucket. A copy restored from before the last healthy run has a lower fence than the bucket's, so it is locked as `restore-in-progress` even when no protective event was lost.
+
+`mark-restored` remains available for drills but is no longer required. After a cut-over, the **old** database, if still running, falls behind the new one's fence and locks itself (tested).
 
 **G8. Launch gates are attributable.** A gate opens nothing unless all of these hold:
 
-- its record carries an approval signed by the server;
+- its record carries a server-signed approval;
 - the approver signed in through Cognito within the last 10 minutes;
-- the approver is still an active founder;
-- the approver's provider subject is unchanged;
+- the approver is still an active founder with the same provider subject;
 - for the public form, the notice version is unchanged.
 
-All of this is checked on every use (`gates.ts`). A row typed into the database, or the 0.2 script's free-text `--by`, opens nothing. The production rehearsal checks this.
+All of this is checked on every use. Under G3, an approval is also never re-created from the log.
+
+**G9. An unverified database shows nothing.** While recovery is unverified, every console page and action, and the record export, redirect to `/flight-deck/recovery` (or return 503). Unverified means locked, behind the log, behind the fence, or unable to reach the log. The recovery page shows the status and a founder's "Verify and replay now", and no records, names, or counts.
+
+Records erased after the backup therefore cannot be read from a restored copy before the replay has removed them. When verification succeeds, **every session is ended**, so none signed out after the backup survives. Tested in the production rehearsal against the production build (§4).
 
 ## 3. Remaining failure windows and conditions
 
 | # | Window or condition | Effect | Mitigation / what keeps it safe |
 | --- | --- | --- | --- |
-| W1 | **The log's retention must outlast the oldest restorable backup.** Object Lock retention defaults to 35 days, and the bucket denies bypassing it. Event objects are never expired by lifecycle | If events below a restored database's head were deleted, recovery locks as `journal-mismatch` or `gap` and needs a founder; nothing is applied wrongly | Keep `ProtectiveRetentionDays` above the point-in-time window (14 days planned) plus margin. Raise it before raising the window. Never delete event objects; the app cannot |
-| W2 | **The log's write credential is as powerful as database write access.** The chain is hashed, not signed. Whoever holds the app's S3 credential could append well-formed events (for example a role change), and they would replay at the next recovery | Privilege change via replay | The credential lives only in the app's role, beside the database credential that already allows the same changes. Drills use the read-only policy (W5). Future option: a MAC on events with a key held outside the app |
-| W3 | **Gates depend on the session secret.** Someone holding both database write access and the session secret could forge an approval. Rotating the secret invalidates existing approvals | Forged or lost approval | The secret is in Secrets Manager only. After rotation, re-approve the console gate in the console |
-| W4 | **Records an erasure removes are readable in a restored copy until replay runs.** A restored database holds a person erased after the backup until reconciliation replays the erasure | Exposure to signed-in operators for minutes; never contact (blocked) | Run `mark-restored`, which ends all sessions, then "Verify and replay now" **before** anyone signs in. The worker does it within five minutes regardless. Erased data also persists in provider backups until they age out of the window ("backups expire within N days") |
-| W5 | **A drill copy must never write to the production log.** It would append events that production replays, for example a drill erasure of a real person | Wrong changes in production | Give drill copies the template's `ProtectiveLogReadOnlyPolicy`. Reconciliation needs only reads, and any protective change in the copy then fails closed. Never give a drill the app policy |
-| W6 | **Non-protective data newer than the backup is lost.** Interactions, drafts, notes, tasks, and cases: the provider's ordinary restore point | Lost work, not lost protection | Re-enter from the exception cases and correspondence. This is what the point-in-time window is for |
-| W7 | **Log outage blocks contact and protective changes.** While S3 is unreachable, contact paths and new opt-outs, erasures, and deactivations are refused | Availability, not safety. People asked to be removed must be honoured as soon as it returns | The status endpoint returns 503 with `sink-unavailable`. Record requests in an exception case and enter them when the log returns. Opt-out handling stays a priority in the runbook |
-| W8 | **Re-authentication depends on Cognito honouring `prompt=login` and `max_age=0`.** If managed login reuses its session, `auth_time` stays old and approval is refused (fails closed) | Founder cannot approve until they sign out of the managed login | Verify on staging (`staging-acceptance.md` A4) |
-| W9 | **The local demo's guarantees are weaker.** The demo uses a local file log, and its in-memory identity store does not journal | None for real data: the demo is synthetic only | Production configuration requires the S3 log; `check-config` refuses without it |
-| W10 | **Stopping the old database during a cut-over.** If the old database keeps serving after a restore switches traffic, it may append events the new one has not seen | The new one detects them as "behind" and replays them | Stop or isolate the old instance first; the gate catches what slips through |
+| W1 | **The log's retention must outlast the oldest restorable backup.** Object Lock retention defaults to 35 days, and the bucket denies bypassing it. Events are never expired by lifecycle | Events below a restored head deleted → `journal-mismatch`/`gap` lock; nothing applied wrongly | Keep `ProtectiveRetentionDays` ≥ the point-in-time window + 21 days. Any long-lived **manual** snapshot needs protection history at least as old as the snapshot: delete such snapshots or raise retention |
+| W2 | **The log's write credential.** Whoever holds the app's S3 credential could append well-formed events. Under G3 these can no longer raise privileges or open a gate, but they could still erase a record or opt someone out at the next recovery | Destructive but not access-expanding | The credential lives only in the app's role, beside the database credential that already allows the same. Drills use the read-only policy (W5). Future option: a MAC on events with a key held outside the app |
+| W3 | **Gates depend on the session secret.** Database write access plus the session secret could forge an approval. Rotation invalidates existing approvals | Forged or lost approval | The secret is in a secret manager only. Re-approve after rotation |
+| W4 | **Lost legitimate increases.** A promotion, lift, or gate approval that committed but was lost to a restore is not restored (G3) | Founder redoes it from the task | Intended: fail closed |
+| W5 | **A drill copy must never write to the production log** | Production would replay drill events | Read-only log policy for drills (template `ProtectiveLogReadOnlyPolicy`); protective changes in the copy then fail closed |
+| W6 | **Non-protective data newer than the backup is lost** (interactions, drafts, tasks, cases): the provider's ordinary restore point | Lost work, not lost protection | Re-enter from cases and correspondence |
+| W7 | **A log outage takes the console offline**, not only contact: reads are refused because an unverified copy cannot be told apart from the live one | Availability. Opt-out and deletion requests must be recorded when the log returns | Status endpoint 503 `sink-unavailable`; record requests in the incident record and enter them afterwards. S3's availability makes this rare. This is the price of G9 |
+| W8 | **Re-authentication depends on Cognito honouring `prompt=login` and `max_age=0`** | Fails closed (approval refused) | Verify on staging (`staging-acceptance.md` A4) |
+| W9 | **The local demo's guarantees are weaker**: a local file log; the in-memory identity store does not journal | None for real data | Production configuration requires the S3 log |
+| W10 | **The fence's resolution is one healthy worker run.** A copy restored to a point after the last healthy run (at most five minutes old), which also lost no protective event, cannot be told apart from the live database. It holds no record erased since (an erasure would be in the log), so nothing is exposed beyond what the live database holds. A session signed out within those minutes would survive until its idle limit (60 minutes) | Small, bounded | Run `mark-restored` in drills, or for any restore to a very recent point. Restoring to a new instance or branch changes the connection string, so it needs a redeploy, which the runbook pairs with verification |
+| W11 | **The fence needs the worker.** With the schedule disabled (before the console gate), only the journal head detects restores | Restores with nothing lost go undetected until the schedule runs | Enable the schedule with the console gate (activation checklist D). The status endpoint alarms if the worker is stale |
 
 ## 4. How it was tested
 
-| Scenario | Where |
-| --- | --- |
-| Log write fails → nothing changes, error shown | `protective.test.ts`, `recovery.test.ts` (PG) |
-| Crash after the log write, before the commit | `protective.test.ts` (`failNextCommitAfterLog`), `recovery.test.ts` (`afterLog` hook on real PG) |
-| Restore from before an opt-out and an erasure; from after; with an operator deactivated or demoted after the backup | `protective.test.ts`, `recovery.test.ts` (PG `CREATE DATABASE … TEMPLATE` clones) |
-| Lift after backup is not replayed (log and ledger) | `protective.test.ts` |
-| Interrupted, concurrent, duplicate, missing, tampered, re-chained, reordered history | `protective.test.ts`, `recovery.test.ts` |
-| Provider restore with nothing to replay is still verified; integrity lock not downgraded | `protective.test.ts` |
-| Through the real AWS SDK: conditional create, checksum, 412 conflict, unreachable and hung endpoints | `s3Sink.test.ts` |
-| Production build with the S3 adapter: gate signed and journaled to S3, checkpoint written, log outage → 503 and nothing dispatched | `npm run rehearse:flight-deck` |
-| Browser: opt-out and erasure advance the head; founder verification | `npm run e2e:flight-deck` (file store and PostgreSQL) |
+| Scenario | Where | Result |
+| --- | --- | --- |
+| Log write fails → nothing changes, error shown | `protective.test.ts`, `recovery.test.ts` (PG) | Pass |
+| Crash after the log write, before commit: an opt-out is honoured | both | Pass |
+| **Crash injection: a role elevation that failed to commit never takes effect;** founder task opened; head advances exactly once | `recovery.test.ts` (PG) | Pass |
+| **Crash injection: failed console and public-form approvals never open anything;** a new protective write is refused until recovery runs; a proper re-approval works | `recovery.test.ts` (PG) | Pass |
+| **Crash injection: identity replay interrupted after applying, twice;** the head does not move; the final state is correct; the head advances once per event; a re-run is a no-op | `recovery.test.ts` (PG) | Pass |
+| **Crash injection inside the transaction that skips an access-increasing event:** neither task nor head move survives; the re-run produces exactly one task | `recovery.test.ts` (PG) | Pass |
+| Restore from before an opt-out, an erasure, a deactivation, a demotion, a lateral role change and a gate approval: the first four re-applied, the last two left as founder tasks, every revived session ended | `recovery.test.ts` (PG clones) | Pass |
+| **Restore fence:** a copy restored from before the last healthy run, with no event lost, is locked without `mark-restored`, refuses contact, is verified by the worker by itself, ends sessions; the old database then locks itself | `recovery.test.ts` (PG), `protective.test.ts` | Pass |
+| Role-change rule: only capability subsets are reductions | `protective.test.ts` | Pass |
+| **Recovery isolation on the production build:** with the restored copy's fence behind, every console page (including a relationship page) redirects to the recovery page; export returns 503; the recovery page shows no record; the monitor reports `restore-in-progress`; the worker verifies; the copied session no longer works | `npm run rehearse:flight-deck` | Pass |
+| Interrupted, concurrent, duplicate, missing, tampered, re-chained, reordered history | `protective.test.ts`, `recovery.test.ts` | Pass |
+| S3 adapter through the AWS SDK, including the fence object | `s3Sink.test.ts` | Pass |
+| Browser: opt-out and erasure advance the head; founder verification lands on the recovery page | `npm run e2e:flight-deck` (file store and PostgreSQL) | Pass |
 
 Not tested here: real S3 Object Lock, IAM policies in effect, a provider point-in-time restore, or Cognito re-authentication. Those are the staging drills.

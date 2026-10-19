@@ -142,6 +142,10 @@ export type OpsState = {
   // The last protective event (protective.ts) this state includes. Compared
   // with the external log by the recovery gate (recovery.ts).
   protectiveHead: JournalHead;
+  // The restore fence (recovery.ts): advanced by healthy worker runs and
+  // mirrored to the log bucket after commit. Behind the bucket's copy means
+  // this state is a restored copy.
+  restoreFence?: number;
 };
 
 export class StoreError extends Error {
@@ -233,6 +237,9 @@ export interface OperationsStore {
   transaction<T>(fn: (tx: OpsTx) => T, opts?: TxOptions): Promise<T>;
   // The last protective event this database includes.
   protectiveHead(): Promise<JournalHead>;
+  // The restore fence (recovery.ts). raiseFence never lowers it.
+  restoreFence(): Promise<number>;
+  raiseFence(to: number): Promise<number>;
   // Where protective events go, if anywhere.
   readonly protectiveSink: ProtectiveSink | null;
   // A consistent snapshot read. Any write attempted inside is discarded.
@@ -557,6 +564,19 @@ abstract class SerializedStore implements OperationsStore {
 
   protectiveHead(): Promise<JournalHead> {
     return this.exclusive(() => ({ ...(this.load().protectiveHead ?? EMPTY_HEAD) }));
+  }
+
+  restoreFence(): Promise<number> {
+    return this.exclusive(() => this.load().restoreFence ?? 0);
+  }
+
+  raiseFence(to: number): Promise<number> {
+    return this.exclusive(() => {
+      const working = structuredClone(this.load());
+      working.restoreFence = Math.max(working.restoreFence ?? 0, to);
+      this.commit(working);
+      return working.restoreFence;
+    });
   }
 
   read<T>(fn: (tx: OpsTx) => T): Promise<T> {

@@ -1,6 +1,41 @@
 # Flight Deck: acceptance evidence (0.2.1 recovery hardening and staging readiness)
 
-Status: **Local evidence, 2026-10-18.** Nothing is deployed. No AWS resource or account exists, there is no real contact data, no message has been sent, and no post has been published. The public form is closed. The 0.2 evidence follows in §8 and is unchanged.
+Status: **Local evidence, 2026-10-19.** Nothing is deployed. No AWS resource or account exists, there is no real contact data, no message has been sent, and no post has been published. The public form is closed. The 0.2.1 review corrections are in §0. The original 0.2.1 evidence (2026-10-18, commit `6976b6a`, CI green on that commit per the founder's review) follows from §1. The 0.2 evidence is in §8.
+
+## 0. Review corrections (2026-10-19)
+
+### 0.1 What changed
+
+| Review finding | Correction | Where |
+| --- | --- | --- |
+| Role changes and gate approvals were re-applied from the log, even when their transaction never committed | Recovery re-applies only events that cannot increase access: opt-outs, erasures, deactivations, and role changes to a capability **subset** of the current role (by compare-and-set). Promotions, lateral role changes, lifts, and **every** gate approval become founder tasks, opened in the same transaction that moves the head past them | `recovery.ts`, `access.ts` (`roleChangeReducesAccess`), `identity.ts` (`replay` narrowed; gate replay removed) |
+| Identity replay was not coordinated with head advancement | Applied first and idempotently, then the head advances. Every crash point was tested | `recovery.ts`, `postgres/recovery.test.ts` |
+| A restored database could serve private data before reconciliation | Every console page, action, and export checks recovery on each request. While unverified (locked, behind the log, behind the fence, or the log unreachable), only `/flight-deck/recovery` is served, with no records. Verification ends every session | `guard.ts`, `recovery/page.tsx`, `export/[id]/route.ts` |
+| Cut-over relied on someone running `mark-restored` | **Restore fence.** Each healthy worker run raises a counter in the database, then copies it to the log bucket. A copy behind it is locked automatically, even with nothing to replay. The old database locks itself after a cut-over. `mark-restored` is optional (drills) | `recovery.ts` (`advanceFence`, `checkRecovery`), `worker.ts`, migration `0005_restore_fence`, sinks |
+| Hosting compared as database prices only | Two complete topologies, with architecture, security, recovery, cost, network, maintenance, deployment, and failure modes | `staging-decision-packet.md` |
+
+No feature was added beyond these. The public form, outbound providers, `backend/`, `infra/`, and the doctrine are untouched.
+
+### 0.2 Results
+
+| Command | Result |
+| --- | --- |
+| `npm test` | **455 / 455** (3 new: role-reduction rule, in-process restore fence, S3 fence object) |
+| `npm run test:flight-deck-pg` | **27 / 27**, three consecutive runs: 22 existing (one rewritten to the corrected semantics) + 5 new (failed role elevation; failed console and public-form approvals; identity replay interrupted twice; crash inside the skip transaction; restore fence with cut-over) |
+| `npx tsc --noEmit` | Clean |
+| `npm run lint` | 0 errors; the 2 pre-existing `backend/` warnings |
+| `npm run build`, `npm run verify:disclosure` | Succeed; "disclosure boundary holds in the production build" |
+| Client-bundle scan (store, journal, signing key, session secret, new fence and session functions) | 0 matches |
+| `npm run rehearse:flight-deck` (production build, TLS-only PostgreSQL, real S3 adapter on a local test server) | **42 / 42**. The 8 new checks: <ul><li>a signed-in founder sees a test record while verified;</li><li>with the database's fence behind the bucket's and nobody running `mark-restored`, every console page including the record's own page redirects to the recovery page;</li><li>export returns 503;</li><li>the recovery page shows no record;</li><li>the monitor reports `restore-in-progress`;</li><li>the worker verifies by itself;</li><li>the copied session no longer works;</li><li>the status is verified again.</li></ul> |
+| `npm run e2e:flight-deck`, file store / PostgreSQL | **53 / 53** each (founder verification lands on the recovery page; axe on it: no serious or critical violations) |
+| `npm audit --omit=dev` | Unchanged: 1 high, inside `aws-cdk-lib` in `infra/` |
+
+### 0.3 Not performed
+
+- Anything on AWS, Neon, or Vercel.
+- Real Cognito re-authentication.
+- Assistive-technology testing and the founder review (`manual-tests.md`).
+- CI on these corrections: they are not committed.
 
 ## 1. Live / prepared / not built (0.2.1)
 

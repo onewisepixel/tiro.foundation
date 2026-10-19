@@ -5,6 +5,7 @@ import { AccessDenied, can } from "@/lib/flightDeck/access";
 import { exportProspect } from "@/lib/flightDeck/prospects";
 import { getActor, getConsoleRuntime } from "@/lib/flightDeck/runtime";
 import { StoreError } from "@/lib/flightDeck/store";
+import { recovered } from "../../guard";
 
 const HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 
@@ -16,6 +17,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const actor = await getActor(rt);
   if (!actor || !can(actor, "export")) {
     return new Response("Forbidden", { status: 403, headers: HEADERS });
+  }
+  // Recovery isolation (../../guard.ts): no export from an unverified copy.
+  if (!(await recovered(rt))) {
+    return new Response("Unavailable until recovery is verified", { status: 503, headers: HEADERS });
   }
   const { id } = await params;
   try {

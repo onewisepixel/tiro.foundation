@@ -525,8 +525,10 @@ export async function reconcileAction(formData: FormData) {
     await checkRecovery(rt.store);
     const report = await reconcile(rt.store, actor, { identity: rt.identity });
     const status = await checkRecovery(rt.store);
-    return report.ok && status.ok ? "recovery-verified" : "recovery-incomplete";
-  });
+    // A successful recovery ends every session, this one included: the
+    // founder signs in again (recovery.ts).
+    return { notice: report.ok && status.ok ? "recovery-verified" : "recovery-incomplete", to: "/flight-deck/recovery" };
+  }, { duringRecovery: true });
 }
 
 // Founder: a lift recorded before a restore is NOT replayed automatically;

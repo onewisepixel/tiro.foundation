@@ -71,14 +71,19 @@ export type ReplayResult = { erased: number; suppressionsRestored: number; lifts
 // again (Health → Recovery), only if the person asked. Shared by the
 // protective-log reconciliation (recovery.ts) and ledger replay below.
 export function requestLiftConfirmation(tx: OpsTx, suppressionId: string): boolean {
-  const key = `lift-confirm:${suppressionId}`;
+  return requestConfirmation(tx, `lift-confirm:${suppressionId}`, "After a recovery: an opt-out that had been lifted is back in force. Confirm the lift again only if the person asked");
+}
+
+// A founder task, opened once per key, for a decision recovery will not
+// re-apply on its own (it would increase access).
+export function requestConfirmation(tx: OpsTx, key: string, title: string): boolean {
   if (tx.list("tasks", (t) => t.dedupeKey === key).length) {
     return false;
   }
   tx.insert("tasks", {
     id: newId("tsk"),
     type: "permission-review",
-    title: "After a recovery: an opt-out that had been lifted is back in force. Confirm the lift again only if the person asked",
+    title,
     dueOn: tx.nowIso.slice(0, 10),
     ownerId: null,
     prospectId: null,

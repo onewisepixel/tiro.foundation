@@ -64,11 +64,19 @@ export interface IdentityStore {
   resolveSession(token: string, now: Date): Promise<SessionActor | null>;
   revokeSession(token: string, now: Date): Promise<void>;
   revokeAllSessions(operatorId: string, now: Date): Promise<number>;
+  // Every operator's sessions: after a recovery, so a session signed out
+  // after the restored backup cannot come back.
+  revokeEverySession(now: Date): Promise<number>;
   gates(): Promise<GateRecord[]>;
   recordGate(gate: Gate, operatorId: string, record: string, now: Date): Promise<void>;
   // Recovery only: re-apply an identity event already in the log, without
-  // writing it again.
-  replay(body: ProtectiveBody, now: Date): Promise<void>;
+  // writing it again. Only access-REDUCING events are ever passed here: a
+  // deactivation, or a role change to a role whose capabilities are a subset
+  // of the current one (recovery.ts decides). A role change applies only if
+  // the operator still holds `fromRole` (compare-and-set), so a re-run after
+  // an interruption, or a concurrent change, is a no-op. Gate approvals are
+  // never replayed. Idempotent.
+  replay(body: Extract<ProtectiveBody, { kind: "operator-deactivated" | "operator-role-changed" }>, now: Date, fromRole?: Role): Promise<void>;
 }
 
 export const hashToken = (token: string) => createHash("sha256").update(token, "utf8").digest("hex");
@@ -202,15 +210,25 @@ export class MemoryIdentityStore implements IdentityStore {
   async recordGate(gate: Gate, operatorId: string, record: string, now: Date) {
     this.gateRecords.set(gate, { gate, approvedBy: operatorId, approvedAt: now.toISOString(), detail: { record } });
   }
-  async replay(body: ProtectiveBody, now: Date) {
+  async replay(body: Extract<ProtectiveBody, { kind: "operator-deactivated" | "operator-role-changed" }>, now: Date, fromRole?: Role) {
     if (body.kind === "operator-deactivated") {
       await this.deactivateOperator(body.operatorId, now);
-    } else if (body.kind === "operator-role-changed") {
-      await this.setRole(body.operatorId, body.role);
-    } else if (body.kind === "gate-recorded") {
-      const approval = JSON.parse(body.record) as { approval?: { operatorId?: string; approvedAt?: string } };
-      this.gateRecords.set(body.gate, { gate: body.gate, approvedBy: approval.approval?.operatorId ?? body.actorId, approvedAt: approval.approval?.approvedAt ?? body.at, detail: { record: body.record } });
+    } else {
+      const op = this.operators.get(body.operatorId);
+      if (op && fromRole && op.role === fromRole) {
+        op.role = body.role;
+      }
     }
+  }
+  async revokeEverySession(now: Date) {
+    let n = 0;
+    for (const s of this.sessions.values()) {
+      if (s.revokedAt === null) {
+        s.revokedAt = now.getTime();
+        n++;
+      }
+    }
+    return n;
   }
 }
 
@@ -229,7 +247,14 @@ const fromRow = (r: OperatorRow): Operator => ({
   deactivatedAt: r.deactivated_at ? new Date(r.deactivated_at).toISOString() : null,
 });
 
-export type PostgresIdentityOptions = { sink?: ProtectiveSink | null; requireJournal?: boolean; synthetic?: boolean };
+export type PostgresIdentityOptions = {
+  sink?: ProtectiveSink | null;
+  requireJournal?: boolean;
+  synthetic?: boolean;
+  // Test hook: runs after the log write and the change, just before COMMIT
+  // (throw to simulate a crash between the two).
+  afterLog?: () => Promise<void>;
+};
 
 export class PostgresIdentityStore implements IdentityStore {
   constructor(
@@ -246,6 +271,7 @@ export class PostgresIdentityStore implements IdentityStore {
       await client.query("begin isolation level serializable");
       await appendWithinTransaction(client, this.opts.sink ?? null, this.opts.requireJournal ?? false, [body]);
       await fn((text, params) => client.query(text, params));
+      await this.opts.afterLog?.();
       await client.query("commit");
     } catch (e) {
       await client.query("rollback").catch(() => undefined);
@@ -343,20 +369,28 @@ export class PostgresIdentityStore implements IdentityStore {
       );
     });
   }
-  async replay(body: ProtectiveBody, now: Date) {
+  async replay(body: Extract<ProtectiveBody, { kind: "operator-deactivated" | "operator-role-changed" }>, now: Date, fromRole?: Role) {
     if (body.kind === "operator-deactivated") {
-      await this.pool.query("update fd_operators set active = false, deactivated_at = coalesce(deactivated_at, $2), version = version + 1 where id = $1 and active", [body.operatorId, now]);
-      await this.pool.query("update fd_sessions set revoked_at = $2 where operator_id = $1 and revoked_at is null", [body.operatorId, now]);
-    } else if (body.kind === "operator-role-changed") {
-      await this.pool.query("update fd_operators set role = $2, version = version + 1 where id = $1 and role <> $2", [body.operatorId, body.role]);
-    } else if (body.kind === "gate-recorded") {
-      const approval = JSON.parse(body.record) as { approval?: { operatorId?: string; approvedAt?: string } };
-      await this.pool.query(
-        `insert into fd_activation_gates (gate, approved_by, approved_at, detail) values ($1, $2, $3, $4)
-         on conflict (gate) do update set approved_by = excluded.approved_by, approved_at = excluded.approved_at, detail = excluded.detail`,
-        [body.gate, approval.approval?.operatorId ?? body.actorId, approval.approval?.approvedAt ?? body.at, { record: body.record }],
-      );
+      // One statement-pair transaction; both halves are idempotent.
+      const client = await this.pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("update fd_operators set active = false, deactivated_at = coalesce(deactivated_at, $2), version = version + 1 where id = $1 and active", [body.operatorId, now]);
+        await client.query("update fd_sessions set revoked_at = $2 where operator_id = $1 and revoked_at is null", [body.operatorId, now]);
+        await client.query("commit");
+      } catch (e) {
+        await client.query("rollback").catch(() => undefined);
+        throw e;
+      } finally {
+        client.release();
+      }
+    } else if (fromRole) {
+      await this.pool.query("update fd_operators set role = $2, version = version + 1 where id = $1 and role = $3 and role <> $2", [body.operatorId, body.role, fromRole]);
     }
+  }
+  async revokeEverySession(now: Date) {
+    const res = await this.pool.query("update fd_sessions set revoked_at = $1 where revoked_at is null", [now]);
+    return res.rowCount ?? 0;
   }
 }
 

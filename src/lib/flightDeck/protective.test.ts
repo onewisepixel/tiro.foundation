@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SYSTEM } from "./access";
+import { roleChangeReducesAccess, SYSTEM } from "./access";
 import { FormTokens, InMemoryRateLimiter } from "./abuse";
 import { decide, GateError, payloadFor, submitForReview } from "./approvals";
 import { PRIVACY_NOTICE_VERSION } from "./config";
@@ -397,4 +397,31 @@ test("gates: a typed name, an altered record, a wrong key, or a since-demoted ap
   await identity.setRole(op.id, "founder");
   await identity.deactivateOperator(op.id, now);
   assert.equal((await verifyGate(valid, SECRET, identity)).ok, false, "deactivated approver");
+});
+
+// ---------- 0.2.1 review corrections ----------
+
+test("recovery re-applies a role change only if it removes capabilities", () => {
+  assert.equal(roleChangeReducesAccess("founder", "operator"), true);
+  assert.equal(roleChangeReducesAccess("founder", "reviewer"), true);
+  assert.equal(roleChangeReducesAccess("operator", "operator"), true);
+  assert.equal(roleChangeReducesAccess("operator", "founder"), false);
+  assert.equal(roleChangeReducesAccess("reviewer", "founder"), false);
+  assert.equal(roleChangeReducesAccess("reviewer", "operator"), false, "lateral: adds editing");
+  assert.equal(roleChangeReducesAccess("operator", "reviewer"), false, "lateral: adds approving");
+});
+
+test("restore fence: an in-process copy older than the last healthy run is locked with nothing to replay, and the worker resumes it", async () => {
+  const w = world();
+  await w.store.transaction((tx) => person(tx, 1));
+  await runWorkerTick({ store: w.store, providers: providers() });
+  const backup = w.store.snapshot();
+  await runWorkerTick({ store: w.store, providers: providers() });
+  assert.equal(w.sink.fence, 2);
+  const restored = restoreFrom(backup, w);
+  const s = await checkRecovery(restored);
+  assert.equal(!s.ok && s.reason, "restore-in-progress");
+  assert.equal((await runWorkerTick({ store: restored, providers: providers() })).outcome, "ok");
+  assert.equal((await checkRecovery(restored)).ok, true);
+  assert.equal(await restored.restoreFence(), 3);
 });

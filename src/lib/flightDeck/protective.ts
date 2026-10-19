@@ -60,9 +60,15 @@ const BODY_SCHEMAS = {
   "gate-recorded": GateRecorded,
 } as const;
 
-// Protection-increasing kinds replay automatically after a restore. A lift
-// reduces protection, so it replays only when a founder confirms it.
-export const AUTO_REPLAY: readonly ProtectiveBody["kind"][] = ["suppression-added", "erasure", "operator-deactivated", "operator-role-changed", "gate-recorded"];
+// What recovery re-applies on its own. An event past the database's head
+// may belong to a transaction that never committed (the log is written
+// first), so only kinds that cannot increase access are re-applied:
+// opt-outs, erasures, deactivations, and role changes that only remove
+// capabilities (checked against the operator's current role). Lifts, role
+// elevations, and gate approvals become founder tasks (recovery.ts).
+export const AUTO_REPLAY: readonly ProtectiveBody["kind"][] = ["suppression-added", "erasure", "operator-deactivated"];
+export const REPLAY_IF_REDUCING: readonly ProtectiveBody["kind"][] = ["operator-role-changed"];
+export const NEVER_REPLAYED: readonly ProtectiveBody["kind"][] = ["suppression-lifted", "gate-recorded"];
 
 export function validateBody(body: unknown): ProtectiveBody {
   const kind = (body as { kind?: unknown })?.kind;
@@ -154,15 +160,33 @@ export interface ProtectiveSink {
   // Events with seq > after, ascending, at most `limit`.
   listAfter(after: number, limit: number): Promise<ProtectiveEvent[]>;
   writeCheckpoint?(name: string, body: string): Promise<void>;
+  // The restore fence (recovery.ts): a single, overwritable number, kept
+  // beside the checkpoints. null if never written.
+  readFence(): Promise<number | null>;
+  writeFence(n: number): Promise<void>;
 }
+
+const FENCE_KEY = "checkpoints/fence.json";
+const parseFence = (text: string): number | null => {
+  const n = (JSON.parse(text) as { fence?: unknown }).fence;
+  return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : null;
+};
 
 export const eventKey = (seq: number) => `events/${String(seq).padStart(12, "0")}.json`;
 
 export class MemoryProtectiveSink implements ProtectiveSink {
   readonly label = "memory";
   readonly objects = new Map<number, string>();
+  fence: number | null = null;
   // Test hook: called before each append; throw to simulate failures.
   beforeAppend?: (e: ProtectiveEvent) => void;
+
+  async readFence() {
+    return this.fence;
+  }
+  async writeFence(n: number) {
+    this.fence = n;
+  }
 
   async append(e: ProtectiveEvent) {
     this.beforeAppend?.(e);
@@ -233,6 +257,22 @@ export class LocalFileProtectiveSink implements ProtectiveSink {
     const fs = await this.fs();
     fs.mkdirSync(`${this.dir}/checkpoints`, { recursive: true });
     fs.writeFileSync(`${this.dir}/checkpoints/${name}`, body, { mode: 0o600 });
+  }
+  async readFence() {
+    const fs = await this.fs();
+    const p = this.path(FENCE_KEY);
+    try {
+      return fs.existsSync(p) ? parseFence(fs.readFileSync(p, "utf8")) : null;
+    } catch {
+      throw new SinkUnavailable();
+    }
+  }
+  async writeFence(n: number) {
+    try {
+      await this.writeCheckpoint("fence.json", JSON.stringify({ fence: n }));
+    } catch {
+      throw new SinkUnavailable();
+    }
   }
 }
 

@@ -35,6 +35,12 @@ const GRANTS: Record<Role | "system", readonly Capability[]> = {
   system: ["read", "dispatch", "manage-suppression"],
 };
 
+// True when `to` grants nothing that `from` does not: a change that can
+// only reduce access. Recovery re-applies only such role changes.
+export function roleChangeReducesAccess(from: Role, to: Role): boolean {
+  return GRANTS[to].every((c) => GRANTS[from].includes(c));
+}
+
 export class AccessDenied extends Error {
   constructor(readonly capability: Capability) {
     super(`not permitted: ${capability}`);

@@ -1,7 +1,7 @@
 # Flight Deck: operating model and runbook (0.2.1)
 
 Status: **Proposed working practice for founder review.** Supersedes the 0.2 version of this file.
-Revision date: 2026-10-18.
+Revision date: 2026-10-19 (0.2.1 review corrections: conservative replay, recovery isolation, mechanical cut-over).
 
 The design target is about four hours of founder attention a week. The software prepares, reminds, records, and keeps going on a schedule; people decide.
 
@@ -43,36 +43,43 @@ Guarantees and their limits: `recovery-guarantees.md`. Staging drills: `staging-
 
 **What happens without you.** Before it does anything else, every worker run compares the database with the protective log:
 
-- **Database behind the log** (after a restore, or a crash between a log write and its commit): contact stops. The worker replays the missing opt-outs, erasures, deactivations, role changes, and gate approvals, verifies the result, and carries on, usually within one run.
-- **Log unreachable**: contact and new protective changes are refused until it returns. The status endpoint returns 503 with `sink-unavailable`.
+- **Database behind the log or behind the restore fence** (after a restore, or a crash between a log write and its commit). The console shows only the recovery page, and contact stops. The worker then:
+  - replays the missing opt-outs, erasures, deactivations, and demotions;
+  - turns anything that would increase access into founder tasks: lifted opt-outs, promotions, and gate approvals;
+  - ends every session, verifies, and carries on, usually within one run.
+- **Log unreachable**: the console, contact, and new protective changes are all paused until it returns. The status endpoint returns 503 with `sink-unavailable`.
 
-**When Health says "Contact blocked".**
+**After a recovery: founder tasks.** Each is something recovery would not re-apply because it adds access, and may never have committed:
+
+- a lifted opt-out: confirm only if the person asked;
+- a role change that adds capabilities: redo it in Health only if still intended;
+- a gate approval: approve again at `/flight-deck/gates`.
+
+A lost console approval closes the console until you re-approve it; sign-in and the gates page stay available.
+
+**When the recovery page says "Paused".**
 
 | Reason | Meaning | What to do |
 | --- | --- | --- |
 | `journal-ahead`, `restore-in-progress` | The database is missing events the log has | Nothing; the worker repairs it. Or press **Verify and replay now** (founder) |
-| `sink-unavailable` (not stored) | The log cannot be reached | Check the AWS status, the app's role and policy, and the bucket. Record any opt-out or deletion request in an exception case meanwhile, and enter it when the log returns |
+| `sink-unavailable` (not stored) | The log cannot be reached | Check the AWS status, the app's role and policy, and the bucket. The console is paused too, so note any opt-out or deletion request with its date outside Flight Deck (the operations inbox), and enter it as soon as the log returns |
 | `journal-mismatch` | The database's latest event does not match the log | Treat as an incident. Were events deleted, or was the app pointed at a different bucket or prefix? Correct the configuration, then Verify and replay |
 | `journal-integrity` | The log failed verification (missing, altered, or reordered event) | **Incident.** Do not clear it until you know why. Compare the bucket's object versions (Object Lock keeps them), restore the original versions, then Verify and replay. Only a founder can clear it |
 
-**Lifted opt-outs after a recovery.** Health lists any opt-out that had been lifted after the backup. It is back in force. Confirm the lift again only if the person asked; otherwise leave it.
 
-**Planned restore (real or drill).**
+**Cut-over to a restored database (enforced by the software).** No step below depends on remembering a command. The application refuses to show or send anything from a database it has not verified.
 
-1. Restore the provider's backup or point in time into a **new** database. Never restore over the live one.
-2. For a **drill**, point a separate copy of Flight Deck at it with the **read-only** log policy and no worker schedule. A drill copy must never be able to write to the production log.
-3. Run `npm run flight-deck:admin -- mark-restored` against the restored database. This locks contact until it is verified and ends every session.
-4. Health → **Verify and replay now**, before anyone else signs in, so records erased after the backup are gone before anyone can read them. Then check:
-   - erased people are absent;
-   - suppressed addresses are blocked;
-   - lifted opt-outs are awaiting confirmation;
-   - the gates verify;
-   - the status is 200.
-5. For a real restore: stop the old instance, switch the database URL, and confirm verification once more. Record the restore as an incident case.
+1. Restore the provider's backup or point in time into a **new** instance or branch. Restoring in place is also caught (restore fence), but a new target keeps the old one for comparison.
+2. Change the application's database URL to the new target and redeploy. From its first request, the new target is checked on every page, action, export, contact path, status call, and worker run. If it is behind the log or the fence, it is locked: the console shows only the recovery page, and nothing is sent.
+3. Verification happens without you: the worker's next run (within five minutes) replays, opens founder tasks for anything access-increasing, ends every session, and unlocks. You can do it at once with **Verify and replay now** on the recovery page.
+4. Stop the old instance. If it is still running, it falls behind the new one's fence after the first healthy run and locks itself rather than carrying on beside it. The status endpoint shows `restore-in-progress` there.
+5. Sign in again. Check the founder tasks, and record the restore as an incident case.
+
+**Drills.** As above, but the drill copy runs with the **read-only** log policy and no worker schedule, so it can never write to the production log. Verify from its recovery page. Also run `npm run flight-deck:admin -- mark-restored` against the drill database. It is no longer required, but it also covers a restore to a point within the last five minutes, which the fence cannot distinguish from the live database (`recovery-guarantees.md` W10).
 
 Work done after the backup that is not protective is lost to the restore and must be re-entered by hand from the cases and correspondence. Examples: notes, drafts, tasks.
 
-**Checkpoints.** After each run the worker also writes `checkpoints/{seq}.json` to the log bucket: the restore ledger, with suppressions as keyed hashes and erasures as ids. It is a reconciliation checkpoint. `replay-ledger` can re-apply it if the event log itself were ever unusable, and like reconciliation it never re-applies a lift. `export-snapshot` / `import-snapshot` give a provider-independent logical copy for drills. On a real database the copy contains personal data, so store it encrypted and delete it afterwards. `import-snapshot` locks contact like `mark-restored`.
+**Checkpoints.** After each run the worker also writes `checkpoints/{seq}.json` to the log bucket: the restore ledger, with suppressions as keyed hashes and erasures as ids. It is a reconciliation checkpoint. `replay-ledger` can re-apply it if the event log itself were ever unusable, and like reconciliation it never re-applies a lift. `export-snapshot` / `import-snapshot` give a provider-independent logical copy for drills. On a real database the copy contains personal data, so store it encrypted and delete it afterwards. `import-snapshot` locks the imported database like `mark-restored`.
 
 **Log housekeeping.** Event objects are never deleted. At pilot volume the log stays in the kilobytes to low megabytes. If it ever needs compacting, that is a designed change, not an operation: the database's head must always have its event in the log.
 

@@ -15,17 +15,30 @@
 //   2. apply each event in its own transaction that also advances the
 //      head by exactly one (an interrupted recovery resumes where it
 //      stopped; a concurrent reconciler cannot apply twice);
-//   3. apply protection-increasing events automatically (opt-outs,
-//      erasures, operator deactivations and role changes, gate approvals);
-//      a suppression LIFT is never re-applied automatically: it becomes a
-//      founder confirmation task, and the suppression stays in force;
-//   4. confirm the head now equals the end of the log, then clear the lock.
-import { audit, SYSTEM, type Actor } from "./access";
+//   3. apply only events that cannot increase access: opt-outs, erasures,
+//      operator deactivations, and role changes to a role with no
+//      capability the operator lacks now. An event past the database's
+//      head may belong to a transaction that never committed (the log is
+//      written first), so anything that would INCREASE access is never
+//      re-applied: a suppression lift, a role elevation or lateral change,
+//      and every launch-gate approval become founder tasks instead, and
+//      the head moves past them in the same transaction;
+//   4. confirm the head now equals the end of the log, end every session
+//      (a restore could revive one signed out after the backup), bring the
+//      restore fence up to the bucket's, then clear the lock.
+//
+// The restore fence catches a restore that lost no protective event: each
+// healthy worker run raises the database's fence and then writes it to the
+// bucket. A database whose fence is behind the bucket's is a restored copy.
+//
+// While any of this is unresolved, the console serves no private data
+// (src/app/flight-deck/guard.ts), not merely no contact.
+import { audit, roleChangeReducesAccess, SYSTEM, type Actor } from "./access";
 import { GateError } from "./approvals";
 import type { IdentityStore } from "./identity";
-import { requestLiftConfirmation } from "./ledger";
+import { requestConfirmation, requestLiftConfirmation } from "./ledger";
 import { applySuppression } from "./permissions";
-import { AUTO_REPLAY, EMPTY_HEAD, JournalIntegrityError, SinkUnavailable, verifyChain, type JournalHead, type ProtectiveBody, type ProtectiveEvent } from "./protective";
+import { EMPTY_HEAD, JournalIntegrityError, SinkUnavailable, verifyChain, type JournalHead, type ProtectiveBody, type ProtectiveEvent } from "./protective";
 import { eraseProspectRecord } from "./prospects";
 import { ReplayOutOfOrder, type OperationsStore, type OpsTx } from "./store";
 
@@ -35,9 +48,14 @@ export type RecoveryStatus =
   | { ok: true; head: JournalHead; logConfigured: boolean }
   | { ok: false; reason: LockReason; head: JournalHead | null; persisted: boolean };
 
+// Never replaces a lock that needs a founder's investigation.
 async function setLock(store: OperationsStore, reason: LockReason) {
   await store.transaction((tx) => {
     const s = tx.settings();
+    const held = s.recoveryLock?.reason;
+    if ((held === "journal-integrity" || held === "journal-mismatch") && reason !== "journal-integrity") {
+      return;
+    }
     if (!s.recoveryLock || s.recoveryLock.reason !== reason) {
       tx.updateSettings(s.version, { recoveryLock: { reason, since: s.recoveryLock?.since ?? tx.nowIso } });
       audit(tx, SYSTEM, "recovery-locked", "settings", null, reason);
@@ -71,11 +89,13 @@ export async function checkRecovery(store: OperationsStore): Promise<RecoverySta
   }
   let ahead: ProtectiveEvent[];
   let atHead: ProtectiveEvent | null = null;
+  let bucketFence: number | null;
   try {
     ahead = await sink.listAfter(head.seq, 1);
     if (head.seq > 0) {
       atHead = await sink.read(head.seq);
     }
+    bucketFence = await sink.readFence();
   } catch {
     return { ok: false, reason: "sink-unavailable", head, persisted: false };
   }
@@ -92,6 +112,11 @@ export async function checkRecovery(store: OperationsStore): Promise<RecoverySta
   if (lock) {
     return { ok: false, reason: lock.reason, head, persisted: true };
   }
+  if (bucketFence !== null && bucketFence > (await store.restoreFence())) {
+    // Restored (or otherwise older) copy, even though no event is missing.
+    await setLock(store, "restore-in-progress");
+    return { ok: false, reason: "restore-in-progress", head, persisted: true };
+  }
   return { ok: true, head, logConfigured: true };
 }
 
@@ -101,6 +126,10 @@ export type ReconcileReport = {
   toSeq: number;
   applied: number;
   pendingLifts: string[];
+  // Access-increasing events not re-applied (founder tasks opened), as
+  // "role:<event id>" or "gate:<gate>".
+  notReapplied: string[];
+  sessionsEnded: number;
   integrity: { code: string; seq: number } | null;
   interrupted: boolean;
 };
@@ -167,9 +196,10 @@ export async function reconcile(store: OperationsStore, actor: Actor, opts: { id
   // founder, after investigating, may run reconciliation again.
   const lock = await store.read((tx) => tx.settings().recoveryLock);
   if (lock?.reason === "journal-integrity" && actor.role !== "founder") {
-    return { ok: false, fromSeq: start.seq, toSeq: start.seq, applied: 0, pendingLifts: [], integrity: { code: "founder-required", seq: start.seq }, interrupted: false };
+    return { ok: false, fromSeq: start.seq, toSeq: start.seq, applied: 0, pendingLifts: [], notReapplied: [], sessionsEnded: 0, integrity: { code: "founder-required", seq: start.seq }, interrupted: false };
   }
-  const report: ReconcileReport = { ok: false, fromSeq: start.seq, toSeq: start.seq, applied: 0, pendingLifts: [], integrity: null, interrupted: false };
+  const now = opts.now ?? (() => new Date());
+  const report: ReconcileReport = { ok: false, fromSeq: start.seq, toSeq: start.seq, applied: 0, pendingLifts: [], notReapplied: [], sessionsEnded: 0, integrity: null, interrupted: false };
   if (!sink) {
     await store.transaction((tx) => {
       const s = tx.settings();
@@ -233,12 +263,41 @@ export async function reconcile(store: OperationsStore, actor: Actor, opts: { id
     }
     const replayHead = { seq: e.seq, hash: e.hash };
     try {
-      if (e.body.kind === "operator-deactivated" || e.body.kind === "operator-role-changed" || e.body.kind === "gate-recorded") {
-        // Identity events: re-apply (idempotent), then advance the head.
+      const body = e.body;
+      if (body.kind === "operator-deactivated") {
+        // Reduces access: re-apply (idempotent), THEN advance the head. An
+        // interruption between the two re-applies it, harmlessly.
         if (opts.identity) {
-          await opts.identity.replay(e.body, (opts.now ?? (() => new Date()))());
+          await opts.identity.replay(body, now());
         }
         await store.transaction(() => undefined, { replayHead });
+      } else if (body.kind === "operator-role-changed") {
+        const op = opts.identity ? await opts.identity.findOperator(body.operatorId) : null;
+        if (op && roleChangeReducesAccess(op.role, body.role)) {
+          // A demotion (or no change): re-apply by compare-and-set, then
+          // advance. A re-run finds the role already changed: a no-op.
+          if (op.role !== body.role) {
+            await opts.identity!.replay(body, now(), op.role);
+          }
+          await store.transaction(() => undefined, { replayHead });
+        } else {
+          // Would increase access, and may never have committed: not
+          // re-applied. The task and the head move in one transaction.
+          await store.transaction(
+            (tx) =>
+              requestConfirmation(tx, `role-confirm:${body.id}`, `After a recovery: ${body.operatorId} was not made ${body.role} (it adds access). Redo it in Health only if still intended`),
+            { replayHead },
+          );
+          report.notReapplied.push(`role:${body.id}`);
+        }
+      } else if (body.kind === "gate-recorded") {
+        // A launch approval is never re-applied from the log: the founder
+        // approves again at /flight-deck/gates if it is still intended.
+        await store.transaction(
+          (tx) => requestConfirmation(tx, `gate-confirm:${body.id}`, `After a recovery: the ${body.gate} gate approval was not re-applied. Approve again at /flight-deck/gates only if intended`),
+          { replayHead },
+        );
+        report.notReapplied.push(`gate:${body.gate}`);
       } else {
         const pending = await store.transaction((tx) => applyOps(tx, e.body, actor), { replayHead });
         if (pending) {
@@ -264,10 +323,18 @@ export async function reconcile(store: OperationsStore, actor: Actor, opts: { id
   // 4. Confirm and unlock.
   const end = await store.protectiveHead();
   const tail = await sink.listAfter(end.seq, 1).catch(() => null);
-  if (!tail || tail.length) {
+  const bucketFence = await sink.readFence().catch(() => undefined);
+  if (!tail || tail.length || bucketFence === undefined) {
     report.interrupted = true;
     return report;
   }
+  const wasLocked = (await store.read((tx) => tx.settings().recoveryLock)) !== null || (bucketFence ?? 0) > (await store.restoreFence());
+  if (wasLocked && opts.identity) {
+    // Before unlocking: a session signed out after the restored backup
+    // would otherwise be valid again. Everyone signs in afresh.
+    report.sessionsEnded = await opts.identity.revokeEverySession(now());
+  }
+  await store.raiseFence(bucketFence ?? 0);
   await store.transaction((tx) => {
     const s = tx.settings();
     if (s.recoveryLock) {
@@ -280,9 +347,17 @@ export async function reconcile(store: OperationsStore, actor: Actor, opts: { id
   return report;
 }
 
-// Clears a journal-integrity lock is NOT possible through reconcile: the
-// history must be investigated. Kinds that replay automatically:
-export const AUTO_REPLAY_KINDS = AUTO_REPLAY;
+// Advances the restore fence: database first, then the bucket, so the live
+// database is never behind its own copy. Called by healthy worker runs.
+export async function advanceFence(store: OperationsStore): Promise<number | null> {
+  const sink = store.protectiveSink;
+  if (!sink) {
+    return null;
+  }
+  const next = await store.raiseFence((await store.restoreFence()) + 1);
+  await sink.writeFence(next);
+  return next;
+}
 
 // For contact paths outside the scheduled worker (manual sends, manual
 // publications, queueing): refuse unless the check passes right now,

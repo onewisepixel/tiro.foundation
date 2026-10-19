@@ -193,7 +193,14 @@ try {
   check("/pilot form stays closed in production with its flag on (draft notice, no gate)", pilot.status === 200 && pilot.body.includes("Form not yet open") && !/name="email"/.test(pilot.body));
 
   const approved = await runTsAsync("scripts/flight-deck/rehearse-approve-gate.ts", "founder@rehearsal.invalid", "rehearsal-subject-0001");
-  check("console gate approved through the console's approval code (signed, journaled)", approved.ok, approved.out);
+  check("console gate approved through the console's approval code (signed, journaled)", approved.ok, approved.out.replace(/"session":"[^"]+"/, '"session":"…"'));
+  const minted = (() => {
+    try {
+      return JSON.parse(approved.out.split("\n").pop());
+    } catch {
+      return {};
+    }
+  })();
   const ev1 = s3.objects.get(`${BUCKET}/flight-deck/events/000000000001.json`)?.toString("utf8") ?? "";
   check("the approval is event 1 in the protective log (S3, conditional write)", /"kind":"gate-recorded"/.test(ev1) && s3.requests.some((r) => r.method === "PUT" && r.ifNoneMatch === "*"));
   check("the protective log holds no address or name", !/@|Rehearsal Founder/.test(JSON.stringify([...s3.objects.values()].map(String))));
@@ -227,7 +234,7 @@ try {
   const tick = await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } });
   const t = JSON.parse(tick.body);
   check("a scheduled worker tick runs against the production database", tick.status === 200 && t.outcome === "ok", tick.body);
-  check("the tick wrote a reconciliation checkpoint to the protective log", s3Keys("checkpoints/").length === 1, s3Keys("checkpoints/").join(","));
+  check("the tick wrote a reconciliation checkpoint and the restore fence to the protective log", s3Keys("checkpoints/0").length === 1 && s3.objects.get(`${BUCKET}/flight-deck/checkpoints/fence.json`)?.toString("utf8") === "{\"fence\":1}", s3Keys("checkpoints/").join(","));
   const status2 = await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } });
   const s2 = JSON.parse(status2.body);
   check("status after the tick is healthy (200) with recovery verified and no alerts", status2.status === 200 && s2.worker?.lastOutcome === "ok" && s2.recovery === "verified" && s2.alerts.length === 0, status2.body);
@@ -243,6 +250,38 @@ try {
   await db.end();
   check("the database is marked real, holds one worker run, and its connections use TLS", meta === false && runs === 1 && sslInUse === true);
   check("no audit event contains an address or a name", !/@|Rehearsal Founder/.test(audit));
+
+  // ---------- Recovery isolation (0.2.1 review correction) ----------
+  // A copy restored from before the last healthy worker run, with no
+  // protective event missing, simulated by putting the database's restore
+  // fence behind the bucket's. Nobody runs mark-restored.
+  const asFounder = { Cookie: `__Host-fd_session=${minted.session}` };
+  const live = await request("GET", "/flight-deck/relationships", { headers: asFounder });
+  check("while verified, a signed-in founder sees the test relationship", live.status === 200 && live.body.includes("Rehearsal Person"), String(live.status));
+  {
+    const c = new pg.Client({ connectionString: `postgresql://fd_owner:${pgPassword}@localhost:${pgPort}/flight_deck_rehearsal`, ssl: { ca, rejectUnauthorized: true } });
+    await c.connect();
+    await c.query("update fd_protective_head set fence = 0 where id = 1");
+    await c.end();
+  }
+  const blocked = await Promise.all(["/flight-deck", "/flight-deck/relationships", `/flight-deck/relationships/${minted.prospectId}`, "/flight-deck/health"].map((u) => request("GET", u, { headers: asFounder })));
+  check(
+    "a restored copy serves no private page: every page redirects to the recovery page",
+    blocked.every((r) => r.status === 307 && /\/flight-deck\/recovery/.test(r.headers.location ?? "")),
+    blocked.map((r) => `${r.status} ${r.headers.location ?? ""}`).join(", "),
+  );
+  const exp = await request("GET", `/flight-deck/export/${minted.prospectId}`, { headers: asFounder });
+  check("a restored copy refuses a record export (503)", exp.status === 503 && !exp.body.includes("Rehearsal Person"));
+  const rec = await request("GET", "/flight-deck/recovery", { headers: asFounder });
+  check("the recovery page shows the status and no record", rec.status === 200 && rec.body.includes("restored copy") && !/Rehearsal Person|person@rehearsal/.test(rec.body));
+  const status4 = JSON.parse((await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } })).body);
+  check("the monitor reports the restored copy without anyone telling it", status4.recovery === "restore-in-progress" && status4.ok === false, JSON.stringify(status4));
+  const tick3 = JSON.parse((await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } })).body);
+  check("the scheduled worker verifies the copy by itself", tick3.outcome === "ok", JSON.stringify(tick3));
+  const after = await request("GET", "/flight-deck/relationships", { headers: asFounder });
+  check("verification ended every session, so the copied one no longer works", after.status === 307 && /\/flight-deck\/sign-in/.test(after.headers.location ?? ""), String(after.status));
+  const status5 = JSON.parse((await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } })).body);
+  check("status is verified again", status5.recovery === "verified", JSON.stringify(status5));
 
   // The protective log becomes unreachable: contact must stop and the
   // monitor must say so.

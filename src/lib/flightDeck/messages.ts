@@ -55,7 +55,7 @@ export const ERROR_TEXT: Record<string, string> = {
   "not-an-operator": "That account is not a named Flight Deck operator. Ask the founder to add you.",
   "subject-mismatch": "That account does not match the operator it claims to be. Contact the founder.",
   "cannot-deactivate-self": "You cannot deactivate your own account here.",
-  "recovery-unverified": "Contact is paused: this database has not yet been checked against the protective log (Health → Recovery). Nothing was sent or recorded.",
+  "recovery-unverified": "Paused: this database has not yet been checked against the protective log. Nothing was shown, sent, or recorded.",
   "recovery-required": "The protective log is ahead of this database (a restore or an interrupted write). Nothing was changed. Run recovery on Health, then try again.",
   "protective-log-unavailable": "The protective log could not be written, so nothing was changed. Contact is paused until the log is reachable again.",
   "reauth-required": "For a launch approval, sign in again first (within the last 10 minutes, with your second factor).",

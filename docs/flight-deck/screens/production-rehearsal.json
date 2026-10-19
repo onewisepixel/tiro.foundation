@@ -1,6 +1,6 @@
 {
-  "at": "2026-10-18T20:37:49.641Z",
-  "passed": 34,
+  "at": "2026-10-19T09:29:35.120Z",
+  "passed": 42,
   "failed": 0,
   "results": [
     {
@@ -16,7 +16,7 @@
     {
       "name": "admin: migrations apply over verified TLS",
       "ok": true,
-      "detail": "applied: 0001_operations_core, 0002_rate_limits, 0003_identity_and_activation, 0004_protective_log_and_recovery; already applied: 0"
+      "detail": "applied: 0001_operations_core, 0002_rate_limits, 0003_identity_and_activation, 0004_protective_log_and_recovery, 0005_restore_fence; already applied: 0"
     },
     {
       "name": "admin: database marked as real data",
@@ -36,7 +36,7 @@
     {
       "name": "admin: list-gates reports the unsigned row as not valid",
       "ok": true,
-      "detail": "console      approved by Rehearsal Founder at 2026-10-18T20:37:14.563Z  NOT VALID (unsigned)"
+      "detail": "console      approved by Rehearsal Founder at 2026-10-19T09:29:00.247Z  NOT VALID (unsigned)"
     },
     {
       "name": "before the console gate, sign-in is reachable (bootstrap) and offers Cognito only",
@@ -71,7 +71,7 @@
     {
       "name": "console gate approved through the console's approval code (signed, journaled)",
       "ok": true,
-      "detail": "{\"ok\":true,\"gate\":\"console\"}"
+      "detail": "{\"ok\":true,\"gate\":\"console\",\"session\":\"…\",\"prospectId\":\"prs_oxrBWj5VBBWnLgXP\"}"
     },
     {
       "name": "the approval is event 1 in the protective log (S3, conditional write)",
@@ -126,7 +126,7 @@
     {
       "name": "status before any worker run reports an action-level alert (503)",
       "ok": true,
-      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":null,\"alerts\":[{\"key\":\"worker-stale\",\"severity\":\"action\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"verified\"}"
+      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":null,\"alerts\":[{\"key\":\"worker-stale\",\"severity\":\"action\"}],\"counts\":{\"queuedJobs\":1,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"verified\"}"
     },
     {
       "name": "worker with no token or the monitor token is 401",
@@ -136,12 +136,12 @@
     {
       "name": "a scheduled worker tick runs against the production database",
       "ok": true,
-      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_LgTLZwWxoPLfWUzo\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_vALTBgcD7CvrQLMN\",\"jobsClaimed\":1,\"tasksCreated\":0,\"errorCode\":null}"
     },
     {
-      "name": "the tick wrote a reconciliation checkpoint to the protective log",
+      "name": "the tick wrote a reconciliation checkpoint and the restore fence to the protective log",
       "ok": true,
-      "detail": "fd-rehearsal-protective-log/flight-deck/checkpoints/000000000001.json"
+      "detail": "fd-rehearsal-protective-log/flight-deck/checkpoints/000000000001.json,fd-rehearsal-protective-log/flight-deck/checkpoints/fence.json"
     },
     {
       "name": "status after the tick is healthy (200) with recovery verified and no alerts",
@@ -164,6 +164,46 @@
       "detail": ""
     },
     {
+      "name": "while verified, a signed-in founder sees the test relationship",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "a restored copy serves no private page: every page redirects to the recovery page",
+      "ok": true,
+      "detail": "307 /flight-deck/recovery, 307 /flight-deck/recovery, 307 /flight-deck/recovery, 307 /flight-deck/recovery"
+    },
+    {
+      "name": "a restored copy refuses a record export (503)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the recovery page shows the status and no record",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the monitor reports the restored copy without anyone telling it",
+      "ok": true,
+      "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[{\"key\":\"recovery-locked\",\"severity\":\"action\"}],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"restore-in-progress\"}"
+    },
+    {
+      "name": "the scheduled worker verifies the copy by itself",
+      "ok": true,
+      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_NgGczu5JMUr22xdK\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+    },
+    {
+      "name": "verification ended every session, so the copied one no longer works",
+      "ok": true,
+      "detail": "307"
+    },
+    {
+      "name": "status is verified again",
+      "ok": true,
+      "detail": "{\"ok\":true,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"verified\"}"
+    },
+    {
       "name": "with the protective log unreachable, status is 503 and reports it",
       "ok": true,
       "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"sink-unavailable\"}"
@@ -171,7 +211,7 @@
     {
       "name": "with the protective log unreachable, the worker dispatches nothing",
       "ok": true,
-      "detail": "{\"ok\":true,\"outcome\":\"recovery-locked\",\"runId\":\"run_w49Nu2cKcRqQjUwd\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+      "detail": "{\"ok\":true,\"outcome\":\"recovery-locked\",\"runId\":\"run_br6oNi3feUAkrAwT\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
     }
   ]
 }

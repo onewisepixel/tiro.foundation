@@ -179,6 +179,24 @@ export class PostgresOperationsStore implements OperationsStore {
     }
   }
 
+  async restoreFence(): Promise<number> {
+    try {
+      const { rows } = await this.pool.query("select fence from fd_protective_head where id = 1");
+      return Number(rows[0].fence);
+    } catch (e) {
+      throw mapError(e);
+    }
+  }
+
+  async raiseFence(to: number): Promise<number> {
+    try {
+      const { rows } = await this.pool.query("update fd_protective_head set fence = greatest(fence, $1) where id = 1 returning fence", [to]);
+      return Number(rows[0].fence);
+    } catch (e) {
+      throw mapError(e);
+    }
+  }
+
   // Opens a migrated, initialized database, refusing one whose synthetic
   // marker does not match what the caller expects.
   static async open(opts: PostgresStoreOptions): Promise<PostgresOperationsStore> {
@@ -458,6 +476,7 @@ export class PostgresOperationsStore implements OperationsStore {
       await this.load(client, "settings", snap);
       const meta = await client.query("select value from fd_meta where key = 'synthetic'");
       const head = await readHead(client);
+      const fence = Number((await client.query("select fence from fd_protective_head where id = 1")).rows[0].fence);
       await client.query("commit");
       return {
         schemaVersion: 2,
@@ -466,6 +485,7 @@ export class PostgresOperationsStore implements OperationsStore {
         settings: snap.settings!,
         collections: snap.collections as OpsState["collections"],
         protectiveHead: head,
+        restoreFence: fence,
       };
     } catch (e) {
       await client.query("rollback").catch(() => undefined);
@@ -503,6 +523,7 @@ export class PostgresOperationsStore implements OperationsStore {
       const settings = must(SettingsSchema, { ...state.settings, recoveryLock: opts.asRestore === false ? null : { reason: "restore-in-progress", since: this.clock().toISOString() } });
       await client.query("update fd_settings set doc = $1, version = $2 where id = 1", [settings, settings.version]);
       await setHead(client, state.protectiveHead ?? { seq: 0, hash: "0".repeat(64) });
+      await client.query("update fd_protective_head set fence = $1 where id = 1", [state.restoreFence ?? 0]);
       await client.query("commit");
     } catch (e) {
       await client.query("rollback").catch(() => undefined);

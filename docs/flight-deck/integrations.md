@@ -128,7 +128,10 @@ Cognito: the founder plus at most two operators is far inside Cognito's free mon
 | Deletion and backup expiry | Erased rows persist in backups until they age out of the window TIRO sets | Same, for the history window |
 | Recovery gate fit | Restore to a new instance, run `migrate`, switch the URL, and the gate locks and replays (`operations.md` §6) | Restore a branch, switch the URL, same gate |
 
-### 4.4 Recommendation
+### 4.4 Recommendation (superseded on 2026-10-19)
+
+The database-only comparison below is superseded by `staging-decision-packet.md`. That document compares two complete topologies, Vercel + Neon Scale and AWS Fargate + private RDS, including network exposure, maintenance, deployment work, failure modes, and total cost. It recommends Vercel + Neon Scale for synthetic staging and leaves production open. The text below is kept for the record.
+
 
 **RDS remains the right provisional choice, but the network design must be decided first, because it moves the cost from about $22 to about $55.**
 

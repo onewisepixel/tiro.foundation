@@ -98,3 +98,12 @@ test("s3: a store journals through S3, and a restore reconciles from it", async 
   await sink.writeCheckpoint("000000000001.json", JSON.stringify({ head: await restored.protectiveHead() }));
   assert.ok(fake.objects.has("log-b/flight-deck/checkpoints/000000000001.json"));
 });
+
+test("s3: the restore fence is absent until written, then reads back what was last written", async () => {
+  const sink = sinkFor("log-fence");
+  assert.equal(await sink.readFence(), null);
+  await sink.writeFence(1);
+  await sink.writeFence(7);
+  assert.equal(await sink.readFence(), 7);
+  assert.ok([...fake.objects.keys()].includes("log-fence/flight-deck/checkpoints/fence.json"), "kept beside the checkpoints, outside events/");
+});

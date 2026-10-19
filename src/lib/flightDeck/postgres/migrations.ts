@@ -162,6 +162,14 @@ insert into fd_protective_head (id, seq, hash) values (1, 0, '000000000000000000
 -- (the ID token auth_time). Launch-gate approvals require it to be recent.
 alter table fd_sessions add column auth_time timestamptz;`,
   },
+  {
+    id: "0005_restore_fence",
+    sql: `-- The restore fence (src/lib/flightDeck/recovery.ts): advanced by every
+-- healthy worker run and mirrored to the protective log bucket after
+-- commit. A database whose fence is behind the bucket's copy is a restored
+-- copy, and is locked until reconciled, even with no event to replay.
+alter table fd_protective_head add column fence integer not null default 0 check (fence >= 0);`,
+  },
 ];
 
 export function checksum(sql: string): string {

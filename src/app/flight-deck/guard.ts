@@ -2,15 +2,23 @@
 // request or an activated production console (recorded "console" gate)
 // there is no runtime, and the route does not exist (404). Without a valid
 // session, pages go to sign-in and actions do nothing.
+//
+// Recovery isolation: while the database is not verified against the
+// protective log (a restored or inconsistent copy, or a log that cannot be
+// reached), no page or action that could show private data runs. Everything
+// goes to /flight-deck/recovery, which shows only the recovery status. A
+// restored copy may still hold people erased after its backup until the
+// replay has run, so reads are blocked, not only contact.
 import "server-only";
 import { notFound, redirect } from "next/navigation";
 import { AccessDenied, type Actor } from "@/lib/flightDeck/access";
 import { GateError } from "@/lib/flightDeck/approvals";
+import { checkRecovery } from "@/lib/flightDeck/recovery";
 import { getActor, getConsoleRuntime, type Runtime } from "@/lib/flightDeck/runtime";
 import { ValidationError } from "@/lib/flightDeck/schema";
 import { ProtectiveWriteFailed, RecoveryRequired, StoreError, StoreUnavailable } from "@/lib/flightDeck/store";
 
-export async function requirePage(): Promise<{ rt: Runtime; actor: Actor }> {
+export async function requirePage(opts: { duringRecovery?: boolean } = {}): Promise<{ rt: Runtime; actor: Actor }> {
   const rt = await getConsoleRuntime();
   if (!rt) {
     notFound();
@@ -19,7 +27,21 @@ export async function requirePage(): Promise<{ rt: Runtime; actor: Actor }> {
   if (!actor) {
     redirect("/flight-deck/sign-in");
   }
+  if (!opts.duringRecovery && !(await recovered(rt))) {
+    redirect("/flight-deck/recovery");
+  }
   return { rt, actor };
+}
+
+// The same check as every contact path (recovery.ts), run on every request:
+// it detects a restored copy (behind the log or behind the restore fence)
+// and persists the lock. An unreachable log counts as unverified.
+export async function recovered(rt: Runtime): Promise<boolean> {
+  try {
+    return (await checkRecovery(rt.store)).ok;
+  } catch {
+    return false;
+  }
 }
 
 export function errorCode(e: unknown): string {
@@ -57,7 +79,7 @@ export function safeReturn(value: FormDataEntryValue | null, fallback = "/flight
 // notice code, or a notice and a different Flight Deck page to land on.
 type Outcome = void | string | { notice: string; to: string };
 
-export async function act(formData: FormData, fn: (ctx: { rt: Runtime; actor: Actor }) => Promise<Outcome>) {
+export async function act(formData: FormData, fn: (ctx: { rt: Runtime; actor: Actor }) => Promise<Outcome>, opts: { duringRecovery?: boolean } = {}) {
   const rt = await getConsoleRuntime();
   if (!rt) {
     notFound();
@@ -65,6 +87,9 @@ export async function act(formData: FormData, fn: (ctx: { rt: Runtime; actor: Ac
   const actor = await getActor(rt);
   if (!actor) {
     redirect("/flight-deck/sign-in");
+  }
+  if (!opts.duringRecovery && !(await recovered(rt))) {
+    redirect("/flight-deck/recovery?error=recovery-unverified");
   }
   const back = safeReturn(formData.get("returnTo"));
   let target: string;

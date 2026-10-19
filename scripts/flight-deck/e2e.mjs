@@ -335,7 +335,10 @@ try {
   check("Health shows the protective log, its head, and verified recovery", has(recoveryText, "Verified: contact allowed") && headSeq >= 1, `head #${headSeq}`);
   await clickButton("Verify and replay now");
   await waitFor(`location.search.includes("notice=recovery-verified")`);
-  check("a founder can verify the log against the database on demand", has(await text(), "Verified: contact allowed"));
+  check("a founder can verify the log against the database on demand", (await url()).startsWith("/flight-deck/recovery") && has(await text(), "Verified: the database matches the protective log"));
+  await shot("recovery-verified-desktop");
+  await axe("Recovery");
+  await go("/flight-deck/health");
   await shot("health-recovery-desktop");
 
   // ---------- Adversarial, in the browser ----------

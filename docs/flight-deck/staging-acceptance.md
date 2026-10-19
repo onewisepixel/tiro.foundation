@@ -2,7 +2,7 @@
 
 For: the founder, and whoever helps run the drills.
 Status: **Plan only. Nothing here has been run.** Every step needs an AWS account, money, or a real device, which this candidate does not have.
-Revision date: 2026-10-18.
+Revision date: 2026-10-19. The topology decision is now in `staging-decision-packet.md`.
 
 Staging runs the production build in production mode, against real Cognito, a hosted PostgreSQL, and the protective log bucket. **Staging holds test records only.** Use addresses the testers own (for example `you+staging1@…`), never a prospect's. The public form, email, and social stay off throughout.
 
@@ -10,7 +10,7 @@ Staging runs the production build in production mode, against real Cognito, a ho
 
 | # | Decision | Options and recommendation | Why it matters |
 | --- | --- | --- | --- |
-| 1 | **Where the app runs** | Outside AWS (for example Vercel) → database option A. On AWS → option C (one small server, no NAT) or B (managed runtime + NAT, about $33/month more). `integrations.md` §4.4 | Decides the network design and roughly half the cost |
+| 1 | **Topology** | A: Vercel + Neon Scale (recommended for synthetic staging), or B: AWS Fargate + private RDS. Full comparison in `staging-decision-packet.md` | Network exposure, maintenance, and cost (~$43 vs ~$63 a month) |
 | 2 | **Database provider and size** | RDS db.t4g.micro single-AZ (provisional); Neon Scale if a second vendor is acceptable. Neon Launch cannot meet a 14-day window | Backup capability and cost |
 | 3 | **Region** | After counsel's residency review. The same region for the database, Cognito, and the log bucket keeps one jurisdiction | Data residency |
 | 4 | **Point-in-time window** | 14 days (planning target). Then set `ProtectiveRetentionDays` to at least the window + 21 (default 35 is enough) | The log must outlast every restorable backup (`recovery-guarantees.md` W1) |
@@ -65,15 +65,19 @@ Run these on staging data only. Each drill is also recorded as an incident case.
 
 1. **Baseline.** Create three test relationships. Note time **T**.
 2. **After T.** Opt one person out, erase another, lift an earlier opt-out, demote and deactivate the second test operator, and re-approve the console gate.
-3. **Restore** to T into a **new** instance (never over the live one). Start a **drill copy** of the app pointed at it, with the **read-only** log policy (`ProtectiveLogReadOnlyPolicyArn`), not the app policy (`recovery-guarantees.md` W5). Give the drill copy no worker schedule: its runs would fail when they try to write checkpoints. Verification is run from Health instead.
-4. Run `flight-deck:admin -- mark-restored` against the restored database. Then check:
-   - the status endpoint is 503 with `restore-in-progress`;
+3. **Restore** to T into a **new** instance (never over the live one). Start a **drill copy** of the app pointed at it, with the **read-only** log policy (`ProtectiveLogReadOnlyPolicyArn`), not the app policy (`recovery-guarantees.md` W5). Give the drill copy no worker schedule: its runs would fail when they try to write checkpoints. Verification is run from its recovery page instead.
+4. **Without running `mark-restored`**, sign in to the drill copy and check:
+   - every console page redirects to the recovery page, which shows no record;
+   - the status endpoint is 503 with `restore-in-progress` or `journal-ahead`;
    - sending or queueing anything is refused.
-5. Health → **Verify and replay now**. Then check:
+
+   This proves detection is mechanical.
+5. On the recovery page, **Verify and replay now**. Then check:
+   - you are signed out, and sign in again;
    - the opt-out and the erasure are back;
    - the second operator is deactivated;
    - the lifted opt-out is **in force** with a confirmation task;
-   - the gate verifies;
+   - the gate re-approval made after T is **not** re-applied (a founder task says so); the approval already in the backup still stands;
    - the status is 200.
 
    Time steps 3 to 5.
@@ -90,7 +94,7 @@ Pass: every decision made after T is in force or awaiting confirmation; nothing 
 3. Point an uptime monitor at `/flight-deck/internal/status` with the monitor token.
 4. **Log outage.** Detach the app policy for 10 minutes. Then check:
    - the status endpoint returns 503 with `sink-unavailable`;
-   - new opt-outs are refused with "not done";
+   - the console shows only the recovery page;
    - nothing is dispatched.
 
    Reattach the policy. Recovery verifies on the next run.

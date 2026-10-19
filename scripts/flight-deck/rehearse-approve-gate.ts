@@ -8,10 +8,16 @@
 // deployment the subject and auth_time come only from a verified Cognito
 // ID token (oidc.ts); there is no other way to approve a gate.
 //
+// It also mints a session for that founder (standing in for the Cognito
+// callback) and adds one test relationship, so the rehearsal can show that
+// a restored copy serves no private page until recovery is verified.
+//
 //   tsx rehearse-approve-gate.ts <founder email> <fictitious subject>
 import { approveGate } from "../../src/lib/flightDeck/gates";
 import { PostgresIdentityStore, type SessionActor } from "../../src/lib/flightDeck/identity";
+import { recordInterest } from "../../src/lib/flightDeck/intake";
 import { createPool } from "../../src/lib/flightDeck/postgres/pool";
+import { PostgresOperationsStore } from "../../src/lib/flightDeck/postgres/store";
 import { S3ProtectiveSink } from "../../src/lib/flightDeck/s3Sink";
 
 const [email, subject] = process.argv.slice(2);
@@ -35,7 +41,12 @@ async function main() {
     const now = new Date();
     const actor: SessionActor = { id: op.id, role: op.role, displayName: op.displayName, providerSubject: subject, authTime: now.toISOString() };
     const approval = await approveGate({ identity, sessionSecret: env.FLIGHT_DECK_SESSION_SECRET, now }, actor, { gate: "console", attest: true });
-    console.log(JSON.stringify({ ok: true, gate: approval.gate }));
+    const session = await identity.createSession(op.id, now, now);
+    const store = await PostgresOperationsStore.open({ pool, pepper: env.FLIGHT_DECK_EMAIL_HASH_PEPPER ?? "", synthetic: false, sink, requireJournal: true });
+    const prospectId = await store.transaction(
+      (tx) => recordInterest(tx, { displayName: "Rehearsal Person", email: "person@rehearsal.invalid", category: "community-partner", organization: null, region: null, topics: [], updatesOptIn: null, referral: null }).prospectId,
+    );
+    console.log(JSON.stringify({ ok: true, gate: approval.gate, session, prospectId }));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, error: (e as { code?: string }).code ?? (e instanceof Error ? e.message : String(e)) }));
     process.exitCode = 1;

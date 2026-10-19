@@ -1,7 +1,7 @@
 # Flight Deck: architecture and threat model (0.2.1 recovery hardening)
 
 Status: **Production-foundation candidate for founder review.** Runs and is tested locally, including against a real PostgreSQL and the production build. Nothing is deployed, no AWS resource or account has been created, no real contact data exists, and no message has been sent.
-Revision date: 2026-10-18. Supersedes the 0.2 version of this file.
+Revision date: 2026-10-19 (0.2.1 review corrections). Supersedes the 0.2 version of this file.
 Authority: the Flight Deck 0.1 directive and the 0.2 and 0.2.1 founder decisions. Defers to `/community-rights`, `docs/manifestov0-2.txt`, and `docs/ethos.txt` (proposed operational requirements). Implements nothing from Contract 0.2 (`docs/proposals/memory-record-relationship-contract.md`), which remains under formal review.
 
 ## 0. What changed in 0.2.1
@@ -9,7 +9,7 @@ Authority: the Flight Deck 0.1 directive and the 0.2 and 0.2.1 founder decisions
 | Area | 0.2 | 0.2.1 |
 | --- | --- | --- |
 | Restore safety | A ledger exported after each worker run (recovery point: one run) | **Protective event log**: every opt-out, lift, erasure, deactivation, role change and gate approval is appended to an external hash chain **before** it commits (`protective.ts`); production uses S3 with conditional writes, versioning and Object Lock (`s3Sink.ts`, template). The ledger remains as a checkpoint |
-| Recovery | `replay-ledger` by hand after a restore | **Recovery gate** (`recovery.ts`): a database behind or inconsistent with the log locks all contact until events are verified and replayed; lifts are never re-applied automatically; broken history is never applied and needs a founder; `mark-restored` makes every provider restore explicit |
+| Recovery | `replay-ledger` by hand after a restore | **Recovery gate** (`recovery.ts`): a database behind or inconsistent with the log locks all contact until events are verified and replayed; only access-reducing events are re-applied (opt-outs, erasures, deactivations, demotions); lifts, role elevations and gate approvals become founder tasks, because a logged event may never have committed; broken history is never applied and needs a founder; a **restore fence** detects restored copies with nothing to replay; while unverified the console serves only `/flight-deck/recovery` (no private data) and verification ends every session |
 | Gates | Recorded by the admin script with a free-text `--by` | **Approved in the console** (`/flight-deck/gates`) by an active founder bound to a Cognito subject who signed in within 10 minutes; signed by the server, journaled, re-verified on every use (`gates.ts`). A bootstrap mode serves sign-in and the gates page before the console gate |
 | Admin script | Wrote to the database directly | Journals through the same log as the app on a real database, and refuses without it |
 | Template | Pool, secrets, schedule, alarm | + the protective log bucket and policies (app: put/get/list, no delete; read-only for drills) |
