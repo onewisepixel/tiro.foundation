@@ -50,7 +50,7 @@ test("deploy template: the worker schedule is disabled by default and authentica
   assert.equal(rule.Properties.ScheduleExpression, "rate(5 minutes)");
   const [conn] = byType("AWS::Events::Connection");
   assert.match(JSON.stringify(conn.Properties), /resolve:secretsmanager:\$\{WorkerToken\}/);
-  assert.equal(byType("AWS::CloudWatch::Alarm").length, 1);
+  assert.equal(byType("AWS::CloudWatch::Alarm").length, 2, "worker failures and the status monitor");
   assert.equal(byType("AWS::RDS::DBInstance").length + byType("AWS::RDS::DBCluster").length, 0, "no database is provisioned before the founder chooses one");
 });
 
@@ -75,4 +75,30 @@ test("deploy template: the protective log bucket is versioned, Object Locked, pr
   const ro = JSON.stringify(t.Resources.ProtectiveLogReadOnlyPolicy.Properties);
   assert.match(ro, /s3:GetObject/);
   assert.doesNotMatch(ro, /PutObject|DeleteObject|Retention|BypassGovernance|PutBucket|s3:\*/);
+});
+
+test("deploy template: the Vercel role trusts only the exact team, project and environment, and can only append to and read the log", () => {
+  const role = t.Resources.VercelAppRole;
+  assert.equal(role.Condition, "UseVercel");
+  const trust = JSON.stringify(role.Properties.AssumeRolePolicyDocument);
+  assert.match(trust, /sts:AssumeRoleWithWebIdentity/);
+  assert.doesNotMatch(trust, /StringLike|\*/, "exact match only: no wildcard project or environment");
+  assert.ok(trust.includes("owner:${VercelTeamSlug}:project:${VercelProjectName}:environment:${VercelEnvironment}"));
+  assert.ok(trust.includes("oidc.vercel.com:aud"));
+  const perms = JSON.stringify(role.Properties.Policies);
+  assert.doesNotMatch(perms, /DeleteObject|Retention|BypassGovernance|PutBucket|secretsmanager|s3:\*|"\*"/);
+  assert.match(perms, /s3:PutObject/);
+  assert.equal(role.Properties.MaxSessionDuration, 3600, "short-lived credentials");
+  assert.deepEqual((t.Parameters as Record<string, { AllowedValues?: string[] }>).VercelEnvironment.AllowedValues, ["production", "preview"], "never development");
+});
+
+test("deploy template: a status monitor alarms on any non-200 without retries; alarms reach two addresses; an AWS budget alerts", () => {
+  const monitor = t.Resources.StatusMonitor.Properties as { State: unknown; Targets: { RetryPolicy: { MaximumRetryAttempts: number } }[] };
+  assert.deepEqual(monitor.State, { Ref: "WorkerScheduleState" }, "off until the schedule is enabled");
+  assert.equal(monitor.Targets[0].RetryPolicy.MaximumRetryAttempts, 0);
+  assert.match(JSON.stringify(t.Resources.StatusConnection.Properties), /resolve:secretsmanager:\$\{MonitorToken\}/);
+  assert.equal(t.Resources.EscalationSubscription.Condition, "HasEscalationEmail");
+  const budget = t.Resources.CostBudget.Properties as { Budget: { TimeUnit: string }; NotificationsWithSubscribers: { Notification: { NotificationType: string } }[] };
+  assert.equal(budget.Budget.TimeUnit, "MONTHLY");
+  assert.deepEqual(budget.NotificationsWithSubscribers.map((n) => n.Notification.NotificationType).sort(), ["ACTUAL", "ACTUAL", "FORECASTED"]);
 });

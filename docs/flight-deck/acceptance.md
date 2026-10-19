@@ -2,6 +2,20 @@
 
 Status: **Local evidence, 2026-10-19.** Nothing is deployed. No AWS resource or account exists, there is no real contact data, no message has been sent, and no post has been published. The public form is closed. The 0.2.1 review corrections are in §0. The original 0.2.1 evidence (2026-10-18, commit `6976b6a`, CI green on that commit per the founder's review) follows from §1. The 0.2 evidence is in §8.
 
+## −1. Staging preparation, Architecture A (2026-10-19)
+
+Prepared, not provisioned: no account, resource, charge, or deployment exists. Setup: `staging-setup.md`. Tests: `staging-acceptance.md`. Checklist: `staging-activation-checklist.md`.
+
+| Change | Evidence |
+| --- | --- |
+| Vercel OIDC: the template's `VercelAppRole` is assumable only by the exact team, project, and environment (exact match, never `development`), with one-hour sessions and log put/get/list only. The app uses `@vercel/oidc-aws-credentials-provider` 3.3.11 (pinned) when `FLIGHT_DECK_AWS_ROLE_ARN` is set | Template tests (7/7); `cfn-lint` 1.57.1, all rules, 4 regions: 0 findings |
+| `FLIGHT_DECK_DEPLOYMENT=staging`: opens only a synthetic-marked database; the public form can never open; `noindex` on every page. Neon `-pooler` URLs refused | Config tests |
+| Worker on Vercel: EventBridge's 5-second limit → 202 at once, tick after the response (`after()`, `maxDuration` 120 s); lock released by `idle_session_timeout` if an instance dies | Rehearsal: 202 in 3 ms, run then completed |
+| Status monitor (EventBridge every 15 minutes, no retries) → alarm on any non-200; alarms and budget alerts to the operations mailbox and the founder's escalation address; AWS budget $15 | Template tests |
+| Approval-gated deploy pipeline (`.github/workflows/deploy-flight-deck-staging.yml`): manual start with typed confirmation; GitHub environment reviewer; refuses the public site's project and any non-staging configuration; post-deploy smoke check | Not run (needs the accounts) |
+
+Results: `npm test` **458/458**, `npm run test:flight-deck-pg` **27/27**, typecheck clean, lint baseline (2 `backend/` warnings), build and disclosure check pass, client-bundle scan 0 matches, `npm run rehearse:flight-deck` **43/43**, browser E2E on PostgreSQL **53/53**. `npm audit --omit=dev` unchanged (1 high, inside `aws-cdk-lib` in `infra/`).
+
 ## 0. Review corrections (2026-10-19)
 
 ### 0.1 What changed

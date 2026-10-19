@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
   // demo can run beside an ordinary `npm run dev` (Next allows one dev
   // server per build directory). Builds and deployments use ".next".
   distDir: process.env.FLIGHT_DECK_DIST_DIR || ".next",
+  // The Flight Deck staging deployment (docs/flight-deck/staging-setup.md)
+  // also serves the public pages on its own domain: keep them out of search
+  // results. Nothing changes for any other deployment.
+  async headers() {
+    return process.env.FLIGHT_DECK_DEPLOYMENT === "staging" ? [{ source: "/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] }] : [];
+  },
   async redirects() {
     return Object.entries(RETIRED_DEMO_SLUGS).map(([from, to]) => ({
       source: `/memories/${from}`,

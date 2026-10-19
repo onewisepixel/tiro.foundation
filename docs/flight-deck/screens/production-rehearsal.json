@@ -1,6 +1,6 @@
 {
-  "at": "2026-10-19T09:29:35.120Z",
-  "passed": 42,
+  "at": "2026-10-19T10:56:59.577Z",
+  "passed": 43,
   "failed": 0,
   "results": [
     {
@@ -36,7 +36,7 @@
     {
       "name": "admin: list-gates reports the unsigned row as not valid",
       "ok": true,
-      "detail": "console      approved by Rehearsal Founder at 2026-10-19T09:29:00.247Z  NOT VALID (unsigned)"
+      "detail": "console      approved by Rehearsal Founder at 2026-10-19T10:56:24.472Z  NOT VALID (unsigned)"
     },
     {
       "name": "before the console gate, sign-in is reachable (bootstrap) and offers Cognito only",
@@ -71,7 +71,7 @@
     {
       "name": "console gate approved through the console's approval code (signed, journaled)",
       "ok": true,
-      "detail": "{\"ok\":true,\"gate\":\"console\",\"session\":\"…\",\"prospectId\":\"prs_oxrBWj5VBBWnLgXP\"}"
+      "detail": "{\"ok\":true,\"gate\":\"console\",\"session\":\"…\",\"prospectId\":\"prs_giDL6EygSBKHYRWg\"}"
     },
     {
       "name": "the approval is event 1 in the protective log (S3, conditional write)",
@@ -136,7 +136,7 @@
     {
       "name": "a scheduled worker tick runs against the production database",
       "ok": true,
-      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_vALTBgcD7CvrQLMN\",\"jobsClaimed\":1,\"tasksCreated\":0,\"errorCode\":null}"
+      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_oudr8EvZP3mvLpov\",\"jobsClaimed\":1,\"tasksCreated\":0,\"errorCode\":null}"
     },
     {
       "name": "the tick wrote a reconciliation checkpoint and the restore fence to the protective log",
@@ -191,7 +191,7 @@
     {
       "name": "the scheduled worker verifies the copy by itself",
       "ok": true,
-      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_NgGczu5JMUr22xdK\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+      "detail": "{\"ok\":true,\"outcome\":\"ok\",\"runId\":\"run_KPB4zLathUrJYUBT\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
     },
     {
       "name": "verification ended every session, so the copied one no longer works",
@@ -204,6 +204,11 @@
       "detail": "{\"ok\":true,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"verified\"}"
     },
     {
+      "name": "a scheduled call is accepted at once (202, well under 5 s) and the tick completes after the response",
+      "ok": true,
+      "detail": "202 in 3 ms; runs 2 -> 3"
+    },
+    {
       "name": "with the protective log unreachable, status is 503 and reports it",
       "ok": true,
       "detail": "{\"ok\":false,\"mode\":\"production\",\"store\":\"ok\",\"worker\":{\"lastOutcome\":\"ok\",\"lastStartedAgoSeconds\":0},\"alerts\":[],\"counts\":{\"queuedJobs\":0,\"failedJobs\":0,\"openCases\":0},\"outboundPaused\":false,\"recovery\":\"sink-unavailable\"}"
@@ -211,7 +216,7 @@
     {
       "name": "with the protective log unreachable, the worker dispatches nothing",
       "ok": true,
-      "detail": "{\"ok\":true,\"outcome\":\"recovery-locked\",\"runId\":\"run_br6oNi3feUAkrAwT\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
+      "detail": "{\"ok\":true,\"outcome\":\"recovery-locked\",\"runId\":\"run_ZMQMgmtmHiaZiMCi\",\"jobsClaimed\":0,\"tasksCreated\":0,\"errorCode\":null}"
     }
   ]
 }

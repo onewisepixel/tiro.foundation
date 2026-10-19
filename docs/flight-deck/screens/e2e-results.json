@@ -1,7 +1,7 @@
 {
-  "at": "2026-10-19T09:22:47.332Z",
+  "at": "2026-10-19T10:57:55.522Z",
   "base": "http://localhost:3150",
-  "seconds": 37,
+  "seconds": 40,
   "passed": 53,
   "failed": 0,
   "results": [
@@ -168,7 +168,7 @@
     {
       "name": "representative review session completed without a spreadsheet",
       "ok": true,
-      "detail": "9s of automated interaction"
+      "detail": "10s of automated interaction"
     },
     {
       "name": "axe: Open a case has no serious or critical WCAG violations",

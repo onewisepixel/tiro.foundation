@@ -1,115 +1,92 @@
-# Flight Deck: staging acceptance plan (0.2.1)
+# Flight Deck: staging acceptance (Architecture A, real providers)
 
-For: the founder, and whoever helps run the drills.
-Status: **Plan only. Nothing here has been run.** Every step needs an AWS account, money, or a real device, which this candidate does not have.
-Revision date: 2026-10-19. The topology decision is now in `staging-decision-packet.md`.
+For: the founder, and whoever helps run the tests.
+Status: **Not run.** Every test needs the staging accounts in `staging-setup.md`, which do not exist yet.
+Revision date: 2026-10-19. Supersedes the topology-neutral plan of 2026-10-18.
 
-Staging runs the production build in production mode, against real Cognito, a hosted PostgreSQL, and the protective log bucket. **Staging holds test records only.** Use addresses the testers own (for example `you+staging1@…`), never a prospect's. The public form, email, and social stay off throughout.
+Staging is synthetic only. Use test operators and invented records; never a real prospect's details. Record each test's date, who ran it, the outcome, and any defect in `acceptance.md` §7. Stop at the first failure, fix it, and repeat that stage.
 
-## 1. Decisions needed before staging
+**Done when:** you can sign in to the isolated staging environment with MFA, work with synthetic records, watch the scheduled worker, deliberately restore the database, and see Flight Deck protect its state, with the alarms reaching both addresses.
 
-| # | Decision | Options and recommendation | Why it matters |
-| --- | --- | --- | --- |
-| 1 | **Topology** | A: Vercel + Neon Scale (recommended for synthetic staging), or B: AWS Fargate + private RDS. Full comparison in `staging-decision-packet.md` | Network exposure, maintenance, and cost (~$43 vs ~$63 a month) |
-| 2 | **Database provider and size** | RDS db.t4g.micro single-AZ (provisional); Neon Scale if a second vendor is acceptable. Neon Launch cannot meet a 14-day window | Backup capability and cost |
-| 3 | **Region** | After counsel's residency review. The same region for the database, Cognito, and the log bucket keeps one jurisdiction | Data residency |
-| 4 | **Point-in-time window** | 14 days (planning target). Then set `ProtectiveRetentionDays` to at least the window + 21 (default 35 is enough) | The log must outlast every restorable backup (`recovery-guarantees.md` W1) |
-| 5 | **Spending authorization** | About $22 to $55 a month at London prices, plus app hosting (`integrations.md` §4.2) | No resource is created without it |
-| 6 | **Alarm recipient** | An address the founder reads daily | Worker and log-outage alerts |
-| 7 | **Staging account** | A separate AWS account or, at least, a separate stack and bucket from production | A staging mistake must not touch production's log |
+## A. Identity: Cognito with MFA
 
-## 2. Stages
+| # | Test | Pass when |
+| --- | --- | --- |
+| A1 | Deploy the template (schedule DISABLED). Run `aws cloudformation validate-template` first | Validates; the stack creates without errors |
+| A2 | Create yourself in the pool; first sign-in | TOTP enrolment is forced; you cannot finish without it |
+| A3 | Sign in, then sign out; replay the old session cookie | Sign-in needs password + code. After sign-out the cookie is refused (server-side revocation) |
+| A4 | Open `/flight-deck/gates` more than 10 minutes after signing in; choose "Sign in again" | Cognito asks for the password **and** the code again (`prompt=login`, `max_age=0`). If it does not, approval stays refused (safe): record it as a defect |
+| A5 | Approve the console gate; run `list-gates` | "signature and approver verified"; event 1 in the S3 log is `gate-recorded` |
+| A6 | A user outside the `flight-deck` group; a user without MFA | Both refused |
+| A7 | **Operator deactivation.** A second test operator signs in on another browser; deactivate them from Health | Their next click goes to sign-in. The deactivation is an event in the S3 log |
 
-Record each step's date, who ran it, the outcome, and any defect in `acceptance.md` §7. Stop at the first failure, fix it, and repeat the stage.
+## B. Neon PostgreSQL
 
-### A. Identity: real Cognito with MFA
+| # | Test | Pass when |
+| --- | --- | --- |
+| B1 | `check-config` with the staging variables | Complete; a `-pooler` URL is refused |
+| B2 | `migrate`, `init --synthetic`, `add-operator` as the owner role. As the app role: `TRUNCATE fd_audit`, `UPDATE fd_audit`, `CREATE TABLE x()` | Migrations apply over `verify-full`; the three app-role statements fail |
+| B3 | Point staging at a database marked **real** (a scratch Neon branch with `init --real`) | Staging refuses to start (synthetic mismatch). Delete the scratch branch |
+| B4 | Confirm the history window is 14 days and compute is fixed at 0.25 CU | As configured |
 
-1. Deploy `deploy/flight-deck/flight-deck.template.json` into the staging stack, with the schedule DISABLED. Run `aws cloudformation validate-template` first and record the result. `cfn-lint` already passes locally.
-2. Create the founder in the pool, enrol TOTP MFA at first sign-in, and add them to `flight-deck`. Then run `flight-deck:admin -- add-operator … --role founder`.
-3. Sign in, then sign out. After sign-out, the old session cookie must be refused. Test it by replaying the cookie with curl or devtools.
-4. **Re-authentication for gates.** Wait more than 10 minutes, then open `/flight-deck/gates`. It must offer "Sign in again". Confirm Cognito shows the sign-in **and** asks for the TOTP code again (`prompt=login`, `max_age=0`), and that approval then succeeds. If Cognito skips the prompt, approval stays refused (safe). Record it as a defect to resolve before launch.
-5. Approve the console gate. Run `flight-deck:admin -- list-gates`: it must show "signature and approver verified".
-6. Create a second test operator. While they are signed in, deactivate them from Health: their next click must fail. Also check:
-   - a user outside the `flight-deck` group is refused;
-   - a user without MFA cannot complete sign-in.
+## C. Protective log, Object Lock, and OIDC
 
-### B. Hosted PostgreSQL
+| # | Test | Pass when |
+| --- | --- | --- |
+| C1 | Record a synthetic opt-out in the console | A new `events/…json` object exists, holding no name or address |
+| C2 | Inspect the bucket | Versioning on; Object Lock GOVERNANCE with the default retention set (≥ 35 days) |
+| C3 | As an administrator: delete an event version; delete it with `x-amz-bypass-governance-retention`; change its retention | All denied |
+| C4 | **OIDC scope.** Deploy a **preview** of the staging project (or call from a local `vercel dev`) and record an opt-out | Refused: the preview environment cannot assume the role, and nothing changes. Production of the staging project works (C1) |
+| C5 | Confirm no AWS access key exists in Vercel, GitHub, or the repository | None; credentials are only the one-hour OIDC sessions |
+| C6 | **Retention coverage.** List Neon branches and any exports | None older than the log retention (`staging-setup.md` §7) |
 
-1. Provision per decisions 1 to 3, with:
-   - encryption at rest;
-   - TLS required (RDS: `rds.force_ssl=1`);
-   - automated backups with the 14-day window;
-   - deletion protection;
-   - no superuser credential in the app.
-2. Create an **owner role** (migrations) and an **app role** with DML only. The app role has no `TRUNCATE`, no DDL, and does not own the schema.
-3. Set `FLIGHT_DECK_DATABASE_URL` with `sslmode=verify-full` and the provider CA (`FLIGHT_DECK_DATABASE_CA_PEM`).
-4. Run `check-config`, then `migrate` as the owner, then `init --real`. Then check, as the app role:
-   - `TRUNCATE fd_audit` fails;
-   - `UPDATE fd_audit` fails;
-   - a non-TLS connection is refused.
+## D. Point-in-time restore and recovery isolation
 
-### C. Protective log
+Prepare: three synthetic relationships. Note time **T**. After T:
 
-1. Set `FLIGHT_DECK_PROTECTIVE_BUCKET` and `_REGION` from the stack outputs. Attach `AppPolicyArn` to the app's identity.
-2. With the app's credentials:
-   - `PutObject` of a new key under `flight-deck/` succeeds;
-   - the same key with `If-None-Match: *` returns 412;
-   - `DeleteObject` is denied;
-   - `PutObjectRetention` is denied.
-3. With an administrator: deleting an event version with `x-amz-bypass-governance-retention` must be denied by the bucket policy. Confirm Object Lock and versioning in the bucket properties.
-4. Record a test opt-out in the console. The event appears under `events/`; open it and confirm it holds no address or name.
+- opt one out;
+- erase one;
+- lift an earlier opt-out;
+- demote and then deactivate the second operator;
+- promote a reviewer to operator;
+- re-approve the console gate.
 
-### D. Restore drills (point-in-time)
+Let the worker run at least twice.
 
-Run these on staging data only. Each drill is also recorded as an incident case.
+| # | Test | Pass when |
+| --- | --- | --- |
+| D1 | **In-place restore.** Neon instant restore of the staging branch to T. Do **not** run `mark-restored` | Within one request: every console page redirects to the recovery page, which shows no record; export refused; status 503 (`restore-in-progress` or `journal-ahead`); queueing or sending refused |
+| D2 | Wait for the worker (≤ 5 min), or press Verify and replay now | You are signed out. After signing in: opt-out and erasure back; second operator deactivated; lifted opt-out **in force** with a task; the promotion **not** re-applied (task); the gate re-approval made after T **not** re-applied (task), with the approval in the backup still standing; status 200 |
+| D3 | **Cut-over to a new branch.** Restore to a new branch at a later point; set `FLIGHT_DECK_DATABASE_URL` to it; redeploy | The new branch is locked until verified; afterwards the **old** branch, if anything still points at it, reports `restore-in-progress` |
+| D4 | **Tampered history.** As an administrator, upload an altered copy of one event under the same key (a new version; Object Lock keeps the original) | Contact and console lock as `journal-integrity`; the worker does not clear it. Copy the original version back; a founder verifies; status 200 |
+| D5 | Delete the branches created in D3 | Done (C6) |
 
-1. **Baseline.** Create three test relationships. Note time **T**.
-2. **After T.** Opt one person out, erase another, lift an earlier opt-out, demote and deactivate the second test operator, and re-approve the console gate.
-3. **Restore** to T into a **new** instance (never over the live one). Start a **drill copy** of the app pointed at it, with the **read-only** log policy (`ProtectiveLogReadOnlyPolicyArn`), not the app policy (`recovery-guarantees.md` W5). Give the drill copy no worker schedule: its runs would fail when they try to write checkpoints. Verification is run from its recovery page instead.
-4. **Without running `mark-restored`**, sign in to the drill copy and check:
-   - every console page redirects to the recovery page, which shows no record;
-   - the status endpoint is 503 with `restore-in-progress` or `journal-ahead`;
-   - sending or queueing anything is refused.
+Time D1 to D2 and record it: it is staging's recovery time.
 
-   This proves detection is mechanical.
-5. On the recovery page, **Verify and replay now**. Then check:
-   - you are signed out, and sign in again;
-   - the opt-out and the erasure are back;
-   - the second operator is deactivated;
-   - the lifted opt-out is **in force** with a confirmation task;
-   - the gate re-approval made after T is **not** re-applied (a founder task says so); the approval already in the backup still stands;
-   - the status is 200.
+## E. Scheduled worker, monitoring, and alarm delivery
 
-   Time steps 3 to 5.
-6. **Fail closed in the drill copy.** Record an opt-out in the drill copy. It must be refused (the log is read-only), and production's log must not change.
-7. **Integrity.** Copy the log to a drill prefix you control (`aws s3 sync`), alter one event, and point a second drill at the copy. It must lock as `journal-integrity`, and the worker must not clear it.
-8. **Cut-over rehearsal** (optional before launch): switch staging to the restored instance, after stopping the old one, and confirm that recovery verifies.
+| # | Test | Pass when |
+| --- | --- | --- |
+| E1 | Enable the schedule; watch for 24 hours | EventBridge: worker invocations every 5 minutes, `FailedInvocations` 0, each answered 202 in under 5 s. Health: a completed run every ~5 minutes, which shows the tick runs after the response and that OIDC credentials work there. Status 200 |
+| E2 | Confirm both SNS email subscriptions | The operations mailbox and the escalation address both confirmed |
+| E3 | **Status alarm.** Disable only the worker rule for 25 minutes | The status monitor alarms (worker stale). Email arrives at **both** addresses; an OK email follows after re-enabling |
+| E4 | **Worker alarm.** Break the worker token in the EventBridge connection once | The worker-failure alarm fires at both addresses. Restore the token |
+| E5 | **Log outage.** Remove the S3 statements from the Vercel role's policy for 10 minutes | Console shows only the recovery page; status 503 `sink-unavailable`; status alarm. Restore the policy; recovery verifies on the next run |
+| E6 | **Budgets.** Check the AWS budget, the Neon spending notification, and Vercel Spend Management | Configured as in `staging-setup.md` §6; the subscribers are correct |
 
-Pass: every decision made after T is in force or awaiting confirmation; nothing was applied from altered history; the drill copy wrote nothing. Record the measured restore and verification times. They become the recovery time in `operations.md` §6.
+## F. Incident handling
 
-### E. Scheduled worker and monitoring
+| # | Test | Pass when |
+| --- | --- | --- |
+| F1 | Pause all outbound activity; open an incident case; resume | As expected; audited |
+| F2 | Rotate the worker token (Secrets Manager → Vercel variable → redeploy → EventBridge connection) | The worker keeps running after the rotation |
+| F3 | Rotate the session secret | Everyone is signed out; the console gate becomes invalid until re-approved; re-approve |
+| F4 | Lost device: reset a test operator's MFA in Cognito; deactivate and re-add them | They can enrol again; the old sessions are gone |
 
-1. Enable the schedule. For 24 hours, the status endpoint stays 200 and Health shows a run every five minutes.
-2. Break the worker token in the EventBridge connection once. The alarm fires and the email arrives. Restore the token.
-3. Point an uptime monitor at `/flight-deck/internal/status` with the monitor token.
-4. **Log outage.** Detach the app policy for 10 minutes. Then check:
-   - the status endpoint returns 503 with `sink-unavailable`;
-   - the console shows only the recovery page;
-   - nothing is dispatched.
-
-   Reattach the policy. Recovery verifies on the next run.
-
-### F. Incident recovery
-
-1. Pause all outbound activity from Health; open an incident case; resume as the founder.
-2. Rotate the worker token (`operations.md` §7). Then rotate the session secret and **re-approve the console gate**: rotation invalidates gate signatures (`recovery-guarantees.md` W3).
-3. Lost device: reset the test operator's MFA in Cognito; deactivate and re-add them.
-4. A tabletop exercise of a real restore with the runbook (`operations.md` §6), timed.
-
-## 3. Exit criteria
+## Exit criteria
 
 - Stages A to F pass, with records.
-- The manual accessibility test and the human-paced review are done (`manual-tests.md`).
-- The decisions in §1 are recorded in `integrations.md` §2.
+- The assistive-technology test and the human-paced review are done (`manual-tests.md`).
+- The decisions are recorded.
 
-Only then is the console gate approved on **production**. Opening the public form remains a separate written decision (`privacy-launch-gates.md` §5).
+None of this opens the public form or approves production. The remaining short-window limit on restores (`recovery-guarantees.md` W10) is accepted for staging only. It must be closed by an externally enforced cut-over procedure, or a stronger mechanism, before real contact data.

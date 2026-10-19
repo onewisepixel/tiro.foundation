@@ -26,6 +26,39 @@
       "Description": "Optional address for worker-failure alarms (confirmation email required).",
       "Default": ""
     },
+    "EscalationEmail": {
+      "Type": "String",
+      "Description": "Optional second address (the founder's escalation) for the same alarms and budget alerts. Confirmation email required.",
+      "Default": ""
+    },
+    "AwsMonthlyBudgetUsd": {
+      "Type": "Number",
+      "Description": "AWS share of the staging planning ceiling. Alerts at 50% and 100% of actual spend and 100% of forecast. Alerts only: AWS does not stop spending.",
+      "Default": 15,
+      "MinValue": 1,
+      "MaxValue": 75
+    },
+    "VercelTeamSlug": {
+      "Type": "String",
+      "Description": "Vercel team slug. With VercelProjectName, creates an IAM role that only that project's chosen environment can assume through Vercel OIDC (Global issuer mode). Empty: no role.",
+      "Default": "",
+      "AllowedPattern": "^[a-z0-9-]{0,48}$"
+    },
+    "VercelProjectName": {
+      "Type": "String",
+      "Description": "The dedicated Vercel staging project (never the public site's project).",
+      "Default": "",
+      "AllowedPattern": "^[a-z0-9._-]{0,100}$"
+    },
+    "VercelEnvironment": {
+      "Type": "String",
+      "Description": "The only Vercel environment allowed to assume the role.",
+      "Default": "production",
+      "AllowedValues": [
+        "production",
+        "preview"
+      ]
+    },
     "ProtectiveRetentionDays": {
       "Type": "Number",
       "Description": "Object Lock (governance) retention for every protective log object version. Must exceed the longest database backup or point-in-time window. Events are not expired automatically (the event at the database head must always exist); they hold only keyed hashes, opaque ids and codes. Provisional: 35 days for a 14-day PITR window.",
@@ -43,6 +76,58 @@
               "Ref": "AlarmEmail"
             },
             ""
+          ]
+        }
+      ]
+    },
+    "HasEscalationEmail": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "EscalationEmail"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "UseVercel": {
+      "Fn::And": [
+        {
+          "Fn::Not": [
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "VercelTeamSlug"
+                },
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "Fn::Not": [
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "VercelProjectName"
+                },
+                ""
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "CreateBudget": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "AWS::Region"
+            },
+            "af-south-1"
           ]
         }
       ]
@@ -274,12 +359,20 @@
                 {
                   "Effect": "Allow",
                   "Action": "events:InvokeApiDestination",
-                  "Resource": {
-                    "Fn::GetAtt": [
-                      "WorkerDestination",
-                      "Arn"
-                    ]
-                  }
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "WorkerDestination",
+                        "Arn"
+                      ]
+                    },
+                    {
+                      "Fn::GetAtt": [
+                        "StatusDestination",
+                        "Arn"
+                      ]
+                    }
+                  ]
                 }
               ]
             }
@@ -318,6 +411,68 @@
         ]
       }
     },
+    "StatusConnection": {
+      "Type": "AWS::Events::Connection",
+      "Properties": {
+        "Description": "Authorizes the status monitor to read Flight Deck's status endpoint (counts and codes only).",
+        "AuthorizationType": "API_KEY",
+        "AuthParameters": {
+          "ApiKeyAuthParameters": {
+            "ApiKeyName": "Authorization",
+            "ApiKeyValue": {
+              "Fn::Sub": "Bearer {{resolve:secretsmanager:${MonitorToken}}}"
+            }
+          }
+        }
+      }
+    },
+    "StatusDestination": {
+      "Type": "AWS::Events::ApiDestination",
+      "Properties": {
+        "ConnectionArn": {
+          "Fn::GetAtt": [
+            "StatusConnection",
+            "Arn"
+          ]
+        },
+        "InvocationEndpoint": {
+          "Fn::Sub": "${PublicOrigin}/flight-deck/internal/status"
+        },
+        "HttpMethod": "GET",
+        "InvocationRateLimitPerSecond": 1
+      }
+    },
+    "StatusMonitor": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Description": "Every 15 minutes, reads Flight Deck's status. It answers 503 when something needs a person: a stale or failing worker, a recovery lock, an unreachable protective log, overdue cases. With no retries, each 503 is one failed invocation, which raises the alarm.",
+        "ScheduleExpression": "rate(15 minutes)",
+        "State": {
+          "Ref": "WorkerScheduleState"
+        },
+        "Targets": [
+          {
+            "Id": "flight-deck-status",
+            "Arn": {
+              "Fn::GetAtt": [
+                "StatusDestination",
+                "Arn"
+              ]
+            },
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "WorkerInvokeRole",
+                "Arn"
+              ]
+            },
+            "RetryPolicy": {
+              "MaximumRetryAttempts": 0,
+              "MaximumEventAgeInSeconds": 60
+            }
+          }
+        ]
+      }
+    },
     "AlarmTopic": {
       "Type": "AWS::SNS::Topic",
       "Properties": {
@@ -334,6 +489,19 @@
         "Protocol": "email",
         "Endpoint": {
           "Ref": "AlarmEmail"
+        }
+      }
+    },
+    "EscalationSubscription": {
+      "Type": "AWS::SNS::Subscription",
+      "Condition": "HasEscalationEmail",
+      "Properties": {
+        "TopicArn": {
+          "Ref": "AlarmTopic"
+        },
+        "Protocol": "email",
+        "Endpoint": {
+          "Ref": "EscalationEmail"
         }
       }
     },
@@ -360,6 +528,174 @@
         "AlarmActions": [
           {
             "Ref": "AlarmTopic"
+          }
+        ]
+      }
+    },
+    "StatusAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Flight Deck needs a person: its status endpoint did not answer 200 (see /flight-deck/health or the recovery page).",
+        "Namespace": "AWS/Events",
+        "MetricName": "FailedInvocations",
+        "Dimensions": [
+          {
+            "Name": "RuleName",
+            "Value": {
+              "Ref": "StatusMonitor"
+            }
+          }
+        ],
+        "Statistic": "Sum",
+        "Period": 900,
+        "EvaluationPeriods": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [
+          {
+            "Ref": "AlarmTopic"
+          }
+        ],
+        "OKActions": [
+          {
+            "Ref": "AlarmTopic"
+          }
+        ]
+      }
+    },
+    "CostBudget": {
+      "Type": "AWS::Budgets::Budget",
+      "Condition": "CreateBudget",
+      "Metadata": {
+        "Note": "Budgets cannot be created by CloudFormation in af-south-1; create the budget in the Billing console there."
+      },
+      "Properties": {
+        "Budget": {
+          "BudgetName": "tiro-flight-deck-staging-aws",
+          "BudgetType": "COST",
+          "TimeUnit": "MONTHLY",
+          "BudgetLimit": {
+            "Amount": {
+              "Ref": "AwsMonthlyBudgetUsd"
+            },
+            "Unit": "USD"
+          }
+        },
+        "NotificationsWithSubscribers": [
+          {
+            "Notification": {
+              "NotificationType": "ACTUAL",
+              "ComparisonOperator": "GREATER_THAN",
+              "Threshold": 50,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [
+              {
+                "Fn::If": [
+                  "HasAlarmEmail",
+                  {
+                    "SubscriptionType": "EMAIL",
+                    "Address": {
+                      "Ref": "AlarmEmail"
+                    }
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              },
+              {
+                "Fn::If": [
+                  "HasEscalationEmail",
+                  {
+                    "SubscriptionType": "EMAIL",
+                    "Address": {
+                      "Ref": "EscalationEmail"
+                    }
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Notification": {
+              "NotificationType": "ACTUAL",
+              "ComparisonOperator": "GREATER_THAN",
+              "Threshold": 100,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [
+              {
+                "Fn::If": [
+                  "HasAlarmEmail",
+                  {
+                    "SubscriptionType": "EMAIL",
+                    "Address": {
+                      "Ref": "AlarmEmail"
+                    }
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              },
+              {
+                "Fn::If": [
+                  "HasEscalationEmail",
+                  {
+                    "SubscriptionType": "EMAIL",
+                    "Address": {
+                      "Ref": "EscalationEmail"
+                    }
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Notification": {
+              "NotificationType": "FORECASTED",
+              "ComparisonOperator": "GREATER_THAN",
+              "Threshold": 100,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [
+              {
+                "Fn::If": [
+                  "HasAlarmEmail",
+                  {
+                    "SubscriptionType": "EMAIL",
+                    "Address": {
+                      "Ref": "AlarmEmail"
+                    }
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              },
+              {
+                "Fn::If": [
+                  "HasEscalationEmail",
+                  {
+                    "SubscriptionType": "EMAIL",
+                    "Address": {
+                      "Ref": "EscalationEmail"
+                    }
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -562,6 +898,89 @@
           ]
         }
       }
+    },
+    "VercelOidcProvider": {
+      "Type": "AWS::IAM::OIDCProvider",
+      "Condition": "UseVercel",
+      "Properties": {
+        "Url": "https://oidc.vercel.com",
+        "ClientIdList": [
+          {
+            "Fn::Sub": "https://vercel.com/${VercelTeamSlug}"
+          }
+        ]
+      }
+    },
+    "VercelAppRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "UseVercel",
+      "Properties": {
+        "Description": "Assumed only by the named Vercel project and environment, through Vercel OIDC. Appends to and reads the protective log; nothing else.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": {
+                  "Ref": "VercelOidcProvider"
+                }
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "oidc.vercel.com:aud": {
+                    "Fn::Sub": "https://vercel.com/${VercelTeamSlug}"
+                  },
+                  "oidc.vercel.com:sub": {
+                    "Fn::Sub": "owner:${VercelTeamSlug}:project:${VercelProjectName}:environment:${VercelEnvironment}"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "protective-log-append-read",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "AppendAndReadEvents",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "${ProtectiveLogBucket.Arn}/flight-deck/*"
+                  }
+                },
+                {
+                  "Sid": "ListLog",
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "ProtectiveLogBucket",
+                      "Arn"
+                    ]
+                  },
+                  "Condition": {
+                    "StringLike": {
+                      "s3:prefix": [
+                        "flight-deck/*"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   },
   "Outputs": {
@@ -602,6 +1021,16 @@
       "Description": "Read-only access to the protective log, for restore drills and audits.",
       "Value": {
         "Ref": "ProtectiveLogReadOnlyPolicy"
+      }
+    },
+    "VercelAppRoleArn": {
+      "Condition": "UseVercel",
+      "Description": "Set as FLIGHT_DECK_AWS_ROLE_ARN in the Vercel staging project only.",
+      "Value": {
+        "Fn::GetAtt": [
+          "VercelAppRole",
+          "Arn"
+        ]
       }
     }
   }

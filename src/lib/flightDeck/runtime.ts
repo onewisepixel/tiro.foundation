@@ -20,6 +20,7 @@ import { wipeSyntheticDatabase } from "./postgres/admin";
 import { FileLedgerSink, type LedgerSink } from "./ledger";
 import { LocalFileProtectiveSink } from "./protective";
 import { S3ProtectiveSink } from "./s3Sink";
+import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 import { verifyGate } from "./gates";
 import fs from "node:fs";
 import { DisabledEmailProvider, DisabledSocialPublisher, LocalOutboxEmailProvider, LocalOutboxSocialPublisher, type Providers } from "./providers";
@@ -70,13 +71,20 @@ function poolFor(url: string, production: ProductionConfig | null): pg.Pool {
 function advisoryLock(pool: pg.Pool) {
   return async () => {
     const client = await pool.connect();
+    // On serverless hosts a function can be frozen or killed while holding
+    // the lock. The lock's connection stays idle for the whole tick, so the
+    // server closes it (releasing the lock) once it has been idle longer
+    // than any tick may run (the worker route's maxDuration is 120 s).
+    await client.query("set idle_session_timeout = '150s'");
     const { rows } = await client.query("select pg_try_advisory_lock(hashtext('flight-deck-worker')) as ok");
     if (!rows[0].ok) {
+      await client.query("reset idle_session_timeout").catch(() => undefined);
       client.release();
       return null;
     }
     return async () => {
       await client.query("select pg_advisory_unlock(hashtext('flight-deck-worker'))").catch(() => undefined);
+      await client.query("reset idle_session_timeout").catch(() => undefined);
       client.release();
     };
   };
@@ -167,8 +175,20 @@ async function buildProduction(config: ProductionConfig): Promise<Omit<Runtime, 
   // database that is uninitialized or marked synthetic.
   // The protective log is mandatory in production: a protective change
   // that cannot be journaled is refused (requireJournal).
-  const sink = new S3ProtectiveSink(config.protective);
-  const store = await PostgresOperationsStore.open({ pool, pepper: config.pepper, synthetic: false, sink, requireJournal: true });
+  // On Vercel (roleArn set), S3 credentials come from Vercel OIDC
+  // federation: the function's OIDC token for this exact project and
+  // environment is exchanged with STS for one-hour credentials to the
+  // staging role, which can only append to and read the log. No AWS key
+  // is stored anywhere. Elsewhere, the default AWS credential chain.
+  const sink = new S3ProtectiveSink(
+    config.protective,
+    config.protective.roleArn ? { credentials: awsCredentialsProvider({ roleArn: config.protective.roleArn, roleSessionName: "flight-deck" }) } : {},
+  );
+  // Staging opens only a database marked synthetic; production only one
+  // marked real (the store refuses a mismatch), so the two cannot be
+  // pointed at each other's data by a configuration mistake.
+  const synthetic = config.deployment === "staging";
+  const store = await PostgresOperationsStore.open({ pool, pepper: config.pepper, synthetic, sink, requireJournal: true });
   const limiter = new PostgresRateLimiter(pool);
   return {
     mode: "production",
@@ -180,7 +200,7 @@ async function buildProduction(config: ProductionConfig): Promise<Omit<Runtime, 
     limiter,
     limiterLabel: "PostgreSQL (shared, durable)",
     clientSecret: derive(config.sessionSecret, "client-keys"),
-    identity: new PostgresIdentityStore(pool, { sink, requireJournal: true, synthetic: false }),
+    identity: new PostgresIdentityStore(pool, { sink, requireJournal: true, synthetic }),
     cognito: config.cognito,
     config,
     purgeRateLimits: (cutoff) => limiter.purgeOlderThan(cutoff),
@@ -299,7 +319,8 @@ export async function isPublicFormOpen(): Promise<boolean> {
   if (mode === "local-demo") {
     return publicFormOpen(process.env, await host());
   }
-  if (mode !== "production" || !channelFlags(process.env).publicForm || privacyNoticeIsDraft()) {
+  // Never on the staging deployment, whatever the flag says.
+  if (mode !== "production" || process.env.FLIGHT_DECK_DEPLOYMENT === "staging" || !channelFlags(process.env).publicForm || privacyNoticeIsDraft()) {
     return false;
   }
   const rt = await getRuntime().catch(() => null);

@@ -231,7 +231,7 @@ try {
   const s1 = JSON.parse(status1.body);
   check("status before any worker run reports an action-level alert (503)", status1.status === 503 && s1.alerts.some((a) => a.key === "worker-stale"), status1.body);
   check("worker with no token or the monitor token is 401", (await request("POST", "/flight-deck/internal/worker")).status === 401 && (await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.monitor}` } })).status === 401);
-  const tick = await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } });
+  const tick = await request("POST", "/flight-deck/internal/worker?wait=1", { headers: { Authorization: `Bearer ${tokens.worker}` } });
   const t = JSON.parse(tick.body);
   check("a scheduled worker tick runs against the production database", tick.status === 200 && t.outcome === "ok", tick.body);
   check("the tick wrote a reconciliation checkpoint and the restore fence to the protective log", s3Keys("checkpoints/0").length === 1 && s3.objects.get(`${BUCKET}/flight-deck/checkpoints/fence.json`)?.toString("utf8") === "{\"fence\":1}", s3Keys("checkpoints/").join(","));
@@ -276,12 +276,35 @@ try {
   check("the recovery page shows the status and no record", rec.status === 200 && rec.body.includes("restored copy") && !/Rehearsal Person|person@rehearsal/.test(rec.body));
   const status4 = JSON.parse((await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } })).body);
   check("the monitor reports the restored copy without anyone telling it", status4.recovery === "restore-in-progress" && status4.ok === false, JSON.stringify(status4));
-  const tick3 = JSON.parse((await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } })).body);
+  const tick3 = JSON.parse((await request("POST", "/flight-deck/internal/worker?wait=1", { headers: { Authorization: `Bearer ${tokens.worker}` } })).body);
   check("the scheduled worker verifies the copy by itself", tick3.outcome === "ok", JSON.stringify(tick3));
   const after = await request("GET", "/flight-deck/relationships", { headers: asFounder });
   check("verification ended every session, so the copied one no longer works", after.status === 307 && /\/flight-deck\/sign-in/.test(after.headers.location ?? ""), String(after.status));
   const status5 = JSON.parse((await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } })).body);
   check("status is verified again", status5.recovery === "verified", JSON.stringify(status5));
+
+  // EventBridge waits at most 5 seconds for an API destination. The
+  // default (scheduled) call is accepted at once and the tick runs after
+  // the response.
+  const runsBefore = await (async () => {
+    const c = new pg.Client({ connectionString: `postgresql://fd_owner:${pgPassword}@localhost:${pgPort}/flight_deck_rehearsal`, ssl: { ca, rejectUnauthorized: true } });
+    await c.connect();
+    const n = (await c.query("select count(*)::int n from fd_worker_runs")).rows[0].n;
+    await c.end();
+    return n;
+  })();
+  const t0 = Date.now();
+  const accepted = await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } });
+  const answeredMs = Date.now() - t0;
+  let runsAfter = runsBefore;
+  for (let i = 0; i < 40 && runsAfter === runsBefore; i++) {
+    await sleep(250);
+    const c = new pg.Client({ connectionString: `postgresql://fd_owner:${pgPassword}@localhost:${pgPort}/flight_deck_rehearsal`, ssl: { ca, rejectUnauthorized: true } });
+    await c.connect();
+    runsAfter = (await c.query("select count(*)::int n from fd_worker_runs where doc->>'outcome' <> 'running'")).rows[0].n;
+    await c.end();
+  }
+  check("a scheduled call is accepted at once (202, well under 5 s) and the tick completes after the response", accepted.status === 202 && answeredMs < 2000 && runsAfter === runsBefore + 1, `${accepted.status} in ${answeredMs} ms; runs ${runsBefore} -> ${runsAfter}`);
 
   // The protective log becomes unreachable: contact must stop and the
   // monitor must say so.
@@ -289,7 +312,7 @@ try {
   const status3 = await request("GET", "/flight-deck/internal/status", { headers: { Authorization: `Bearer ${tokens.monitor}` } });
   const s3body = JSON.parse(status3.body);
   check("with the protective log unreachable, status is 503 and reports it", status3.status === 503 && s3body.recovery === "sink-unavailable", status3.body);
-  const tick2 = JSON.parse((await request("POST", "/flight-deck/internal/worker", { headers: { Authorization: `Bearer ${tokens.worker}` } })).body);
+  const tick2 = JSON.parse((await request("POST", "/flight-deck/internal/worker?wait=1", { headers: { Authorization: `Bearer ${tokens.worker}` } })).body);
   check("with the protective log unreachable, the worker dispatches nothing", tick2.outcome !== "ok" && tick2.jobsClaimed === 0, JSON.stringify(tick2));
 } catch (e) {
   check("rehearsal completed", false, e instanceof Error ? e.message : String(e));

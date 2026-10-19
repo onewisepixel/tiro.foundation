@@ -51,9 +51,15 @@ export type ModeDecision = { mode: "local-demo" } | { mode: "production" } | { m
 // ---------- Production configuration ----------
 
 export type ProductionConfig = {
+  // "staging": the synthetic staging deployment (docs/flight-deck/
+  // staging-setup.md). It opens only a database marked synthetic, never a
+  // real one, and the public form cannot open there whatever its flag says.
+  // "production" (the default) opens only a database marked real.
+  deployment: "production" | "staging";
   // The protective event log (protective.ts, s3Sink.ts): a versioned,
-  // Object Lock bucket. Mandatory.
-  protective: { bucket: string; region: string; prefix: string; endpoint?: string };
+  // Object Lock bucket. Mandatory. With roleArn set (Vercel), credentials
+  // come from Vercel OIDC federation: short-lived, for that role only.
+  protective: { bucket: string; region: string; prefix: string; endpoint?: string; roleArn?: string };
   databaseUrl: string;
   databaseCa: string | null;
   pepper: string;
@@ -84,6 +90,17 @@ export function productionConfigProblems(env: FlightDeckEnv): string[] {
     problems.push("FLIGHT_DECK_DATABASE_URL");
   } else if (!/[?&]sslmode=(verify-full|verify-ca|require)\b/.test(db)) {
     problems.push("FLIGHT_DECK_DATABASE_URL (TLS required: sslmode=verify-full)");
+  } else if (/@[^/?]*-pooler\./i.test(db)) {
+    // Neon's pooled endpoint multiplexes sessions (transaction pooling): the
+    // worker's single-runner lock is a session advisory lock and would not
+    // hold. Use the direct endpoint.
+    problems.push("FLIGHT_DECK_DATABASE_URL (use the direct endpoint, not a -pooler host)");
+  }
+  if (env.FLIGHT_DECK_DEPLOYMENT && env.FLIGHT_DECK_DEPLOYMENT !== "production" && env.FLIGHT_DECK_DEPLOYMENT !== "staging") {
+    problems.push("FLIGHT_DECK_DEPLOYMENT (production or staging)");
+  }
+  if (env.FLIGHT_DECK_AWS_ROLE_ARN && !/^arn:aws:iam::\d{12}:role\/[\w+=,.@/-]{1,128}$/.test(env.FLIGHT_DECK_AWS_ROLE_ARN)) {
+    problems.push("FLIGHT_DECK_AWS_ROLE_ARN (an IAM role ARN)");
   }
   for (const name of ["FLIGHT_DECK_EMAIL_HASH_PEPPER", "FLIGHT_DECK_SESSION_SECRET", "FLIGHT_DECK_WORKER_TOKEN", "FLIGHT_DECK_MONITOR_TOKEN", "FLIGHT_DECK_COGNITO_CLIENT_SECRET"]) {
     if (!secret(env[name])) {
@@ -129,11 +146,13 @@ export function productionConfig(env: FlightDeckEnv): ProductionConfig | null {
     return null;
   }
   return {
+    deployment: env.FLIGHT_DECK_DEPLOYMENT === "staging" ? "staging" : "production",
     protective: {
       bucket: env.FLIGHT_DECK_PROTECTIVE_BUCKET!,
       region: env.FLIGHT_DECK_PROTECTIVE_REGION!,
       prefix: env.FLIGHT_DECK_PROTECTIVE_PREFIX || "flight-deck/",
       ...(env.FLIGHT_DECK_PROTECTIVE_ENDPOINT ? { endpoint: env.FLIGHT_DECK_PROTECTIVE_ENDPOINT } : {}),
+      ...(env.FLIGHT_DECK_AWS_ROLE_ARN ? { roleArn: env.FLIGHT_DECK_AWS_ROLE_ARN } : {}),
     },
     databaseUrl: env.FLIGHT_DECK_DATABASE_URL!,
     databaseCa: env.FLIGHT_DECK_DATABASE_CA_PEM ?? null,

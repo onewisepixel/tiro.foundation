@@ -8,7 +8,7 @@ import { createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { AccessDenied, SYSTEM } from "./access";
 import { decide, GateError, payloadFor, submitForReview } from "./approvals";
 import { completeStep, openCase, redactField, resolveCase } from "./cases";
-import { decideMode, privacyNoticeIsDraft, productionConfigProblems, requestMode } from "./config";
+import { decideMode, privacyNoticeIsDraft, productionConfig, productionConfigProblems, requestMode } from "./config";
 import { queueDispatch } from "./dispatch";
 import { createOutreachDraft } from "./drafts";
 import { DEMO_IDENTITIES } from "./identities";
@@ -396,6 +396,23 @@ test("config: production mode exists only with complete, well-formed, distinct s
   }
   const problems = productionConfigProblems({ ...PROD_ENV, FLIGHT_DECK_SESSION_SECRET: "top-secret-value-that-is-too-short" });
   assert.ok(problems.every((p) => !p.includes("top-secret")), "problems never echo values");
+});
+
+test("config: staging deployment, Vercel OIDC role, and the direct database endpoint", () => {
+  const staging = productionConfig({ ...PROD_ENV, FLIGHT_DECK_DEPLOYMENT: "staging", FLIGHT_DECK_AWS_ROLE_ARN: "arn:aws:iam::123456789012:role/flight-deck-staging-app" });
+  assert.equal(staging?.deployment, "staging");
+  assert.equal(staging?.protective.roleArn, "arn:aws:iam::123456789012:role/flight-deck-staging-app");
+  assert.equal(productionConfig(PROD_ENV)?.deployment, "production", "production is the default");
+  assert.equal(productionConfig(PROD_ENV)?.protective.roleArn, undefined);
+  for (const [k, v] of Object.entries({
+    FLIGHT_DECK_DEPLOYMENT: "prod",
+    FLIGHT_DECK_AWS_ROLE_ARN: "arn:aws:iam::123:user/someone",
+    // Neon's pooled endpoint: the worker's session advisory lock would not hold.
+    FLIGHT_DECK_DATABASE_URL: "postgresql://fd_app@ep-quiet-sun-123456-pooler.eu-west-2.aws.neon.tech/flightdeck?sslmode=verify-full",
+  })) {
+    assert.ok(productionConfigProblems({ ...PROD_ENV, [k]: v }).length > 0, k);
+  }
+  assert.deepEqual(productionConfigProblems({ ...PROD_ENV, FLIGHT_DECK_DATABASE_URL: "postgresql://fd_app@ep-quiet-sun-123456.eu-west-2.aws.neon.tech/flightdeck?sslmode=verify-full" }), [], "the direct endpoint is fine");
 });
 
 test("config: production requests must arrive on the configured host; the form cannot open with a draft notice", () => {

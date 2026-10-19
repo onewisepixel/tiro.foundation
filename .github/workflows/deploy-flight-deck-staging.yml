@@ -1,0 +1,103 @@
+name: Deploy Flight Deck staging
+
+# Deploys the Flight Deck SYNTHETIC STAGING project on Vercel. It never
+# deploys the public site's project, and it never runs on its own:
+#   - started only by hand (workflow_dispatch), with a typed confirmation;
+#   - the deploy job uses the GitHub environment "flight-deck-staging",
+#     which must be configured with the founder as a required reviewer, so
+#     every deploy waits for an explicit approval;
+#   - it refuses unless the target project is not the public site's project,
+#     and the pulled staging configuration is staging, with the public form
+#     and outbound email off.
+# Setup, secrets, and variables: docs/flight-deck/staging-setup.md §4.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy"
+        required: true
+        default: main
+      migrate:
+        description: "Apply database migrations to the staging database first"
+        type: boolean
+        default: false
+      confirm:
+        description: 'Type "deploy synthetic staging" to confirm'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flight-deck-staging
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: inputs.confirm == 'deploy synthetic staging'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:flight-deck-pg
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    # Required reviewers on this environment are the approval gate.
+    environment: flight-deck-staging
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_STAGING_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_STAGING_TOKEN }}
+    steps:
+      - name: Refuse anything but the dedicated staging project
+        env:
+          PUBLIC_SITE_PROJECT_ID: ${{ vars.VERCEL_PUBLIC_SITE_PROJECT_ID }}
+        run: |
+          test -n "$VERCEL_PROJECT_ID" || { echo "VERCEL_STAGING_PROJECT_ID is not set"; exit 1; }
+          test -n "$PUBLIC_SITE_PROJECT_ID" || { echo "VERCEL_PUBLIC_SITE_PROJECT_ID must be set so it can be excluded"; exit 1; }
+          test "$VERCEL_PROJECT_ID" != "$PUBLIC_SITE_PROJECT_ID" || { echo "refusing: that is the public site's project"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pull the staging project's configuration
+        run: npx --yes vercel@62.2.0 pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Refuse a configuration that is not synthetic staging
+        run: |
+          f=.vercel/.env.production.local
+          grep -qx 'FLIGHT_DECK_DEPLOYMENT="staging"' "$f" || { echo "FLIGHT_DECK_DEPLOYMENT must be staging"; exit 1; }
+          grep -qx 'FLIGHT_DECK_MODE="production"' "$f" || { echo "FLIGHT_DECK_MODE must be production"; exit 1; }
+          ! grep -q '^FLIGHT_DECK_PUBLIC_FORM_ENABLED="true"' "$f" || { echo "the public form must stay off"; exit 1; }
+          ! grep -q '^FLIGHT_DECK_OUTBOUND_EMAIL_ENABLED="true"' "$f" || { echo "outbound email must stay off"; exit 1; }
+          grep -q '^FLIGHT_DECK_AWS_ROLE_ARN="arn:aws:iam::' "$f" || { echo "FLIGHT_DECK_AWS_ROLE_ARN (the Vercel OIDC role) must be set"; exit 1; }
+      - name: Apply migrations (owner role, only when asked)
+        if: inputs.migrate
+        env:
+          FLIGHT_DECK_DATABASE_URL: ${{ secrets.FLIGHT_DECK_STAGING_OWNER_DATABASE_URL }}
+        run: npm run flight-deck:admin -- migrate
+      - name: Build
+        run: npx --yes vercel@62.2.0 build --prod --token="$VERCEL_TOKEN"
+      - name: Deploy
+        run: npx --yes vercel@62.2.0 deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Smoke check (public form closed, machine endpoints locked)
+        env:
+          ORIGIN: ${{ vars.FLIGHT_DECK_STAGING_ORIGIN }}
+        run: |
+          curl -fsS "$ORIGIN/pilot" | grep -q "Form not yet open" || { echo "the public form is not closed"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$ORIGIN/flight-deck/internal/status")
+          case "$code" in 401|404) ;; *) echo "status endpoint answered $code without a token"; exit 1 ;; esac
