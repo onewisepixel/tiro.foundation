@@ -23,6 +23,8 @@ set -euo pipefail
 
 STACK="tiro-flight-deck-staging"
 REGION="us-east-1"
+# The staging account (tiro-stage). Checked before any CloudFormation call.
+EXPECTED_ACCOUNT="821507736007"
 TEMPLATE="deploy/flight-deck/flight-deck.template.json"
 secret_arn=""
 version_id=""
@@ -42,6 +44,21 @@ if [ -n "$secret_arn" ] && ! [[ "$secret_arn" =~ ^arn:aws:secretsmanager:[a-z0-9
   exit 2
 fi
 [ -f "$TEMPLATE" ] || { echo "run from the repository root ($TEMPLATE not found)" >&2; exit 2; }
+if [ -n "$secret_arn" ] && [[ "$secret_arn" != arn:aws:secretsmanager:"$REGION":"$EXPECTED_ACCOUNT":secret:* ]]; then
+  echo "STOP: --secret-arn is not a secret in tiro-stage ($EXPECTED_ACCOUNT, $REGION)" >&2
+  exit 2
+fi
+
+# Refuse to touch any stack outside tiro-stage.
+account=$(aws sts get-caller-identity --region "$REGION" --no-cli-pager --query Account --output text) || {
+  echo "STOP: could not confirm the AWS account (are you signed in?). Nothing was created." >&2
+  exit 1
+}
+if [ "$account" != "$EXPECTED_ACCOUNT" ]; then
+  echo "STOP: signed in to AWS account $account, not tiro-stage ($EXPECTED_ACCOUNT). Nothing was created." >&2
+  exit 1
+fi
+echo "AWS account $account (tiro-stage), region $REGION."
 
 # Captured first, so a failing call stops the script (set -e) instead of
 # silently producing an empty list.

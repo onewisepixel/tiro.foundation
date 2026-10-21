@@ -33,6 +33,9 @@ aws() {
       cat > "$CAP/stdin"
       if [ "@{AWS_STUB_FAIL:-}" = 1 ]; then echo "aws: [ERROR]: simulated failure" >&2; return 254; fi
       printf '| Arn | arn:aws:secretsmanager:us-east-1:000000000000:secret:x-AbCdEf |\n| VersionId | 11111111-2222-3333-4444-555555555555 |\n' ;;
+    "sts get-caller-identity")
+      if [ "@{STUB_STS_FAIL:-}" = 1 ]; then echo "Unable to locate credentials" >&2; return 253; fi
+      printf '%s\n' "@{STUB_ACCOUNT:-821507736007}" ;;
     "cloudformation get-template-summary") printf '%s\n' "$TEMPLATE_KEYS" ;;
     "cloudformation describe-stacks")
       case "$*" in *WorkerScheduleState*) printf '%s\n' "$SCHED" ;; *) printf '%s\n' "$STACK_KEYS" ;; esac ;;
@@ -89,7 +92,7 @@ for (const mode of ["create", "rotate"] as const) {
     for (const input of ["\n", "FAKE bypass VALUE 0123456789\n", 'FAKE"bypassVALUE0123456789\n', "short\n", ""]) {
       const r = run(SECRET, [mode], { input });
       assert.notEqual(r.code, 0, JSON.stringify(input));
-      assert.equal(read("argv"), null, `aws not called for ${JSON.stringify(input)}`);
+      assert.ok(!(read("argv") ?? "").includes("secretsmanager"), `Secrets Manager not called for ${JSON.stringify(input)}`);
     }
   });
 }
@@ -170,4 +173,39 @@ test("change set: refuses unsafe or unexpected situations, creating or executing
   r = run(CHANGE, ["--version-id", VID], { env: { ...baseEnv, STACK_KEYS: `${S_KEYS_BEFORE}\tVercelBypassSecretArn\tVercelBypassSecretVersionId`, WAIT_RC: "255" } });
   assert.notEqual(r.code, 0);
   assert.match(r.out, /the change set was not created/);
+});
+
+// ---------- Account identity: tiro-stage only ----------
+
+test("both scripts confirm the AWS account is tiro-stage first, and refuse any other", () => {
+  for (const mode of ["create", "rotate"]) {
+    // The right account: the check runs before the value is asked for.
+    let r = run(SECRET, [mode], { input: `${FAKE}\n` });
+    assert.equal(r.code, 0, r.out);
+    const argv = read("argv")!;
+    assert.ok(argv.indexOf("get-caller-identity") < argv.indexOf("secretsmanager"), "identity checked before Secrets Manager");
+    assert.match(r.out, /AWS account 821507736007 \(tiro-stage\)/);
+    // Another account, or no confirmable identity: stop before the prompt.
+    for (const env of ([{ STUB_ACCOUNT: "111122223333" }, { STUB_STS_FAIL: "1" }] as Record<string, string>[])) {
+      r = run(SECRET, [mode], { input: `${FAKE}\n`, env });
+      assert.notEqual(r.code, 0, JSON.stringify(env));
+      assert.match(r.out, /STOP: .*Nothing was stored/);
+      assert.doesNotMatch(r.out, /Paste the/, "never asks for the value");
+      assert.ok(!read("argv")!.includes("secretsmanager"), "Secrets Manager never called");
+      assert.equal(read("stdin"), null);
+    }
+  }
+  for (const env of ([{ STUB_ACCOUNT: "111122223333" }, { STUB_STS_FAIL: "1" }] as Record<string, string>[])) {
+    const r = run(CHANGE, ["--secret-arn", ARN, "--version-id", VID], { env: { ...baseEnv, ...env } });
+    assert.notEqual(r.code, 0, JSON.stringify(env));
+    assert.match(r.out, /STOP: .*Nothing was created/);
+    assert.ok(!read("argv")!.includes("cloudformation"), "no CloudFormation call at all");
+    assert.equal(read("change-set-args"), null);
+  }
+  // A secret ARN from another account or region is refused before any call.
+  for (const arn of [ARN.replace("821507736007", "111122223333"), ARN.replace("us-east-1", "eu-west-2")]) {
+    const r = run(CHANGE, ["--secret-arn", arn, "--version-id", VID], { env: baseEnv });
+    assert.equal(r.code, 2, arn);
+    assert.equal(read("argv"), null);
+  }
 });

@@ -251,9 +251,15 @@ The workflow refuses a value that is not 16 or more URL-safe characters (letters
 Use **AWS CloudShell** in `tiro-stage`, region us-east-1. It runs in the browser on Amazon Linux with AWS CLI v2 preinstalled, and costs nothing. Work from a checkout of this repository:
 
 ```bash
+# 1. Confirm where you are. Expect Account 821507736007 (tiro-stage). Stop otherwise.
+aws sts get-caller-identity --region us-east-1 --no-cli-pager --query '{Account:Account,Arn:Arn}' --output table
+
+# 2. Get the merged scripts (after PR #3 is merged into main), and read them.
 git clone https://github.com/onewisepixel/tiro.foundation.git
 cd tiro.foundation || echo "Clone failed: stop here."
-git checkout <the merged commit>    # read the two scripts below before running them
+git checkout main
+git log -1 --oneline    # the merge commit of PR #3, or later
+less scripts/flight-deck/staging-bypass-secret.sh scripts/flight-deck/staging-bypass-change-set.sh
 
 # Optional, harmless: confirm this CLI reads parameters from stdin, using a
 # throwaway policy document (no secret involved; a read-only API call).
@@ -266,6 +272,7 @@ bash scripts/flight-deck/staging-bypass-secret.sh create
 
 Paste the value from Vercel at the silent prompt. `scripts/flight-deck/staging-bypass-secret.sh` then works like this:
 
+- **tiro-stage only.** Before it asks for the value, the script itself confirms with `aws sts get-caller-identity` that the session is in account **821507736007**. Any other account, or an identity it cannot confirm, stops it with "Nothing was stored". The change-set script (§10.4) applies the same check before any CloudFormation call, and refuses a `--secret-arn` from any other account or region. Step 1 above is for you to see the account; the scripts do not rely on it.
 - **No file, ever.** The value goes from a silent `read` straight to `aws secretsmanager create-secret --secret-string file:///dev/stdin`, through a pipe.
 - **No command line.** `printf` is a shell builtin, so no process ever has the value as an argument. Shell history records only the `bash …` command.
 - **No trace, no output.** Tracing is switched off inside the script before the value is read, even under `bash -x`. The only output is the secret's **ARN** and **version ID**: identifiers, not the value.

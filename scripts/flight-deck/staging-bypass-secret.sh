@@ -18,6 +18,8 @@ set -uo pipefail
 
 readonly NAME="tiro-flight-deck-staging/vercel-automation-bypass"
 readonly REGION="us-east-1"
+# The staging account (tiro-stage). Checked before you are asked for the value.
+readonly EXPECTED_ACCOUNT="821507736007"
 readonly DESCRIPTION="Vercel Protection Bypass for Automation, staging project tiro-flight-deck-staging"
 
 mode="${1:-}"
@@ -28,6 +30,17 @@ case "$mode" in
     exit 2
     ;;
 esac
+
+# Refuse to run anywhere but tiro-stage, before the value is ever entered.
+account=$(aws sts get-caller-identity --region "$REGION" --no-cli-pager --query Account --output text) || {
+  echo "STOP: could not confirm the AWS account (are you signed in?). Nothing was stored." >&2
+  exit 1
+}
+if [ "$account" != "$EXPECTED_ACCOUNT" ]; then
+  echo "STOP: signed in to AWS account $account, not tiro-stage ($EXPECTED_ACCOUNT). Nothing was stored." >&2
+  exit 1
+fi
+echo "AWS account $account (tiro-stage), region $REGION." >&2
 
 (
   # Nothing below may be traced or echoed, whatever the calling shell does.
