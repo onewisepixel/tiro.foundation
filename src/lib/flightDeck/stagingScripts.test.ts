@@ -144,8 +144,11 @@ test("change set (first time, the observed seven-resource set): accepted, every 
   assert.match(r.out, /WorkerScheduleState is DISABLED and will stay DISABLED/);
   // Every one of the seven resources is shown, with its cause.
   for (const line of [
-    /WorkerConnection {2}Modify {2}replace=False {2}AuthParameters {2}Static {2}DirectModification/,
-    /StatusConnection {2}Modify {2}replace=False {2}AuthParameters {2}Static/,
+    // The live shape: two Static parameter references and one Dynamic direct modification, per connection.
+    /WorkerConnection {2}Modify {2}replace=False {2}AuthParameters {2}Static {2}ParameterReference {2}VercelBypassSecretArn/,
+    /WorkerConnection {2}Modify {2}replace=False {2}AuthParameters {2}Static {2}ParameterReference {2}VercelBypassSecretVersionId/,
+    /WorkerConnection {2}Modify {2}replace=False {2}AuthParameters {2}Dynamic {2}DirectModification {2}-/,
+    /StatusConnection {2}Modify {2}replace=False {2}AuthParameters {2}Dynamic {2}DirectModification {2}-/,
     /WorkerDestination {2}Modify {2}replace=False {2}ConnectionArn {2}Dynamic {2}ResourceAttribute {2}WorkerConnection\.Arn/,
     /StatusDestination {2}Modify {2}replace=False {2}ConnectionArn {2}Dynamic {2}ResourceAttribute {2}StatusConnection\.Arn/,
     /WorkerInvokeRole {2}Modify {2}replace=False {2}Policies {2}Dynamic {2}ResourceAttribute {2}StatusDestination\.Arn/,
@@ -263,4 +266,46 @@ test("both scripts confirm the AWS account is tiro-stage first, and refuse any o
     assert.equal(r.code, 2, arn);
     assert.equal(read("argv"), null);
   }
+});
+
+// ---------- Re-checking an existing change set (read-only) ----------
+
+const LIVE = "vercel-bypass-20261021T184902Z";
+
+test("existing change set: the live one is re-checked read-only; nothing is created, waited on, executed, or deleted", () => {
+  const r = run(CHANGE, ["--existing-change-set", LIVE, "--secret-arn", ARN, "--version-id", VID], { env: baseEnv });
+  assert.equal(r.code, 0, r.out);
+  const argv = read("argv")!;
+  assert.match(argv, /get-caller-identity/, "the account is checked");
+  assert.ok(argv.includes(LIVE), "the named change set is described");
+  for (const op of ["create-change-set", "execute-change-set", "delete-change-set", "\nwait\n"]) {
+    assert.ok(!argv.includes(op), `no ${op.trim()}`);
+  }
+  assert.equal(read("change-set-args"), null);
+  assert.equal(read("EXECUTED"), null);
+  assert.ok(r.out.includes(`Re-checking existing change set ${LIVE} (read-only).`), r.out);
+  assert.match(r.out, /WorkerConnection {2}Modify {2}replace=False {2}AuthParameters {2}Dynamic {2}DirectModification/);
+  assert.match(r.out, /Then, and only then, execute with:/, "execution stays a separate, manual step");
+});
+
+test("existing change set: a bad name, a wrong account, or a failing change set is refused without acting", () => {
+  // Only names this script creates.
+  for (const name of ["vercel-bypass-latest", "other-change-set", "vercel-bypass-20261021T184902Z;rm"]) {
+    const r = run(CHANGE, ["--existing-change-set", name, "--secret-arn", ARN, "--version-id", VID], { env: baseEnv });
+    assert.equal(r.code, 2, name);
+    assert.equal(read("argv"), null, `no AWS call for ${name}`);
+  }
+  // Another account: stop before any CloudFormation call.
+  let r = run(CHANGE, ["--existing-change-set", LIVE, "--secret-arn", ARN, "--version-id", VID], { env: { ...baseEnv, STUB_ACCOUNT: "111122223333" } });
+  assert.notEqual(r.code, 0);
+  assert.ok(!read("argv")!.includes("cloudformation"));
+  // A change set outside the policy: refused, and only the delete command is printed (never run).
+  r = run(CHANGE, ["--existing-change-set", LIVE, "--secret-arn", ARN, "--version-id", VID], {
+    env: { ...baseEnv, ...observedEnv((f) => (rc(f, "WorkerConnection").Details[2].Evaluation = "Static")) },
+  });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /a direct modification must be Dynamic/);
+  assert.match(r.out, /delete-change-set/);
+  assert.ok(!read("argv")!.includes("delete-change-set"), "the delete command is printed, not run");
+  assert.doesNotMatch(r.out, /Then, and only then, execute with/);
 });

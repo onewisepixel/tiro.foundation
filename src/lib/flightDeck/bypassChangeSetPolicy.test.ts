@@ -1,6 +1,6 @@
 // The change-set policy behind scripts/flight-deck/staging-bypass-change-set.sh
 // (scripts/flight-deck/bypass-change-set-policy.mjs). The positive case is
-// the seven-resource change set observed live on 2026-10-21
+// the live seven-resource change set vercel-bypass-20261021T184902Z
 // (fixtures/bypass-change-set-observed.json); every negative case changes
 // one thing about it.
 import { test } from "node:test";
@@ -27,27 +27,11 @@ const refused = (f: Fixture, pattern: RegExp, opts?: Parameters<typeof check>[1]
   assert.ok(r.problems.some((p) => pattern.test(p)), `expected a problem matching ${pattern}; got:\n${r.problems.join("\n")}`);
 };
 
-test("the observed seven-resource change set (two direct changes, five Dynamic dependants) is accepted", () => {
+test("the live seven-resource change set (two direct changes, five Dynamic dependants) is accepted", () => {
   const r = check(fresh());
   assert.deepEqual(r.problems, []);
   assert.equal(r.ok, true);
   assert.equal(FIXTURE.changeSet.Changes.length, 7);
-});
-
-test("a rotation change set (only the version ID parameter changes) is accepted", () => {
-  const f = fresh();
-  for (const id of ["WorkerConnection", "StatusConnection"]) {
-    change(f, id).Details = [{ Target: { Attribute: "Properties", Name: "AuthParameters", RequiresRecreation: "Never" }, Evaluation: "Static", ChangeSource: "ParameterReference", CausingEntity: "VercelBypassSecretVersionId" }];
-  }
-  const newVersion = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
-  f.stackParameters.find((p) => p.ParameterKey === "VercelBypassSecretArn")!.ParameterValue = f.secretArn;
-  f.changeSet.Parameters.find((p) => p.ParameterKey === "VercelBypassSecretVersionId")!.ParameterValue = newVersion;
-  // UsePreviousValue entries, as a change set may report them, are fine.
-  const arnParam = f.changeSet.Parameters.find((p) => p.ParameterKey === "VercelBypassSecretArn")!;
-  delete arnParam.ParameterValue;
-  arnParam.UsePreviousValue = true;
-  const r = checkBypassChangeSet(f.changeSet, { stackName: STACK, stackParameters: f.stackParameters, versionId: newVersion, secretArn: "" }) as { ok: boolean; problems: string[] };
-  assert.deepEqual(r.problems, []);
 });
 
 test("dependants: an unexpected property, cause, source, or a Static (real) change is refused", () => {
@@ -84,18 +68,150 @@ test("dependants: an unexpected property, cause, source, or a Static (real) chan
   refused(f, /StatusDestination: no change details to verify/);
 });
 
-test("direct changes: anything but AuthParameters, in place, from the template or the bypass parameters, is refused", () => {
+// ---------- The two connections: parameter references and the dynamic direct modification ----------
+
+const AUTH = (Evaluation: string, ChangeSource: string, CausingEntity?: string): Detail => ({
+  Target: { Attribute: "Properties", Name: "AuthParameters", RequiresRecreation: "Never", Path: "/Properties/AuthParameters" },
+  Evaluation,
+  ChangeSource,
+  ...(CausingEntity ? { CausingEntity } : {}),
+});
+const ARN_REF = () => AUTH("Static", "ParameterReference", "VercelBypassSecretArn");
+const VID_REF = () => AUTH("Static", "ParameterReference", "VercelBypassSecretVersionId");
+const DYN_DIRECT = () => AUTH("Dynamic", "DirectModification");
+const setConnections = (f: Fixture, details: () => Detail[]) => {
+  for (const id of ["WorkerConnection", "StatusConnection"]) change(f, id).Details = details();
+};
+// A rotation: only the version ID changes; the stack already holds the ARN.
+const rotation = (details: () => Detail[]) => {
+  const f = fresh();
+  setConnections(f, details);
+  const newVersion = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
+  f.stackParameters.find((p) => p.ParameterKey === "VercelBypassSecretArn")!.ParameterValue = f.secretArn;
+  f.stackParameters.find((p) => p.ParameterKey === "VercelBypassSecretVersionId")!.ParameterValue = f.versionId;
+  f.changeSet.Parameters.find((p) => p.ParameterKey === "VercelBypassSecretVersionId")!.ParameterValue = newVersion;
+  return { f, opts: { versionId: newVersion, secretArn: "" } };
+};
+const checkRotation = (r: ReturnType<typeof rotation>) =>
+  checkBypassChangeSet(r.f.changeSet, { stackName: STACK, stackParameters: r.f.stackParameters, ...r.opts }) as { ok: boolean; problems: string[] };
+
+test("the live connection details are what the fixture holds: two Static parameter references and one Dynamic direct modification, each", () => {
+  for (const id of ["WorkerConnection", "StatusConnection"]) {
+    assert.deepEqual(
+      change(FIXTURE, id).Details.map((d) => [d.Evaluation, d.ChangeSource, d.CausingEntity ?? null, d.Target.Name, d.Target.RequiresRecreation]),
+      [
+        ["Static", "ParameterReference", "VercelBypassSecretArn", "AuthParameters", "Never"],
+        ["Static", "ParameterReference", "VercelBypassSecretVersionId", "AuthParameters", "Never"],
+        ["Dynamic", "DirectModification", null, "AuthParameters", "Never"],
+      ],
+    );
+  }
+  assert.equal(FIXTURE.changeSet.Parameters.find((p) => p.ParameterKey === "WorkerScheduleState")!.ParameterValue, "DISABLED");
+});
+
+test("connections: the entries are accepted in any order", () => {
+  const f = fresh();
+  setConnections(f, () => [DYN_DIRECT(), VID_REF(), ARN_REF()]);
+  assert.deepEqual(check(f).problems, []);
+});
+
+test("rotation: the version ID reference, with or without the dynamic direct modification, is accepted", () => {
+  for (const details of [() => [VID_REF(), DYN_DIRECT()], () => [VID_REF()]]) {
+    assert.deepEqual(checkRotation(rotation(details)).problems, []);
+  }
+  // A change set may report unchanged parameters as UsePreviousValue.
+  const r = rotation(() => [VID_REF(), DYN_DIRECT()]);
+  const arnParam = r.f.changeSet.Parameters.find((p) => p.ParameterKey === "VercelBypassSecretArn")!;
+  delete arnParam.ParameterValue;
+  arnParam.UsePreviousValue = true;
+  assert.deepEqual(checkRotation(r).problems, []);
+});
+
+test("connections: a direct modification must be Dynamic, uncaused, single, and present on a first-time update", () => {
   let f = fresh();
-  change(f, "WorkerConnection").Details[0].Target.Name = "AuthorizationType";
-  refused(f, /WorkerConnection detail 1: changes property AuthorizationType, expected AuthParameters/);
+  change(f, "WorkerConnection").Details[2].Evaluation = "Static"; // an ordinary template edit
+  refused(f, /WorkerConnection detail 3: a direct modification must be Dynamic \(the secret reference\), got Static/);
+
+  f = fresh();
+  change(f, "StatusConnection").Details[2].CausingEntity = "PublicOrigin";
+  refused(f, /StatusConnection detail 3: a direct modification has causing entity PublicOrigin/);
+
+  f = fresh();
+  change(f, "WorkerConnection").Details.push(DYN_DIRECT()); // duplicated
+  refused(f, /WorkerConnection: 2 direct modifications, expected at most one/);
+
+  f = fresh();
+  change(f, "StatusConnection").Details = [ARN_REF(), VID_REF()]; // missing on a first-time update
+  refused(f, /StatusConnection: no dynamic direct modification of AuthParameters/);
+
+  const r = rotation(() => [VID_REF(), DYN_DIRECT(), DYN_DIRECT()]);
+  const res = checkRotation(r);
+  assert.equal(res.ok, false);
+  assert.ok(res.problems.some((p) => /2 direct modifications, expected at most one/.test(p)), res.problems.join("\n"));
+});
+
+test("connections: a dynamic direct modification of any other property is refused", () => {
+  for (const name of ["AuthorizationType", "Description", "InvocationConnectivityParameters", "KmsKeyIdentifier"]) {
+    const f = fresh();
+    change(f, "WorkerConnection").Details[2].Target = { Attribute: "Properties", Name: name, RequiresRecreation: "Never" };
+    refused(f, new RegExp(`WorkerConnection detail 3: changes property ${name}, expected AuthParameters`));
+  }
+  const f = fresh();
+  change(f, "StatusConnection").Details[2].Target = { Attribute: "Tags", RequiresRecreation: "Never" };
+  refused(f, /StatusConnection detail 3: changes Tags, not a property/);
+});
+
+test("a dynamic direct modification on any other resource is refused", () => {
+  // On a dependant: only Dynamic ResourceAttribute re-evaluations are allowed there.
+  for (const [id, prop] of [
+    ["WorkerDestination", "ConnectionArn"],
+    ["WorkerInvokeRole", "Policies"],
+    ["WorkerSchedule", "State"],
+    ["StatusMonitor", "Targets"],
+  ] as const) {
+    const f = fresh();
+    change(f, id).Details.push({ Target: { Attribute: "Properties", Name: prop, RequiresRecreation: "Never" }, Evaluation: "Dynamic", ChangeSource: "DirectModification" });
+    refused(f, new RegExp(`${id} detail \\d: change source DirectModification, expected ResourceAttribute`));
+  }
+  // On a resource outside the change.
+  const f = fresh();
+  f.changeSet.Changes.push({
+    Type: "Resource",
+    ResourceChange: { Action: "Modify", LogicalResourceId: "OperatorPool", ResourceType: "AWS::Cognito::UserPool", Replacement: "False", Scope: ["Properties"], Details: [{ Target: { Attribute: "Properties", Name: "MfaConfiguration", RequiresRecreation: "Never" }, Evaluation: "Dynamic", ChangeSource: "DirectModification" }] },
+  });
+  refused(f, /OperatorPool \(AWS::Cognito::UserPool\) would modify: not part of this change/);
+});
+
+test("connections: parameter references must be Static, to the bypass parameters, exactly those changing, once each", () => {
+  let f = fresh();
+  change(f, "WorkerConnection").Details[0].Evaluation = "Dynamic";
+  refused(f, /WorkerConnection detail 1: a parameter reference must be Static, got Dynamic/);
 
   f = fresh();
   change(f, "StatusConnection").Details[1].CausingEntity = "PublicOrigin";
-  refused(f, /StatusConnection detail 2: caused by ParameterReference PublicOrigin/);
+  refused(f, /StatusConnection detail 2: caused by parameter PublicOrigin, expected a bypass parameter/);
 
   f = fresh();
-  change(f, "WorkerConnection").Details[0].Evaluation = "Dynamic";
-  refused(f, /WorkerConnection detail 1: evaluation Dynamic, expected Static/);
+  change(f, "StatusConnection").Details.push(VID_REF()); // duplicated
+  refused(f, /StatusConnection: parameter reference VercelBypassSecretVersionId is listed more than once/);
+
+  f = fresh();
+  change(f, "WorkerConnection").Details = [VID_REF(), DYN_DIRECT()]; // first time, but the ARN reference is missing
+  refused(f, /WorkerConnection: no reference to VercelBypassSecretArn, which this update changes/);
+
+  let r = rotation(() => [ARN_REF(), VID_REF(), DYN_DIRECT()]); // rotation must not touch the ARN
+  let res = checkRotation(r);
+  assert.ok(res.problems.some((p) => /references VercelBypassSecretArn, which this update does not change/.test(p)), res.problems.join("\n"));
+
+  r = rotation(() => [DYN_DIRECT()]); // rotation without the version reference
+  res = checkRotation(r);
+  assert.ok(res.problems.some((p) => /no reference to VercelBypassSecretVersionId/.test(p)), res.problems.join("\n"));
+
+  for (const source of ["ResourceReference", "ResourceAttribute", "Automatic", "NoModification"]) {
+    f = fresh();
+    change(f, "WorkerConnection").Details[2].ChangeSource = source;
+    refused(f, new RegExp(`WorkerConnection detail 3: caused by ${source}.*expected a bypass parameter or the dynamic secret reference`));
+  }
 
   f = fresh();
   f.changeSet.Changes = f.changeSet.Changes.filter((c) => c.ResourceChange.LogicalResourceId !== "StatusConnection");
