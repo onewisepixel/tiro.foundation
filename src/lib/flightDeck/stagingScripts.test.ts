@@ -38,10 +38,15 @@ aws() {
       printf '%s\n' "@{STUB_ACCOUNT:-821507736007}" ;;
     "cloudformation get-template-summary") printf '%s\n' "$TEMPLATE_KEYS" ;;
     "cloudformation describe-stacks")
-      case "$*" in *WorkerScheduleState*) printf '%s\n' "$SCHED" ;; *) printf '%s\n' "$STACK_KEYS" ;; esac ;;
+      case "$*" in
+        *WorkerScheduleState*) printf '%s\n' "$SCHED" ;;
+        *"--output json"*) printf '%s\n' "$STACK_PARAMS_JSON" ;;
+        *) printf '%s\n' "$STACK_KEYS" ;;
+      esac ;;
     "cloudformation create-change-set") printf '%s\n' "$@" > "$CAP/change-set-args"; echo "arn:aws:cloudformation:change-set" ;;
     "cloudformation wait") return "@{WAIT_RC:-0}" ;;
-    "cloudformation describe-change-set") printf '%b\n' "$CHANGES" ;;
+    "cloudformation describe-change-set")
+      case "$*" in *"--output json"*) printf '%s\n' "$CHANGESET_JSON" ;; *) echo "| Status | FAILED |" ;; esac ;;
     "cloudformation execute-change-set") echo executed > "$CAP/EXECUTED" ;;
     *) echo "unexpected aws $*" >&2; return 99 ;;
   esac
@@ -104,16 +109,25 @@ test("bypass secret: no mode, no action", () => {
 
 const T_KEYS = "PublicOrigin\tCognitoDomainPrefix\tWorkerScheduleState\tAlarmEmail\tEscalationEmail\tAwsMonthlyBudgetUsd\tVercelTeamSlug\tVercelProjectName\tVercelEnvironment\tVercelBypassSecretArn\tVercelBypassSecretVersionId\tProtectiveRetentionDays";
 const S_KEYS_BEFORE = "PublicOrigin\tCognitoDomainPrefix\tWorkerScheduleState\tAlarmEmail\tEscalationEmail\tAwsMonthlyBudgetUsd\tVercelTeamSlug\tVercelProjectName\tVercelEnvironment\tProtectiveRetentionDays";
-const OK_CHANGES = "WorkerConnection\\tModify\\tFalse\\nStatusConnection\\tModify\\tFalse";
-const ARN = "arn:aws:secretsmanager:us-east-1:821507736007:secret:tiro-flight-deck-staging/vercel-automation-bypass-AbCdEf";
-const VID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-const baseEnv = { TEMPLATE_KEYS: T_KEYS, STACK_KEYS: S_KEYS_BEFORE, SCHED: "DISABLED", CHANGES: OK_CHANGES };
+// The seven-resource change set observed live (two direct changes, five
+// Dynamic dependants); see bypassChangeSetPolicy.test.ts for the policy itself.
+type Fx = { changeSet: { Parameters: { ParameterKey: string; ParameterValue?: string; UsePreviousValue?: boolean }[]; Changes: { ResourceChange: { LogicalResourceId: string; Replacement: string; Details: { Evaluation?: string; ChangeSource?: string; CausingEntity?: string; Target: { Attribute: string; Name?: string; RequiresRecreation?: string } }[] } }[] }; stackParameters: { ParameterKey: string; ParameterValue: string }[]; secretArn: string; versionId: string };
+const OBSERVED = JSON.parse(fs.readFileSync("src/lib/flightDeck/fixtures/bypass-change-set-observed.json", "utf8")) as Fx;
+const ARN = OBSERVED.secretArn;
+const VID = OBSERVED.versionId;
+const observedEnv = (mutate: (f: Fx) => void = () => undefined) => {
+  const f = structuredClone(OBSERVED);
+  mutate(f);
+  return { CHANGESET_JSON: JSON.stringify(f.changeSet), STACK_PARAMS_JSON: JSON.stringify(f.stackParameters) };
+};
+const baseEnv = { TEMPLATE_KEYS: T_KEYS, STACK_KEYS: S_KEYS_BEFORE, SCHED: "DISABLED", ...observedEnv() };
+const rc = (f: Fx, id: string) => f.changeSet.Changes.find((c) => c.ResourceChange.LogicalResourceId === id)!.ResourceChange;
 const paramsOf = () => {
   const a = read("change-set-args")!.split("\n");
   return a.slice(a.indexOf("--parameters") + 1).filter((x) => x.startsWith("ParameterKey="));
 };
 
-test("change set (first time): every template parameter is passed; only the two bypass ones change; schedules keep their value; never executed", () => {
+test("change set (first time, the observed seven-resource set): accepted, every detail listed for review, never executed", () => {
   const r = run(CHANGE, ["--secret-arn", ARN, "--version-id", VID], { env: baseEnv });
   assert.equal(r.code, 0, r.out);
   const p = paramsOf();
@@ -123,22 +137,46 @@ test("change set (first time): every template parameter is passed; only the two 
   for (const k of S_KEYS_BEFORE.split("\t")) {
     assert.ok(p.includes(`ParameterKey=${k},UsePreviousValue=true`), k);
   }
-  assert.ok(p.includes("ParameterKey=WorkerScheduleState,UsePreviousValue=true"));
   assert.ok(!p.some((x) => x.startsWith("ParameterKey=WorkerScheduleState,ParameterValue")), "the schedule is never set");
   const args = read("change-set-args")!;
   assert.match(args, /CAPABILITY_IAM/);
   assert.match(args, /file:\/\/deploy\/flight-deck\/flight-deck\.template\.json/);
   assert.match(r.out, /WorkerScheduleState is DISABLED and will stay DISABLED/);
-  assert.match(r.out, /execute-change-set/, "prints the command for the founder");
+  // Every one of the seven resources is shown, with its cause.
+  for (const line of [
+    /WorkerConnection {2}Modify {2}replace=False {2}AuthParameters {2}Static {2}DirectModification/,
+    /StatusConnection {2}Modify {2}replace=False {2}AuthParameters {2}Static/,
+    /WorkerDestination {2}Modify {2}replace=False {2}ConnectionArn {2}Dynamic {2}ResourceAttribute {2}WorkerConnection\.Arn/,
+    /StatusDestination {2}Modify {2}replace=False {2}ConnectionArn {2}Dynamic {2}ResourceAttribute {2}StatusConnection\.Arn/,
+    /WorkerInvokeRole {2}Modify {2}replace=False {2}Policies {2}Dynamic {2}ResourceAttribute {2}StatusDestination\.Arn/,
+    /WorkerSchedule {2}Modify {2}replace=False {2}Targets {2}Dynamic {2}ResourceAttribute {2}WorkerInvokeRole\.Arn/,
+    /StatusMonitor {2}Modify {2}replace=False {2}Targets {2}Dynamic {2}ResourceAttribute {2}StatusDestination\.Arn/,
+  ]) {
+    assert.match(r.out, line);
+  }
+  assert.match(r.out, /Review the COMPLETE change set yourself before executing it/);
+  assert.match(r.out, /describe-change-set .*--output json/);
+  assert.match(r.out, /Then, and only then, execute with:\n {2}aws cloudformation execute-change-set/, "prints the command for the founder");
   assert.equal(read("EXECUTED"), null, "the script itself never executes the change set");
 });
 
 test("change set (rotation): only the version ID changes; the ARN keeps its value", () => {
-  const r = run(CHANGE, ["--version-id", VID], { env: { ...baseEnv, STACK_KEYS: `${S_KEYS_BEFORE}\tVercelBypassSecretArn\tVercelBypassSecretVersionId`, SCHED: "ENABLED" } });
+  const newVid = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
+  const env = observedEnv((f) => {
+    for (const id of ["WorkerConnection", "StatusConnection"]) {
+      rc(f, id).Details = [{ Target: { Attribute: "Properties", Name: "AuthParameters", RequiresRecreation: "Never" }, Evaluation: "Static", ChangeSource: "ParameterReference", CausingEntity: "VercelBypassSecretVersionId" }];
+    }
+    f.stackParameters.find((x) => x.ParameterKey === "VercelBypassSecretArn")!.ParameterValue = ARN;
+    f.stackParameters.find((x) => x.ParameterKey === "VercelBypassSecretVersionId")!.ParameterValue = VID;
+    f.stackParameters.find((x) => x.ParameterKey === "WorkerScheduleState")!.ParameterValue = "ENABLED";
+    f.changeSet.Parameters.find((x) => x.ParameterKey === "WorkerScheduleState")!.ParameterValue = "ENABLED";
+    f.changeSet.Parameters.find((x) => x.ParameterKey === "VercelBypassSecretVersionId")!.ParameterValue = newVid;
+  });
+  const r = run(CHANGE, ["--version-id", newVid], { env: { ...baseEnv, ...env, STACK_KEYS: `${S_KEYS_BEFORE}\tVercelBypassSecretArn\tVercelBypassSecretVersionId`, SCHED: "ENABLED" } });
   assert.equal(r.code, 0, r.out);
   const p = paramsOf();
   assert.ok(p.includes("ParameterKey=VercelBypassSecretArn,UsePreviousValue=true"));
-  assert.ok(p.includes(`ParameterKey=VercelBypassSecretVersionId,ParameterValue=${VID}`));
+  assert.ok(p.includes(`ParameterKey=VercelBypassSecretVersionId,ParameterValue=${newVid}`));
   assert.ok(p.includes("ParameterKey=WorkerScheduleState,UsePreviousValue=true"), "an enabled schedule also stays as it is");
   assert.match(r.out, /WorkerScheduleState is ENABLED and will stay ENABLED/);
 });
@@ -156,19 +194,36 @@ test("change set: refuses unsafe or unexpected situations, creating or executing
   // Malformed inputs.
   assert.equal(run(CHANGE, ["--secret-arn", ARN], { env: baseEnv }).code, 2);
   assert.equal(run(CHANGE, ["--secret-arn", "not-an-arn", "--version-id", VID], { env: baseEnv }).code, 2);
-  // Unexpected changes: a replacement, an extra resource, or a missing connection.
-  for (const changes of [
-    "WorkerConnection\\tModify\\tTrue\\nStatusConnection\\tModify\\tFalse",
-    `${OK_CHANGES}\\nWorkerSchedule\\tModify\\tFalse`,
-    "WorkerConnection\\tModify\\tFalse",
-    "",
-  ]) {
-    r = run(CHANGE, ["--secret-arn", ARN, "--version-id", VID], { env: { ...baseEnv, CHANGES: changes } });
-    assert.notEqual(r.code, 0, changes);
-    assert.match(r.out, /STOP: this change set does more than/, changes);
-    assert.doesNotMatch(r.out, /After your own review, execute with/);
-    assert.equal(read("EXECUTED"), null);
+  // Unexpected change sets, end to end through the script.
+  const cases: [string, (f: Fx) => void, RegExp][] = [
+    ["a replacement", (f) => (rc(f, "WorkerConnection").Replacement = "True"), /WorkerConnection: replacement True/],
+    ["an unexpected dependant property", (f) => (rc(f, "WorkerSchedule").Details[0].Target.Name = "State"), /WorkerSchedule detail 1: State caused by/],
+    ["a Static change to a dependant", (f) => (rc(f, "WorkerDestination").Details[0].Evaluation = "Static"), /WorkerDestination detail 1: evaluation Static, expected Dynamic/],
+    [
+      "an additional resource",
+      (f) =>
+        f.changeSet.Changes.push({
+          ResourceChange: { LogicalResourceId: "OperatorPool", Replacement: "False", Details: [{ Target: { Attribute: "Properties", Name: "MfaConfiguration", RequiresRecreation: "Never" }, Evaluation: "Static", ChangeSource: "DirectModification" }] },
+          ...({ Type: "Resource" } as object),
+        } as Fx["changeSet"]["Changes"][number]),
+      /OperatorPool .*not part of this change/,
+    ],
+    ["a missing connection", (f) => (f.changeSet.Changes = f.changeSet.Changes.filter((c) => c.ResourceChange.LogicalResourceId !== "StatusConnection")), /StatusConnection is not modified/],
+    ["a changed schedule parameter", (f) => (f.changeSet.Parameters.find((x) => x.ParameterKey === "WorkerScheduleState")!.ParameterValue = "ENABLED"), /WorkerScheduleState would change from DISABLED to ENABLED/],
+  ];
+  for (const [label, mutate, problem] of cases) {
+    r = run(CHANGE, ["--secret-arn", ARN, "--version-id", VID], { env: { ...baseEnv, ...observedEnv(mutate) } });
+    assert.notEqual(r.code, 0, label);
+    assert.match(r.out, /STOP: this change set does not match what the bypass update may change/, label);
+    assert.match(r.out, problem, label);
+    assert.match(r.out, /Do not execute it\. Delete it with:\n {2}aws cloudformation delete-change-set/, label);
+    assert.doesNotMatch(r.out, /Then, and only then, execute with/, label);
+    assert.equal(read("EXECUTED"), null, label);
   }
+  // A description that is not JSON is refused too.
+  r = run(CHANGE, ["--secret-arn", ARN, "--version-id", VID], { env: { ...baseEnv, CHANGESET_JSON: "not json" } });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /could not be read as JSON/);
   // A change set CloudFormation could not create (for example, no changes).
   r = run(CHANGE, ["--version-id", VID], { env: { ...baseEnv, STACK_KEYS: `${S_KEYS_BEFORE}\tVercelBypassSecretArn\tVercelBypassSecretVersionId`, WAIT_RC: "255" } });
   assert.notEqual(r.code, 0);

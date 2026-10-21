@@ -303,13 +303,52 @@ bash scripts/flight-deck/staging-bypass-change-set.sh --secret-arn <ARN> --versi
   - Only `VercelBypassSecretArn` and `VercelBypassSecretVersionId` take new values.
   - Every other parameter is `UsePreviousValue`. That includes **`WorkerScheduleState`**, so neither schedule can change state; the script prints its current value.
   - A template parameter the stack doesn't have yet stops the script before anything is created. It would otherwise silently take its default, so decide its value deliberately.
-- **Anything unexpected is refused.** After CloudFormation computes the change set, the script refuses it unless the only changes are **in-place modifications** (`Modify`, replacement `False`) of exactly `WorkerConnection` and `StatusConnection`. On refusal it prints the command to delete it.
-
-  That expectation holds because a connection's only create-only property is `Name`, which the template does not set, so changing `AuthParameters` updates the connection in place. The rules, destinations, alarms, IAM policies, bucket, and OIDC role are not touched.
+- **Every change detail is checked, not just the count.** The script reads the full `DescribeChangeSet` JSON and checks it with `scripts/flight-deck/bypass-change-set-policy.mjs` (§10.4.1). Anything outside the policy is refused, and the script prints the command to delete the change set.
 - **It uses `CAPABILITY_IAM`**, which is sufficient because no IAM resource in the template has a custom name.
 - **It fits `--template-body`.** The template is about 33 KB, under the 51,200-byte limit.
 
-**Read the printed change set yourself.** Only then run the `execute-change-set` and `wait stack-update-complete` commands the script prints, or delete the change set to abandon it.
+#### 10.4.1 Why the change set lists seven resources, and what is allowed
+
+Only two resource definitions differ between the deployed template and this one: `WorkerConnection` and `StatusConnection`. CloudFormation nevertheless also lists, as `Modify`, every resource whose properties read an attribute of a changed resource, through `Fn::GetAtt` or `${X.Arn}` in `Fn::Sub`.
+
+It marks those changes `Evaluation: Dynamic` with `ChangeSource: ResourceAttribute`, because it cannot know before execution whether the attribute will change. Here the connections are updated in place, so their ARNs stay the same, but the dependants are still reported. This was verified live on 2026-10-21 with change set `vercel-bypass-20261021T121058Z`: seven `Modify`, `Replacement=False` resources; two direct changes, five dependants.
+
+The policy allows exactly this, and every detail must match:
+
+| Resource | Allowed change | Required |
+| --- | --- | --- |
+| `WorkerConnection`, `StatusConnection` (both required) | `AuthParameters` | `Static`; caused by the template (`DirectModification`) or by `VercelBypassSecretArn` / `VercelBypassSecretVersionId` (`ParameterReference`) |
+| `WorkerDestination` | `ConnectionArn`, caused by `WorkerConnection.Arn` | `Dynamic`, `ResourceAttribute` |
+| `StatusDestination` | `ConnectionArn`, caused by `StatusConnection.Arn` | `Dynamic`, `ResourceAttribute` |
+| `WorkerInvokeRole` | `Policies`, caused by `WorkerDestination.Arn` or `StatusDestination.Arn` | `Dynamic`, `ResourceAttribute` |
+| `WorkerSchedule` | `Targets`, caused by `WorkerInvokeRole.Arn` or `WorkerDestination.Arn` | `Dynamic`, `ResourceAttribute` |
+| `StatusMonitor` | `Targets`, caused by `StatusDestination.Arn` or `WorkerInvokeRole.Arn` | `Dynamic`, `ResourceAttribute` |
+
+For every listed resource, the policy also requires:
+
+- action `Modify`;
+- replacement `False`, and `RequiresRecreation: Never` on each detail;
+- scope `["Properties"]` only;
+- the expected resource type;
+- no policy action, module, or nested stack.
+
+It refuses everything else, including:
+
+- any other resource, or any other property, such as a schedule's `State`;
+- a `Static` change to a dependant, which would be a real edit, not a re-evaluation;
+- a different causing entity, such as the worker destination caused by the status connection;
+- a replacement, a missing connection, or a duplicated resource.
+
+The change set itself must also check out:
+
+- stack `tiro-flight-deck-staging`, `CREATE_COMPLETE` and `AVAILABLE`, on a single page;
+- capability `CAPABILITY_IAM` only;
+- every parameter except the two bypass ones at the stack's current value, `WorkerScheduleState` included;
+- the bypass parameters at exactly the values you passed.
+
+Nothing is allowed by resource name alone. The tests replay the observed change set and each kind of deviation (`src/lib/flightDeck/bypassChangeSetPolicy.test.ts`, `stagingScripts.test.ts`).
+
+**Review the complete change set yourself, even when the script accepts it.** The script prints every change detail, plus the `describe-change-set … --output json` command for the full description. The check is a safety net, not a substitute for reading it. Only then run the `execute-change-set` and `wait stack-update-complete` commands the script prints, or delete the change set to abandon it. A rotation (§10.7) produces the same seven entries, with the connections caused by `VercelBypassSecretVersionId`.
 
 The principal that executes it needs `secretsmanager:GetSecretValue` on the bypass secret. CloudFormation reads it; only EventBridge's own connection secret stores it, and CloudFormation and Secrets Manager do not log it.
 
@@ -374,7 +413,7 @@ Do it in this order, so nothing is left half-rotated and no schedule changes sta
    - Without `--secret-arn`, the ARN keeps its value, as do all other parameters and `WorkerScheduleState` (whether DISABLED or, later, ENABLED).
    - The new version ID is what makes CloudFormation re-read the secret: a new value alone in Secrets Manager does not reach the connections (AWS: CloudFormation reads a secret only when the property holding the reference changes). The change of ID modifies that property in **both** connections, so both are refreshed in the same update.
    - If the ID is already applied, CloudFormation reports no change and the script stops.
-   - Read the change set; execute it only if it shows `Modify` on the two connections and nothing else. Then verify as in §10.5 and §10.6.
+   - Read the complete change set. Execute it only if it shows the two connections and, at most, the five Dynamic dependants of §10.4.1, nothing else. Then verify as in §10.5 and §10.6.
 6. **Vercel:** revoke the old secret, if it was kept. Check §10.6 again: the old value must now be refused.
 
 The bearer tokens are rotated separately (`operations.md` §7). The bypass never replaces them.

@@ -1,0 +1,386 @@
+{
+  "changeSet": {
+    "_note": "Reconstructed from the verified live finding for change set vercel-bypass-20261021T121058Z (seven Modify / Replacement=False resources; two direct, five Dynamic dependants). Shape follows the DescribeChangeSet API reference. Identifiers are placeholders except the stack, account and region.",
+    "ChangeSetName": "vercel-bypass-20261021T121058Z",
+    "ChangeSetId": "arn:aws:cloudformation:us-east-1:821507736007:changeSet/vercel-bypass-20261021T121058Z/00000000-0000-0000-0000-000000000000",
+    "StackId": "arn:aws:cloudformation:us-east-1:821507736007:stack/tiro-flight-deck-staging/00000000-0000-0000-0000-000000000000",
+    "StackName": "tiro-flight-deck-staging",
+    "Parameters": [
+      {
+        "ParameterKey": "PublicOrigin",
+        "ParameterValue": "https://tiro-flight-deck-staging.vercel.app"
+      },
+      {
+        "ParameterKey": "CognitoDomainPrefix",
+        "ParameterValue": "tiro-ops-staging"
+      },
+      {
+        "ParameterKey": "WorkerScheduleState",
+        "ParameterValue": "DISABLED"
+      },
+      {
+        "ParameterKey": "AlarmEmail",
+        "ParameterValue": "ops@example.invalid"
+      },
+      {
+        "ParameterKey": "EscalationEmail",
+        "ParameterValue": "founder@example.invalid"
+      },
+      {
+        "ParameterKey": "AwsMonthlyBudgetUsd",
+        "ParameterValue": "15"
+      },
+      {
+        "ParameterKey": "VercelTeamSlug",
+        "ParameterValue": "tiro"
+      },
+      {
+        "ParameterKey": "VercelProjectName",
+        "ParameterValue": "tiro-flight-deck-staging"
+      },
+      {
+        "ParameterKey": "VercelEnvironment",
+        "ParameterValue": "production"
+      },
+      {
+        "ParameterKey": "ProtectiveRetentionDays",
+        "ParameterValue": "35"
+      },
+      {
+        "ParameterKey": "VercelBypassSecretArn",
+        "ParameterValue": "arn:aws:secretsmanager:us-east-1:821507736007:secret:tiro-flight-deck-staging/vercel-automation-bypass-AbCdEf"
+      },
+      {
+        "ParameterKey": "VercelBypassSecretVersionId",
+        "ParameterValue": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      }
+    ],
+    "CreationTime": "2026-10-21T12:10:58.000Z",
+    "ExecutionStatus": "AVAILABLE",
+    "Status": "CREATE_COMPLETE",
+    "NotificationARNs": [],
+    "RollbackConfiguration": {},
+    "Capabilities": [
+      "CAPABILITY_IAM"
+    ],
+    "IncludeNestedStacks": false,
+    "Changes": [
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "WorkerConnection",
+          "PhysicalResourceId": "physical-WorkerConnection",
+          "ResourceType": "AWS::Events::Connection",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Static",
+              "ChangeSource": "DirectModification"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Static",
+              "ChangeSource": "ParameterReference",
+              "CausingEntity": "VercelBypassSecretArn"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Static",
+              "ChangeSource": "ParameterReference",
+              "CausingEntity": "VercelBypassSecretVersionId"
+            }
+          ]
+        }
+      },
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "StatusConnection",
+          "PhysicalResourceId": "physical-StatusConnection",
+          "ResourceType": "AWS::Events::Connection",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Static",
+              "ChangeSource": "DirectModification"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Static",
+              "ChangeSource": "ParameterReference",
+              "CausingEntity": "VercelBypassSecretArn"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Static",
+              "ChangeSource": "ParameterReference",
+              "CausingEntity": "VercelBypassSecretVersionId"
+            }
+          ]
+        }
+      },
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "WorkerDestination",
+          "PhysicalResourceId": "physical-WorkerDestination",
+          "ResourceType": "AWS::Events::ApiDestination",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "ConnectionArn",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/ConnectionArn"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "WorkerConnection.Arn"
+            }
+          ]
+        }
+      },
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "StatusDestination",
+          "PhysicalResourceId": "physical-StatusDestination",
+          "ResourceType": "AWS::Events::ApiDestination",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "ConnectionArn",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/ConnectionArn"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "StatusConnection.Arn"
+            }
+          ]
+        }
+      },
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "WorkerInvokeRole",
+          "PhysicalResourceId": "physical-WorkerInvokeRole",
+          "ResourceType": "AWS::IAM::Role",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "Policies",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/Policies"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "WorkerDestination.Arn"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "Policies",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/Policies"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "StatusDestination.Arn"
+            }
+          ]
+        }
+      },
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "WorkerSchedule",
+          "PhysicalResourceId": "physical-WorkerSchedule",
+          "ResourceType": "AWS::Events::Rule",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "Targets",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/Targets"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "WorkerInvokeRole.Arn"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "Targets",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/Targets"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "WorkerDestination.Arn"
+            }
+          ]
+        }
+      },
+      {
+        "Type": "Resource",
+        "HookInvocationCount": 0,
+        "ResourceChange": {
+          "Action": "Modify",
+          "LogicalResourceId": "StatusMonitor",
+          "PhysicalResourceId": "physical-StatusMonitor",
+          "ResourceType": "AWS::Events::Rule",
+          "Replacement": "False",
+          "Scope": [
+            "Properties"
+          ],
+          "Details": [
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "Targets",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/Targets"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "StatusDestination.Arn"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "Targets",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/Targets"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "ResourceAttribute",
+              "CausingEntity": "WorkerInvokeRole.Arn"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "stackParameters": [
+    {
+      "ParameterKey": "PublicOrigin",
+      "ParameterValue": "https://tiro-flight-deck-staging.vercel.app"
+    },
+    {
+      "ParameterKey": "CognitoDomainPrefix",
+      "ParameterValue": "tiro-ops-staging"
+    },
+    {
+      "ParameterKey": "WorkerScheduleState",
+      "ParameterValue": "DISABLED"
+    },
+    {
+      "ParameterKey": "AlarmEmail",
+      "ParameterValue": "ops@example.invalid"
+    },
+    {
+      "ParameterKey": "EscalationEmail",
+      "ParameterValue": "founder@example.invalid"
+    },
+    {
+      "ParameterKey": "AwsMonthlyBudgetUsd",
+      "ParameterValue": "15"
+    },
+    {
+      "ParameterKey": "VercelTeamSlug",
+      "ParameterValue": "tiro"
+    },
+    {
+      "ParameterKey": "VercelProjectName",
+      "ParameterValue": "tiro-flight-deck-staging"
+    },
+    {
+      "ParameterKey": "VercelEnvironment",
+      "ParameterValue": "production"
+    },
+    {
+      "ParameterKey": "ProtectiveRetentionDays",
+      "ParameterValue": "35"
+    },
+    {
+      "ParameterKey": "VercelBypassSecretArn",
+      "ParameterValue": ""
+    },
+    {
+      "ParameterKey": "VercelBypassSecretVersionId",
+      "ParameterValue": ""
+    }
+  ],
+  "secretArn": "arn:aws:secretsmanager:us-east-1:821507736007:secret:tiro-flight-deck-staging/vercel-automation-bypass-AbCdEf",
+  "versionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
