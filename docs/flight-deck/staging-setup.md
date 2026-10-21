@@ -246,54 +246,65 @@ Reported by the founder on 2026-10-21; not verified from this repository.
 
 The workflow refuses a value that is not 16 or more URL-safe characters (letters, digits, `-`, `_`), rather than escaping it. Vercel-generated secrets meet this.
 
-### 10.3 Store the same value in Secrets Manager (no printing, no file kept)
+### 10.3 Store the same value in Secrets Manager (stdin only, no file)
 
-Use **AWS CloudShell** in `tiro-stage`, region us-east-1. It is in the browser and free, so nothing touches your machine's shell history. Paste the value from Vercel at the silent prompt:
+Use **AWS CloudShell** in `tiro-stage`, region us-east-1. It runs in the browser on Amazon Linux with AWS CLI v2 preinstalled, and costs nothing. Work from a checkout of this repository:
 
 ```bash
-read -rs V                                    # paste; nothing is echoed
-umask 077; printf '%s' "$V" > ~/bypass.txt; unset V
-aws secretsmanager create-secret \
-  --name tiro-flight-deck-staging/vercel-automation-bypass \
-  --description "Vercel Protection Bypass for Automation, staging project tiro-flight-deck-staging" \
-  --secret-string "file://$HOME/bypass.txt" \
-  --query '{Arn:ARN,VersionId:VersionId}' --output table
-shred -u ~/bypass.txt 2>/dev/null || rm -f ~/bypass.txt
+git clone https://github.com/onewisepixel/tiro.foundation.git
+cd tiro.foundation || echo "Clone failed: stop here."
+git checkout <the merged commit>    # read the two scripts below before running them
+
+# Optional, harmless: confirm this CLI reads parameters from stdin, using a
+# throwaway policy document (no secret involved; a read-only API call).
+printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"secretsmanager:DeleteSecret","Resource":"*"}]}' \
+  | aws secretsmanager validate-resource-policy --region us-east-1 --no-cli-pager \
+      --resource-policy file:///dev/stdin --query PolicyValidationPassed
+
+bash scripts/flight-deck/staging-bypass-secret.sh create
 ```
 
-The output is the secret's ARN and version ID, which are identifiers, not the value. **Never run `get-secret-value`** for this secret. It uses the default `aws/secretsmanager` key; the cost is $0.40 a month (§8).
+Paste the value from Vercel at the silent prompt. `scripts/flight-deck/staging-bypass-secret.sh` then works like this:
+
+- **No file, ever.** The value goes from a silent `read` straight to `aws secretsmanager create-secret --secret-string file:///dev/stdin`, through a pipe.
+- **No command line.** `printf` is a shell builtin, so no process ever has the value as an argument. Shell history records only the `bash …` command.
+- **No trace, no output.** Tracing is switched off inside the script before the value is read, even under `bash -x`. The only output is the secret's **ARN** and **version ID**: identifiers, not the value.
+- **Cleared in every outcome.** The variable exists only in a subshell. It is unset straight after the AWS call and again when the subshell ends, whether the call succeeds or fails.
+- **Refused, not escaped.** An empty value, or anything but 16 or more URL-safe characters, is refused before any AWS call.
+
+Keep the ARN and version ID for §10.4.
+
+Rules for this secret:
+
+- **Never run `get-secret-value`** for it.
+- Never add `--debug` to these commands, because debug output includes the request body.
+- It uses the default `aws/secretsmanager` key; the cost is $0.40 a month (§8).
+
+How this was checked: the script's tests (`src/lib/flightDeck/stagingScripts.test.ts`, part of `npm test`) run it in bash against a stub AWS CLI, including under `bash -x`. The real AWS CLI 2.37.8 was run against a local capture endpoint with a fake value: it sent exactly the piped bytes and printed only the ARN and version ID, also on failure. Its `file://` reader, in AWS's published source, opens the given path and reads it whole, which on Linux works for `/dev/stdin`. The one thing not exercised here is CloudShell itself; the optional check above covers it.
 
 ### 10.4 Supply it to CloudFormation through a reviewed change set
 
-Run from a checkout of the merged branch, in CloudShell or with your single sign-on session. Every other parameter keeps its current value; above all, **`WorkerScheduleState` stays as it is (DISABLED)**:
+From the same checkout in CloudShell, with the ARN and version ID from §10.3:
 
 ```bash
-# Every template parameter must be listed: one left out falls back to its
-# default. Only the two bypass parameters take new values.
-params=(
-  "ParameterKey=VercelBypassSecretArn,ParameterValue=<ARN from 10.3>"
-  "ParameterKey=VercelBypassSecretVersionId,ParameterValue=<VersionId from 10.3>"
-)
-for k in PublicOrigin CognitoDomainPrefix WorkerScheduleState AlarmEmail EscalationEmail \
-         AwsMonthlyBudgetUsd ProtectiveRetentionDays VercelTeamSlug VercelProjectName VercelEnvironment; do
-  params+=("ParameterKey=$k,UsePreviousValue=true")
-done
-aws cloudformation create-change-set --region us-east-1 \
-  --stack-name tiro-flight-deck-staging --change-set-name add-vercel-bypass \
-  --template-body file://deploy/flight-deck/flight-deck.template.json \
-  --capabilities CAPABILITY_IAM \
-  --parameters "${params[@]}"
-
-aws cloudformation describe-change-set --region us-east-1 \
-  --stack-name tiro-flight-deck-staging --change-set-name add-vercel-bypass \
-  --query 'Changes[].ResourceChange.{Action:Action,Resource:LogicalResourceId,Replacement:Replacement}' --output table
+bash scripts/flight-deck/staging-bypass-change-set.sh --secret-arn <ARN> --version-id <VersionId>
 ```
 
-**Review before executing.** Expect `Modify` on `WorkerConnection` and `StatusConnection` and nothing replaced. Any other change means the deployed stack differs from this template: understand it first. In particular, nothing may set `WorkerSchedule` or `StatusMonitor` to ENABLED.
+`scripts/flight-deck/staging-bypass-change-set.sh` **creates and checks** the change set. It **never executes** it:
 
-The principal executing the change set needs `secretsmanager:GetSecretValue` on the bypass secret: CloudFormation reads it, and only EventBridge's own connection secret stores it.
+- **Every existing parameter keeps its value.** The list is derived, not typed: the template's parameters come from CloudFormation itself (`get-template-summary`), the stack's from `describe-stacks`.
+  - Only `VercelBypassSecretArn` and `VercelBypassSecretVersionId` take new values.
+  - Every other parameter is `UsePreviousValue`. That includes **`WorkerScheduleState`**, so neither schedule can change state; the script prints its current value.
+  - A template parameter the stack doesn't have yet stops the script before anything is created. It would otherwise silently take its default, so decide its value deliberately.
+- **Anything unexpected is refused.** After CloudFormation computes the change set, the script refuses it unless the only changes are **in-place modifications** (`Modify`, replacement `False`) of exactly `WorkerConnection` and `StatusConnection`. On refusal it prints the command to delete it.
 
-After review: `aws cloudformation execute-change-set …`, or delete the change set to abandon it.
+  That expectation holds because a connection's only create-only property is `Name`, which the template does not set, so changing `AuthParameters` updates the connection in place. The rules, destinations, alarms, IAM policies, bucket, and OIDC role are not touched.
+- **It uses `CAPABILITY_IAM`**, which is sufficient because no IAM resource in the template has a custom name.
+- **It fits `--template-body`.** The template is about 33 KB, under the 51,200-byte limit.
+
+**Read the printed change set yourself.** Only then run the `execute-change-set` and `wait stack-update-complete` commands the script prints, or delete the change set to abandon it.
+
+The principal that executes it needs `secretsmanager:GetSecretValue` on the bypass secret. CloudFormation reads it; only EventBridge's own connection secret stores it, and CloudFormation and Secrets Manager do not log it.
 
 ### 10.5 Verify the connections, without reading any secret
 
@@ -316,18 +327,21 @@ EventBridge never returns secret values, and CloudFormation does not report thes
 
 ### 10.6 Check that missing or wrong credentials are refused
 
-From CloudShell (the value again only at a silent prompt, and only on curl's standard input):
+From CloudShell. The value again goes only into a subshell variable, with tracing off, and only on curl's standard input:
 
 ```bash
-O=https://tiro-flight-deck-staging.vercel.app
-read -rs V
-bp() { printf 'header = "x-vercel-protection-bypass: %s"\n' "$V" | curl --config - -s -o /dev/null -w '%{http_code}\n' "$@"; }
-curl -s -o /dev/null -w 'no bypass:            %{http_code}\n' "$O/pilot"           # expect 401 or a redirect, not 200
-printf 'header = "x-vercel-protection-bypass: wrong-value-000000"\n' | curl --config - -s -o /dev/null -w 'wrong bypass:         %{http_code}\n' "$O/pilot"
-printf 'bypass, /pilot:       '; bp "$O/pilot"                                   # expect 200 (closed form)
-printf 'bypass, no bearer:    '; bp "$O/flight-deck/internal/status"             # expect 401 (404 before the console gate)
-printf 'bypass, no bearer:    '; bp -X POST "$O/flight-deck/internal/worker"      # expect 401 (404 before the gate)
-unset V
+(
+  set +o xtrace +o verbose
+  trap 'unset -v V' EXIT
+  O=https://tiro-flight-deck-staging.vercel.app
+  IFS= read -rs -p 'Paste the Vercel bypass secret, then press Enter: ' V; echo
+  bp() { printf 'header = "x-vercel-protection-bypass: %s"\n' "$V" | curl --config - -s -o /dev/null -w '%{http_code}\n' "$@"; }
+  curl -s -o /dev/null -w 'no bypass:            %{http_code}\n' "$O/pilot"        # expect 401 or a redirect, not 200
+  printf 'header = "x-vercel-protection-bypass: wrong-value-000000"\n' | curl --config - -s -o /dev/null -w 'wrong bypass:         %{http_code}\n' "$O/pilot"
+  printf 'bypass, /pilot:       '; bp "$O/pilot"                                # expect 200 (closed form)
+  printf 'bypass, no bearer:    '; bp "$O/flight-deck/internal/status"          # expect 401 (404 before the console gate)
+  printf 'bypass, no bearer:    '; bp -X POST "$O/flight-deck/internal/worker"   # expect 401 (404 before the gate)
+)
 ```
 
 These need a deployment to exist. Only Flight Deck's bearer tokens, which EventBridge holds, turn the last two into 200 or 202.
@@ -339,16 +353,21 @@ Do it in this order, so nothing is left half-rotated and no schedule changes sta
 1. **Note the schedules' state** (`aws events describe-rule` for both rules). The update below must not change it: `WorkerScheduleState` is always `UsePreviousValue`.
 2. **Vercel:** generate a new bypass secret. If Vercel lets you keep the old one valid alongside it, keep it until step 6. If not, the old value stops working at once: deploys and, if the schedules are on, EventBridge calls are refused until steps 3–5 are done. The status alarm may fire; that is expected.
 3. **GitHub:** replace `VERCEL_AUTOMATION_BYPASS_SECRET` in the `flight-deck-staging` environment.
-4. **Secrets Manager** (CloudShell, silent prompt as in §10.3), keeping the printed new version ID:
+4. **Secrets Manager**, from the CloudShell checkout. The same safeguards as §10.3 apply: silent prompt, stdin only, no file. The script prints the ARN and the **new version ID**:
 
    ```bash
-   read -rs V; umask 077; printf '%s' "$V" > ~/bypass.txt; unset V
-   aws secretsmanager put-secret-value --region us-east-1 \
-     --secret-id tiro-flight-deck-staging/vercel-automation-bypass \
-     --secret-string "file://$HOME/bypass.txt" --query VersionId --output text
-   shred -u ~/bypass.txt 2>/dev/null || rm -f ~/bypass.txt
+   bash scripts/flight-deck/staging-bypass-secret.sh rotate
    ```
-5. **CloudFormation:** a change set as in §10.4, changing **only** `VercelBypassSecretVersionId` to the new ID (`VercelBypassSecretArn` and every other parameter `UsePreviousValue=true`, template unchanged). The new ID is what makes CloudFormation re-read the secret: changing only the value in Secrets Manager does not reach the connections. Review it (`Modify` on the two connections only), execute it, then verify as in §10.5 and §10.6.
+5. **CloudFormation**, with only the new version ID:
+
+   ```bash
+   bash scripts/flight-deck/staging-bypass-change-set.sh --version-id <new VersionId>
+   ```
+
+   - Without `--secret-arn`, the ARN keeps its value, as do all other parameters and `WorkerScheduleState` (whether DISABLED or, later, ENABLED).
+   - The new version ID is what makes CloudFormation re-read the secret: a new value alone in Secrets Manager does not reach the connections (AWS: CloudFormation reads a secret only when the property holding the reference changes). The change of ID modifies that property in **both** connections, so both are refreshed in the same update.
+   - If the ID is already applied, CloudFormation reports no change and the script stops.
+   - Read the change set; execute it only if it shows `Modify` on the two connections and nothing else. Then verify as in §10.5 and §10.6.
 6. **Vercel:** revoke the old secret, if it was kept. Check §10.6 again: the old value must now be refused.
 
 The bearer tokens are rotated separately (`operations.md` §7). The bypass never replaces them.

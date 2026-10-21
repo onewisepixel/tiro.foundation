@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Creates, and checks, a CloudFormation CHANGE SET that points the Flight
+# Deck staging stack's two EventBridge connections at the Vercel bypass
+# secret. It never executes the change set: it prints the command for you to
+# run after reading the change set yourself.
+#
+#   First time:  bash scripts/flight-deck/staging-bypass-change-set.sh \
+#                  --secret-arn <ARN> --version-id <VersionId>
+#   Rotation:    bash scripts/flight-deck/staging-bypass-change-set.sh \
+#                  --version-id <new VersionId>
+#
+# ARN and version ID are identifiers printed by staging-bypass-secret.sh,
+# not the secret. Every other parameter keeps the stack's current value
+# (UsePreviousValue), WorkerScheduleState included, so no schedule changes
+# state. The parameter list is derived, not typed: the template's parameters
+# from CloudFormation (get-template-summary) and the stack's from
+# describe-stacks. A template parameter the stack does not have stops the
+# script, because it would otherwise take its default. The change set is
+# refused unless its only changes are in-place modifications of
+# WorkerConnection and StatusConnection. Read-only AWS calls apart from
+# create-change-set. Docs: docs/flight-deck/staging-setup.md §10.4, §10.7.
+set -euo pipefail
+
+STACK="tiro-flight-deck-staging"
+REGION="us-east-1"
+TEMPLATE="deploy/flight-deck/flight-deck.template.json"
+secret_arn=""
+version_id=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --secret-arn) secret_arn="${2:-}"; shift 2 ;;
+    --version-id) version_id="${2:-}"; shift 2 ;;
+    --stack) STACK="${2:-}"; shift 2 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+[[ "$version_id" =~ ^[0-9A-Za-z-]{32,64}$ ]] || { echo "--version-id is required (the VersionId printed when the value was stored)" >&2; exit 2; }
+if [ -n "$secret_arn" ] && ! [[ "$secret_arn" =~ ^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$ ]]; then
+  echo "--secret-arn is not a Secrets Manager secret ARN" >&2
+  exit 2
+fi
+[ -f "$TEMPLATE" ] || { echo "run from the repository root ($TEMPLATE not found)" >&2; exit 2; }
+
+# Captured first, so a failing call stops the script (set -e) instead of
+# silently producing an empty list.
+template_list=$(aws cloudformation get-template-summary --region "$REGION" --no-cli-pager \
+  --template-body "file://$TEMPLATE" --query 'Parameters[].ParameterKey' --output text)
+stack_list=$(aws cloudformation describe-stacks --region "$REGION" --no-cli-pager \
+  --stack-name "$STACK" --query 'Stacks[0].Parameters[].ParameterKey' --output text)
+schedules=$(aws cloudformation describe-stacks --region "$REGION" --no-cli-pager --stack-name "$STACK" \
+  --query "Stacks[0].Parameters[?ParameterKey=='WorkerScheduleState'].ParameterValue | [0]" --output text)
+read -r -a template_keys <<<"$template_list"
+read -r -a stack_keys <<<"$stack_list"
+[ "${#template_keys[@]}" -gt 0 ] && [ "${#stack_keys[@]}" -gt 0 ] || { echo "STOP: could not read the template's or the stack's parameters" >&2; exit 1; }
+
+in_stack() {
+  local k
+  for k in "${stack_keys[@]}"; do [ "$k" = "$1" ] && return 0; done
+  return 1
+}
+
+params=()
+for k in "${template_keys[@]}"; do
+  case "$k" in
+    VercelBypassSecretVersionId)
+      params+=("ParameterKey=$k,ParameterValue=$version_id")
+      ;;
+    VercelBypassSecretArn)
+      if [ -n "$secret_arn" ]; then
+        params+=("ParameterKey=$k,ParameterValue=$secret_arn")
+      elif in_stack "$k"; then
+        params+=("ParameterKey=$k,UsePreviousValue=true")
+      else
+        echo "STOP: the stack has no VercelBypassSecretArn yet; pass --secret-arn for the first change" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      if in_stack "$k"; then
+        params+=("ParameterKey=$k,UsePreviousValue=true")
+      else
+        echo "STOP: template parameter $k is not in the deployed stack. Decide its value deliberately; nothing was created." >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+echo "Stack $STACK: WorkerScheduleState is $schedules and will stay $schedules (UsePreviousValue)."
+name="vercel-bypass-$(date -u +%Y%m%dT%H%M%SZ)"
+aws cloudformation create-change-set --region "$REGION" --no-cli-pager \
+  --stack-name "$STACK" --change-set-name "$name" \
+  --template-body "file://$TEMPLATE" --capabilities CAPABILITY_IAM \
+  --parameters "${params[@]}" --query Id --output text >/dev/null
+if ! aws cloudformation wait change-set-create-complete --region "$REGION" --stack-name "$STACK" --change-set-name "$name"; then
+  aws cloudformation describe-change-set --region "$REGION" --no-cli-pager --stack-name "$STACK" --change-set-name "$name" \
+    --query '{Status:Status,Reason:StatusReason}' --output table >&2 || true
+  echo "STOP: the change set was not created (for example: no change, because this version ID is already applied)." >&2
+  exit 1
+fi
+
+changes=$(aws cloudformation describe-change-set --region "$REGION" --no-cli-pager --stack-name "$STACK" --change-set-name "$name" \
+  --query 'Changes[].ResourceChange.[LogicalResourceId,Action,Replacement]' --output text)
+echo "Change set $name:"
+printf '%s\n' "$changes"
+unexpected=$(printf '%s\n' "$changes" | awk 'NF && !(($1 == "WorkerConnection" || $1 == "StatusConnection") && $2 == "Modify" && $3 == "False")')
+expected=$(printf '%s\n' "$changes" | awk '($1 == "WorkerConnection" || $1 == "StatusConnection") && $2 == "Modify" && $3 == "False"' | wc -l | tr -d ' ')
+if [ -n "$unexpected" ] || [ "$expected" != 2 ]; then
+  echo "STOP: this change set does more than modify the two connections in place. Do not execute it; delete it with:" >&2
+  echo "  aws cloudformation delete-change-set --region $REGION --stack-name $STACK --change-set-name $name" >&2
+  exit 1
+fi
+echo "Only WorkerConnection and StatusConnection change, in place. After your own review, execute with:"
+echo "  aws cloudformation execute-change-set --region $REGION --stack-name $STACK --change-set-name $name"
+echo "  aws cloudformation wait stack-update-complete --region $REGION --stack-name $STACK"

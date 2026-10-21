@@ -24,9 +24,9 @@ Revision date: 2026-10-21. Details: `staging-setup.md`. Tests: `staging-acceptan
 ## 3. Automation bypass (this change)
 
 - ☐ Review and merge the draft pull request `flight-deck/staging-automation-bypass`.
-- ☐ Store the **same** bypass value in Secrets Manager as `tiro-flight-deck-staging/vercel-automation-bypass` (CloudShell, silent prompt; `staging-setup.md` §10.3). Keep the ARN and version ID it prints; never read the value back.
-- ☐ Create the change set with `VercelBypassSecretArn` and `VercelBypassSecretVersionId`, every other parameter unchanged (§10.4).
-- ☐ **Review it:** `Modify` on `WorkerConnection` and `StatusConnection` only, no replacement, no schedule enabled. Then execute.
+- ☐ In CloudShell, from a checkout of the merged commit, store the **same** bypass value in Secrets Manager as `tiro-flight-deck-staging/vercel-automation-bypass`: `bash scripts/flight-deck/staging-bypass-secret.sh create` (`staging-setup.md` §10.3). It uses a silent prompt and stdin only, with no file. Keep the ARN and version ID it prints; never read the value back.
+- ☐ `bash scripts/flight-deck/staging-bypass-change-set.sh --secret-arn <ARN> --version-id <VersionId>` (§10.4). It creates the change set with every other parameter unchanged (`WorkerScheduleState` included), and refuses anything but an in-place `Modify` of the two connections. It never executes.
+- ☐ **Read the change set yourself:** `Modify` on `WorkerConnection` and `StatusConnection` only, no replacement, no schedule enabled. Then run the `execute-change-set` command the script printed.
 - ☐ Verify both connections (§10.5): `AUTHORIZED`, `Authorization` API key unchanged, extra secret header `x-vercel-protection-bypass`.
 
 ## 4. First deploy

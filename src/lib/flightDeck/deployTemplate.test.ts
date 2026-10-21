@@ -194,3 +194,26 @@ test("deploy workflow: manual and approved only; isolation checks intact; smoke 
   assert.match(smoke, /case "\$code" in 401\|404\)/);
   assert.match(smoke, /Form not yet open/);
 });
+
+test("deploy template: a bypass change set can only modify the connections in place, with CAPABILITY_IAM and --template-body", () => {
+  // Name is the only create-only property of a connection, rule or API
+  // destination; while none is set, changing AuthParameters cannot force a
+  // replacement.
+  for (const name of ["WorkerConnection", "StatusConnection", "WorkerDestination", "StatusDestination", "WorkerSchedule", "StatusMonitor"]) {
+    assert.ok(!("Name" in t.Resources[name].Properties), `${name} sets no Name`);
+  }
+  // Both schedules follow the one parameter, which a change set keeps.
+  assert.deepEqual((t.Resources.WorkerSchedule.Properties as { State: unknown }).State, { Ref: "WorkerScheduleState" });
+  assert.deepEqual((t.Resources.StatusMonitor.Properties as { State: unknown }).State, { Ref: "WorkerScheduleState" });
+  // No custom-named IAM resource, so CAPABILITY_IAM (not NAMED_IAM) is enough.
+  for (const [name, r] of Object.entries(t.Resources)) {
+    if (r.Type.startsWith("AWS::IAM::")) {
+      for (const p of ["RoleName", "ManagedPolicyName", "UserName", "GroupName", "InstanceProfileName"]) {
+        assert.ok(!(p in (r.Properties ?? {})), `${name} sets ${p}`);
+      }
+    }
+  }
+  assert.equal(byType("AWS::IAM::User").length + byType("AWS::IAM::Group").length, 0);
+  // The staging scripts pass the template with --template-body (limit 51,200 bytes).
+  assert.ok(fs.statSync("deploy/flight-deck/flight-deck.template.json").size < 51_200);
+});
