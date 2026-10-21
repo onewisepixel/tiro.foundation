@@ -1,8 +1,8 @@
 {
   "changeSet": {
-    "_note": "Reconstructed from the verified live finding for change set vercel-bypass-20261021T121058Z (seven Modify / Replacement=False resources; two direct, five Dynamic dependants). Shape follows the DescribeChangeSet API reference. Identifiers are placeholders except the stack, account and region.",
-    "ChangeSetName": "vercel-bypass-20261021T121058Z",
-    "ChangeSetId": "arn:aws:cloudformation:us-east-1:821507736007:changeSet/vercel-bypass-20261021T121058Z/00000000-0000-0000-0000-000000000000",
+    "_note": "The live change set vercel-bypass-20261021T184902Z (account 821507736007, us-east-1, stack tiro-flight-deck-staging), as reported on 2026-10-21: seven Modify / Replacement=False resources. Each connection has, for AuthParameters: Static ParameterReference VercelBypassSecretArn, Static ParameterReference VercelBypassSecretVersionId, and Dynamic DirectModification with no CausingEntity, all RequiresRecreation Never. The five dependants as listed. Physical IDs, ARN suffix, version ID and IDs in ARNs are placeholders; the structure and the change details follow the reported output.",
+    "ChangeSetName": "vercel-bypass-20261021T184902Z",
+    "ChangeSetId": "arn:aws:cloudformation:us-east-1:821507736007:changeSet/vercel-bypass-20261021T184902Z/00000000-0000-0000-0000-000000000000",
     "StackId": "arn:aws:cloudformation:us-east-1:821507736007:stack/tiro-flight-deck-staging/00000000-0000-0000-0000-000000000000",
     "StackName": "tiro-flight-deck-staging",
     "Parameters": [
@@ -55,7 +55,7 @@
         "ParameterValue": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
     ],
-    "CreationTime": "2026-10-21T12:10:58.000Z",
+    "CreationTime": "2026-10-21T18:49:02.000Z",
     "ExecutionStatus": "AVAILABLE",
     "Status": "CREATE_COMPLETE",
     "NotificationARNs": [],
@@ -86,16 +86,6 @@
                 "Path": "/Properties/AuthParameters"
               },
               "Evaluation": "Static",
-              "ChangeSource": "DirectModification"
-            },
-            {
-              "Target": {
-                "Attribute": "Properties",
-                "Name": "AuthParameters",
-                "RequiresRecreation": "Never",
-                "Path": "/Properties/AuthParameters"
-              },
-              "Evaluation": "Static",
               "ChangeSource": "ParameterReference",
               "CausingEntity": "VercelBypassSecretArn"
             },
@@ -109,6 +99,16 @@
               "Evaluation": "Static",
               "ChangeSource": "ParameterReference",
               "CausingEntity": "VercelBypassSecretVersionId"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "DirectModification"
             }
           ]
         }
@@ -134,16 +134,6 @@
                 "Path": "/Properties/AuthParameters"
               },
               "Evaluation": "Static",
-              "ChangeSource": "DirectModification"
-            },
-            {
-              "Target": {
-                "Attribute": "Properties",
-                "Name": "AuthParameters",
-                "RequiresRecreation": "Never",
-                "Path": "/Properties/AuthParameters"
-              },
-              "Evaluation": "Static",
               "ChangeSource": "ParameterReference",
               "CausingEntity": "VercelBypassSecretArn"
             },
@@ -157,6 +147,16 @@
               "Evaluation": "Static",
               "ChangeSource": "ParameterReference",
               "CausingEntity": "VercelBypassSecretVersionId"
+            },
+            {
+              "Target": {
+                "Attribute": "Properties",
+                "Name": "AuthParameters",
+                "RequiresRecreation": "Never",
+                "Path": "/Properties/AuthParameters"
+              },
+              "Evaluation": "Dynamic",
+              "ChangeSource": "DirectModification"
             }
           ]
         }

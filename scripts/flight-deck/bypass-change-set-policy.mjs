@@ -12,6 +12,14 @@
 // dependants. Each of those is allowed only for its exact property and
 // exact causing attribute; nothing is whitelisted by resource name alone.
 //
+// The connections themselves report AuthParameters twice over (seen live,
+// change set vercel-bypass-20261021T184902Z): one Static ParameterReference
+// entry per bypass parameter that changes, and one Dynamic DirectModification
+// entry with no causing entity. That second one is the property holding a
+// {{resolve:secretsmanager:...}} reference, whose value CloudFormation
+// cannot know in advance. Only those shapes, and only for AuthParameters on
+// the two connections, are accepted.
+//
 //   aws cloudformation describe-change-set ... --output json \
 //     | node bypass-change-set-policy.mjs --stack <name> \
 //         --stack-parameters '<describe-stacks Parameters JSON>' \
@@ -118,12 +126,23 @@ export function checkBypassChangeSet(cs, { stackName, stackParameters, versionId
     details.forEach((d, i) => {
       const where = `${id} detail ${i + 1}`;
       if (DIRECT.includes(id)) {
-        // The direct change: AuthParameters, from the template or the two bypass parameters.
+        // The direct change: AuthParameters only, from two kinds of entry
+        // (checked as a set per connection below).
         checkTarget(where, d, "AuthParameters", problems);
-        if (d.Evaluation !== "Static") problems.push(`${where}: evaluation ${d.Evaluation}, expected Static`);
-        const fromTemplate = d.ChangeSource === "DirectModification" && !d.CausingEntity;
-        const fromParameter = d.ChangeSource === "ParameterReference" && BYPASS_PARAMETERS.includes(d.CausingEntity);
-        if (!fromTemplate && !fromParameter) problems.push(`${where}: caused by ${d.ChangeSource ?? "?"} ${d.CausingEntity ?? ""}`.trimEnd() + ", expected the template or a bypass parameter");
+        if (d.ChangeSource === "ParameterReference") {
+          // A bypass parameter's new value: CloudFormation knows it, so Static.
+          if (d.Evaluation !== "Static") problems.push(`${where}: a parameter reference must be Static, got ${d.Evaluation}`);
+          if (!BYPASS_PARAMETERS.includes(d.CausingEntity)) problems.push(`${where}: caused by parameter ${d.CausingEntity ?? "(none)"}, expected a bypass parameter`);
+        } else if (d.ChangeSource === "DirectModification") {
+          // The property itself, which now holds a Secrets Manager dynamic
+          // reference: CloudFormation cannot know the resolved value before
+          // execution, so it reports Dynamic, with no causing entity. A Static
+          // direct modification would be an ordinary, unrelated template edit.
+          if (d.Evaluation !== "Dynamic") problems.push(`${where}: a direct modification must be Dynamic (the secret reference), got ${d.Evaluation}`);
+          if (d.CausingEntity) problems.push(`${where}: a direct modification has causing entity ${d.CausingEntity}`);
+        } else {
+          problems.push(`${where}: caused by ${d.ChangeSource ?? "?"} ${d.CausingEntity ?? ""}`.trimEnd() + ", expected a bypass parameter or the dynamic secret reference");
+        }
       } else {
         // A dependant: only its exact property, re-evaluated from the exact attribute.
         const allowed = DEPENDANTS[id];
@@ -136,6 +155,24 @@ export function checkBypassChangeSet(cs, { stackName, stackParameters, versionId
         if (d.ChangeSource !== "ResourceAttribute") problems.push(`${where}: change source ${d.ChangeSource}, expected ResourceAttribute`);
       }
     });
+
+    // Each connection's entries, as a set. The bypass parameters referenced
+    // must be exactly those changing: the version ID always, the ARN only
+    // when it is being set (first time). At most one dynamic direct
+    // modification. A first-time update must have one: that is what CloudFormation
+    // reported live (2026-10-21) alongside the two parameter references.
+    if (DIRECT.includes(id)) {
+      const refs = details.filter((d) => d.ChangeSource === "ParameterReference").map((d) => d.CausingEntity);
+      const required = secretArn ? ["VercelBypassSecretArn", "VercelBypassSecretVersionId"] : ["VercelBypassSecretVersionId"];
+      for (const r of new Set(refs)) if (refs.filter((x) => x === r).length > 1) problems.push(`${id}: parameter reference ${r} is listed more than once`);
+      for (const r of required) if (!refs.includes(r)) problems.push(`${id}: no reference to ${r}, which this update changes`);
+      for (const r of new Set(refs)) {
+        if (BYPASS_PARAMETERS.includes(r) && !required.includes(r)) problems.push(`${id}: references ${r}, which this update does not change`);
+      }
+      const direct = details.filter((d) => d.ChangeSource === "DirectModification").length;
+      if (direct > 1) problems.push(`${id}: ${direct} direct modifications, expected at most one`);
+      if (secretArn && direct === 0) problems.push(`${id}: no dynamic direct modification of AuthParameters, which a first-time update reports`);
+    }
   }
   for (const id of DIRECT) if (!seen.has(id)) problems.push(`${id} is not modified: the bypass header would not be applied`);
   return { ok: problems.length === 0, problems, changes };

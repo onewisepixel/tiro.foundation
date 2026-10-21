@@ -311,13 +311,29 @@ bash scripts/flight-deck/staging-bypass-change-set.sh --secret-arn <ARN> --versi
 
 Only two resource definitions differ between the deployed template and this one: `WorkerConnection` and `StatusConnection`. CloudFormation nevertheless also lists, as `Modify`, every resource whose properties read an attribute of a changed resource, through `Fn::GetAtt` or `${X.Arn}` in `Fn::Sub`.
 
-It marks those changes `Evaluation: Dynamic` with `ChangeSource: ResourceAttribute`, because it cannot know before execution whether the attribute will change. Here the connections are updated in place, so their ARNs stay the same, but the dependants are still reported. This was verified live on 2026-10-21 with change set `vercel-bypass-20261021T121058Z`: seven `Modify`, `Replacement=False` resources; two direct changes, five dependants.
+It marks those changes `Evaluation: Dynamic` with `ChangeSource: ResourceAttribute`, because it cannot know before execution whether the attribute will change. Here the connections are updated in place, so their ARNs stay the same, but the dependants are still reported.
 
-The policy allows exactly this, and every detail must match:
+This was verified live on 2026-10-21 with change set `vercel-bypass-20261021T184902Z` (account 821507736007, us-east-1): seven `Modify`, `Replacement=False` resources, two direct changes and five dependants, with `WorkerScheduleState` still `DISABLED`.
+
+**The connections report `AuthParameters` in two different ways.** Live, each connection had three entries for `AuthParameters`, all `RequiresRecreation: Never`:
+
+| # | Evaluation | ChangeSource | CausingEntity | Meaning |
+| --- | --- | --- | --- | --- |
+| 1 | `Static` | `ParameterReference` | `VercelBypassSecretArn` | The parameter's new value is known, so CloudFormation can evaluate it in advance |
+| 2 | `Static` | `ParameterReference` | `VercelBypassSecretVersionId` | Same, for the version ID |
+| 3 | `Dynamic` | `DirectModification` | (none) | The property itself, which now holds a `{{resolve:secretsmanager:…}}` reference. CloudFormation cannot know the resolved secret before execution, so it reports this as Dynamic. No other resource causes it |
+
+The policy accepts exactly these two shapes, and only for `AuthParameters` on the two connections:
+
+- **Parameter references** must be `Static`, and may only reference the two bypass parameters. The set must be exactly the parameters this update changes, each once: both on a first-time update (`--secret-arn` given); the version ID alone on a rotation. A rotation that references the ARN is refused.
+- **The direct modification** must be `Dynamic`, with no causing entity, at most once per connection. A first-time update must have it, as the live change set did. A rotation may have it or not: no rotation change set has been observed yet, and refusing a future rotation on an assumption would be wrong. Tighten this once one has been seen.
+- **Refused:** a `Static` direct modification (an ordinary, unrelated template edit); a direct modification with a causing entity; a duplicate; and any direct modification of another property of a connection, or of any other resource. Dependants accept only `Dynamic` `ResourceAttribute` re-evaluations.
+
+The complete set of allowed changes:
 
 | Resource | Allowed change | Required |
 | --- | --- | --- |
-| `WorkerConnection`, `StatusConnection` (both required) | `AuthParameters` | `Static`; caused by the template (`DirectModification`) or by `VercelBypassSecretArn` / `VercelBypassSecretVersionId` (`ParameterReference`) |
+| `WorkerConnection`, `StatusConnection` (both required) | `AuthParameters` | Static `ParameterReference` to exactly the changing bypass parameters, plus one Dynamic `DirectModification` without a cause (required on a first-time update, optional on a rotation) |
 | `WorkerDestination` | `ConnectionArn`, caused by `WorkerConnection.Arn` | `Dynamic`, `ResourceAttribute` |
 | `StatusDestination` | `ConnectionArn`, caused by `StatusConnection.Arn` | `Dynamic`, `ResourceAttribute` |
 | `WorkerInvokeRole` | `Policies`, caused by `WorkerDestination.Arn` or `StatusDestination.Arn` | `Dynamic`, `ResourceAttribute` |
@@ -348,7 +364,37 @@ The change set itself must also check out:
 
 Nothing is allowed by resource name alone. The tests replay the observed change set and each kind of deviation (`src/lib/flightDeck/bypassChangeSetPolicy.test.ts`, `stagingScripts.test.ts`).
 
-**Review the complete change set yourself, even when the script accepts it.** The script prints every change detail, plus the `describe-change-set … --output json` command for the full description. The check is a safety net, not a substitute for reading it. Only then run the `execute-change-set` and `wait stack-update-complete` commands the script prints, or delete the change set to abandon it. A rotation (§10.7) produces the same seven entries, with the connections caused by `VercelBypassSecretVersionId`.
+**Review the complete change set yourself, even when the script accepts it.** The script prints every change detail, plus the `describe-change-set … --output json` command for the full description. The check is a safety net, not a substitute for reading it. Only then run the `execute-change-set` and `wait stack-update-complete` commands the script prints, or delete the change set to abandon it. A rotation (§10.7) is expected to list the same seven resources, with the connections referencing `VercelBypassSecretVersionId` only. That is the first rotation's shape to check by eye.
+
+#### 10.4.2 Re-check an existing change set (read-only)
+
+To check a change set that already exists, without creating another, run the same script with `--existing-change-set`. Use the identifiers it was created with, which are not the secret: the ARN for a first-time update, and the version ID. This is the case for `vercel-bypass-20261021T184902Z`. In CloudShell, from an up-to-date checkout of `main` after this change is merged:
+
+```bash
+cd tiro.foundation || echo "Clone first (see 10.3)."
+git checkout main && git pull --ff-only && git log -1 --oneline
+
+# The identifiers, read without the secret's value:
+ARN=$(aws secretsmanager describe-secret --region us-east-1 --no-cli-pager \
+  --secret-id tiro-flight-deck-staging/vercel-automation-bypass --query ARN --output text)
+VID=$(aws secretsmanager list-secret-version-ids --region us-east-1 --no-cli-pager \
+  --secret-id tiro-flight-deck-staging/vercel-automation-bypass \
+  --query "Versions[?contains(VersionStages, 'AWSCURRENT')].VersionId | [0]" --output text)
+echo "$ARN $VID"
+
+bash scripts/flight-deck/staging-bypass-change-set.sh \
+  --existing-change-set vercel-bypass-20261021T184902Z --secret-arn "$ARN" --version-id "$VID"
+```
+
+In this mode the script:
+
+- checks the `tiro-stage` account;
+- reads the stack's current parameters;
+- describes the named change set and applies the same policy, printing every detail.
+
+It makes **only read-only calls**: it never creates, executes, or deletes a change set. If the check passes, it prints the execute command for your manual decision. If it fails, it prints the delete command for your decision. Neither is run.
+
+`describe-secret` and `list-secret-version-ids` return metadata only, never the value.
 
 The principal that executes it needs `secretsmanager:GetSecretValue` on the bypass secret. CloudFormation reads it; only EventBridge's own connection secret stores it, and CloudFormation and Secrets Manager do not log it.
 
