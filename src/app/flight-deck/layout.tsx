@@ -27,7 +27,7 @@ export default async function FlightDeckLayout({ children }: { children: React.R
 
   return (
     <div className="min-h-screen bg-[var(--tiro-bg)] pt-[61px] text-[var(--tiro-text)]">
-      {rt.store.synthetic ? <SyntheticBanner /> : null}
+      {rt.store.synthetic ? <SyntheticBanner environment={rt.mode === "local-demo" ? "local-demo" : "staging"} /> : null}
       {actor && consoleOpen ? (
         <div className="sticky top-[61px] z-30 border-b border-[var(--tiro-border)] bg-[var(--tiro-bg)]">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 px-[var(--lt-gutter)] md:px-6">

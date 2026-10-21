@@ -163,10 +163,13 @@ export function day(iso: string | null | undefined): string {
   return iso ? iso.slice(0, 10) : "—";
 }
 
-export function SyntheticBanner() {
+export function SyntheticBanner({ environment }: { environment: "local-demo" | "staging" }) {
   return (
     <p className="border-b border-[var(--tiro-accent)] bg-[var(--tiro-surface)] px-[var(--lt-gutter)] py-2 text-center font-[family-name:var(--font-code)] text-[11px] uppercase tracking-[0.12em] text-[var(--tiro-accent)] md:px-6">
-      <span aria-hidden="true">◌ </span>Local demo · synthetic data only · nothing leaves this machine
+      <span aria-hidden="true">◌ </span>
+      {environment === "staging"
+        ? "Staging · synthetic data only · cloud-hosted · no real contacts"
+        : "Local demo · synthetic data only · nothing leaves this machine"}
     </p>
   );
 }
