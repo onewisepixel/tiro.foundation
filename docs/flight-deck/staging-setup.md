@@ -26,6 +26,7 @@ Its purpose is operational evidence (`staging-acceptance.md`).
 | AWS access only for the staging project | The IAM role trusts only `owner:<team>:project:<staging project>:environment:<production>` through Vercel OIDC, by exact match. It can only put, get, and list under `flight-deck/` in the staging log bucket. Credentials last one hour, and no AWS key is stored anywhere |
 | The public site is untouched | A **separate Vercel project**. The pipeline refuses to deploy if the target is the public site's project. No Flight Deck variable is added to the public site's project |
 | Not indexed | Staging sends `X-Robots-Tag: noindex, nofollow` on every page |
+| Not reachable without Vercel sign-in | Vercel Authentication (Deployment Protection) covers the staging project. Automation passes it only with the project's **Protection Bypass for Automation** secret in the `x-vercel-protection-bypass` header, and must then still pass Flight Deck's own authentication (§10) |
 | Separate AWS account | All AWS resources live in the existing **`tiro-stage`** account, in **us-east-1**, in Flight Deck's own stack: no IAM role, secret, log, or bucket is shared with anything else there (§2). Production will use a different account |
 
 ## 2. Accounts and structure (to validate before provisioning)
@@ -81,6 +82,8 @@ Deploy `deploy/flight-deck/flight-deck.template.json` into **`tiro-stage`**, reg
 | `AwsMonthlyBudgetUsd` | `15` (the AWS share of the $75 ceiling), **plus** the usual monthly cost of anything else in `tiro-stage` (§2) |
 | `ProtectiveRetentionDays` | `35` or more (§7) |
 | `VercelTeamSlug` / `VercelProjectName` / `VercelEnvironment` | The team slug, the staging project's name, and `production` |
+| `VercelBypassSecretArn` | ARN of the Secrets Manager secret holding the Vercel automation-bypass value (§10). Empty: the connections send no bypass header |
+| `VercelBypassSecretVersionId` | That secret's version ID (an identifier, not the value). Changing it is how a rotation reaches EventBridge (§10) |
 
 What it creates:
 
@@ -123,14 +126,19 @@ Never widen an existing role to cover staging.
 
 4. In GitHub, create the environment **`flight-deck-staging`**, with **you as a required reviewer**. Then add:
    - variables: `VERCEL_ORG_ID`, `VERCEL_STAGING_PROJECT_ID`, `VERCEL_PUBLIC_SITE_PROJECT_ID` (so the pipeline can refuse it), and `FLIGHT_DECK_STAGING_ORIGIN`;
-   - secrets: `VERCEL_STAGING_TOKEN` (a token scoped to the staging team or project, if possible) and `FLIGHT_DECK_STAGING_OWNER_DATABASE_URL` (the Neon **owner** role's direct URL, used only for migrations).
+   - secrets: `VERCEL_STAGING_TOKEN` (a token scoped to the staging team or project, if possible), `FLIGHT_DECK_STAGING_OWNER_DATABASE_URL` (the Neon **owner** role's direct URL, used only for migrations), and `VERCEL_AUTOMATION_BYPASS_SECRET` (§10).
 5. Deploy: Actions → **Deploy Flight Deck staging** → Run, with the ref and `deploy synthetic staging` typed. The run then:
    - runs lint, the unit tests, and the PostgreSQL tests;
    - waits for your approval;
    - checks the target project and the pulled configuration;
    - migrates the database, if asked;
    - builds and deploys;
-   - smoke-checks that `/pilot` is closed and that the status endpoint refuses an unauthenticated call.
+   - smoke-checks, through Deployment Protection with the bypass header:
+     - that a request without the bypass, or with a wrong one, is stopped by Vercel;
+     - that `/pilot` shows the closed form;
+     - that the status endpoint, called with the bypass but **no** Flight Deck token, refuses (401, or 404 before the console gate).
+
+     The run fails if `VERCEL_AUTOMATION_BYPASS_SECRET` is missing or empty.
 
 **First-time database setup** (from your machine, with the owner URL):
 
@@ -186,7 +194,7 @@ USD, us-east-1 (N. Virginia), before tax. Flight Deck's resources only: anything
 | Neon storage | Under 1 GB × $0.35/GB-month | ≤ $0.35 |
 | Neon instant-restore history (14 days) | Under 1 GB of changes × $0.20/GB-month | ≤ $0.20 |
 | Neon network transfer | Within 500 GB included | $0 |
-| AWS Secrets Manager | 4 template secrets + 2 created by the EventBridge connections, × $0.40 | $2.40 |
+| AWS Secrets Manager | 4 template secrets + 2 created by the EventBridge connections + 1 Vercel bypass secret (§10), × $0.40 | $2.80 |
 | AWS S3 protective log | Kilobytes stored; about 17,000 PUT (checkpoints and fence) and some tens of thousands of GET/LIST a month | ≤ $0.30 |
 | AWS EventBridge | About 11,500 API destination calls × $0.20 per million | ≈ $0.00 |
 | AWS CloudWatch alarms (2), SNS email, Budgets (1) | Within free allowances (confirm) | $0–0.20 |
@@ -202,11 +210,151 @@ That leaves headroom under the $75 planning ceiling. Sources: Neon's pricing pag
 In this order, so nothing keeps running or charging:
 
 1. **Stop traffic and jobs.** Update the stack with `WorkerScheduleState=DISABLED`, which stops both the worker and the status monitor.
-2. **Vercel.** Delete the staging project, or at least remove its domains and environment variables. Revoke `VERCEL_STAGING_TOKEN`, and delete the GitHub environment `flight-deck-staging` with its secrets. If a Pro team was created only for staging, cancel that subscription.
+2. **Vercel.** Delete the staging project, or at least remove its domains and environment variables. Revoke `VERCEL_STAGING_TOKEN` and the automation-bypass secret, and delete the GitHub environment `flight-deck-staging` with its secrets. If a Pro team was created only for staging, cancel that subscription.
 3. **Neon.** Delete the staging project. This deletes every branch and its history, irreversibly; acceptable, because it is synthetic. Billing stops at deletion; check the final invoice.
-4. **AWS.**
+4. **AWS.** Schedule deletion of the bypass secret (`tiro-flight-deck-staging/vercel-automation-bypass`) along with the template's secrets.
    - Delete the stack. Retained resources stay and must be removed by hand: the Cognito pool (turn off deletion protection first), the four secrets (deletion takes a 7–30-day waiting period), and the log bucket.
    - **The log bucket cannot be emptied until every object version's retention has passed** (35 days after its last write), and the bucket policy denies the governance bypass to everyone, deliberately. Its cost is cents. After retention, delete all versions, then the bucket.
    - Remove the IAM OIDC provider and role. They are deleted with the stack.
 5. **Do not close `tiro-stage`.** It is a shared, existing account. Remove only Flight Deck's resources: the stack, the retained resources above, the budget `tiro-flight-deck-staging-aws` (deleted with the stack), and, if you created them by hand (§3), the OIDC role and the extra audience on a shared Vercel OIDC provider. Leave the provider itself if another project uses it.
 6. **Confirm** zero charges in the next billing cycle: AWS Cost Explorer, Neon billing, and Vercel usage.
+
+## 10. Deployment Protection and the automation bypass
+
+Vercel Authentication protects the staging project, so the two automated callers cannot reach it on their own: the deploy workflow's smoke checks and EventBridge's two API destinations (worker and status monitor). Each gets past it with the project's **Protection Bypass for Automation** secret, sent as the `x-vercel-protection-bypass` request header. That header only gets a request **to** Flight Deck. Flight Deck then applies its own checks unchanged:
+
+- the worker endpoint needs the worker bearer token;
+- the status endpoint needs the monitor bearer token;
+- the console needs a Cognito session with MFA.
+
+### 10.1 Status
+
+Reported by the founder on 2026-10-21; not verified from this repository.
+
+| Done | Awaiting your authorization |
+| --- | --- |
+| Staging infrastructure provisioned: the stack `tiro-flight-deck-staging` in `tiro-stage` (821507736007), us-east-1 | Store the bypass value in Secrets Manager (§10.3) |
+| Vercel project `tiro-flight-deck-staging` with Vercel Authentication; bypass secret generated in Vercel | Stack update through a reviewed change set, with `VercelBypassSecretArn` and `VercelBypassSecretVersionId` (§10.4) |
+| GitHub environment `flight-deck-staging` with its four variables and the secrets `VERCEL_STAGING_TOKEN` and `VERCEL_AUTOMATION_BYPASS_SECRET` | Merge of this change; set `FLIGHT_DECK_MODE=production` in the staging project. The workflow refuses any other mode, deliberately |
+| Five migrations applied; synthetic database initialized | First deploy, console gate, enabling the schedules, and the checks in §10.5–10.6 |
+| Both EventBridge schedules **disabled**; public form, outbound email, social publishing off | — |
+
+### 10.2 The credential, and GitHub
+
+1. **Vercel** → project `tiro-flight-deck-staging` → Settings → Deployment Protection → **Protection Bypass for Automation**. The secret already exists, so don't generate another unless you are rotating it (§10.7).
+2. **GitHub** → Settings → Environments → `flight-deck-staging` → secret **`VERCEL_AUTOMATION_BYPASS_SECRET`** (already present). Paste the value from Vercel; never into a file, chat, or issue.
+
+The workflow refuses a value that is not 16 or more URL-safe characters (letters, digits, `-`, `_`), rather than escaping it. Vercel-generated secrets meet this.
+
+### 10.3 Store the same value in Secrets Manager (no printing, no file kept)
+
+Use **AWS CloudShell** in `tiro-stage`, region us-east-1. It is in the browser and free, so nothing touches your machine's shell history. Paste the value from Vercel at the silent prompt:
+
+```bash
+read -rs V                                    # paste; nothing is echoed
+umask 077; printf '%s' "$V" > ~/bypass.txt; unset V
+aws secretsmanager create-secret \
+  --name tiro-flight-deck-staging/vercel-automation-bypass \
+  --description "Vercel Protection Bypass for Automation, staging project tiro-flight-deck-staging" \
+  --secret-string "file://$HOME/bypass.txt" \
+  --query '{Arn:ARN,VersionId:VersionId}' --output table
+shred -u ~/bypass.txt 2>/dev/null || rm -f ~/bypass.txt
+```
+
+The output is the secret's ARN and version ID, which are identifiers, not the value. **Never run `get-secret-value`** for this secret. It uses the default `aws/secretsmanager` key; the cost is $0.40 a month (§8).
+
+### 10.4 Supply it to CloudFormation through a reviewed change set
+
+Run from a checkout of the merged branch, in CloudShell or with your single sign-on session. Every other parameter keeps its current value; above all, **`WorkerScheduleState` stays as it is (DISABLED)**:
+
+```bash
+# Every template parameter must be listed: one left out falls back to its
+# default. Only the two bypass parameters take new values.
+params=(
+  "ParameterKey=VercelBypassSecretArn,ParameterValue=<ARN from 10.3>"
+  "ParameterKey=VercelBypassSecretVersionId,ParameterValue=<VersionId from 10.3>"
+)
+for k in PublicOrigin CognitoDomainPrefix WorkerScheduleState AlarmEmail EscalationEmail \
+         AwsMonthlyBudgetUsd ProtectiveRetentionDays VercelTeamSlug VercelProjectName VercelEnvironment; do
+  params+=("ParameterKey=$k,UsePreviousValue=true")
+done
+aws cloudformation create-change-set --region us-east-1 \
+  --stack-name tiro-flight-deck-staging --change-set-name add-vercel-bypass \
+  --template-body file://deploy/flight-deck/flight-deck.template.json \
+  --capabilities CAPABILITY_IAM \
+  --parameters "${params[@]}"
+
+aws cloudformation describe-change-set --region us-east-1 \
+  --stack-name tiro-flight-deck-staging --change-set-name add-vercel-bypass \
+  --query 'Changes[].ResourceChange.{Action:Action,Resource:LogicalResourceId,Replacement:Replacement}' --output table
+```
+
+**Review before executing.** Expect `Modify` on `WorkerConnection` and `StatusConnection` and nothing replaced. Any other change means the deployed stack differs from this template: understand it first. In particular, nothing may set `WorkerSchedule` or `StatusMonitor` to ENABLED.
+
+The principal executing the change set needs `secretsmanager:GetSecretValue` on the bypass secret: CloudFormation reads it, and only EventBridge's own connection secret stores it.
+
+After review: `aws cloudformation execute-change-set …`, or delete the change set to abandon it.
+
+### 10.5 Verify the connections, without reading any secret
+
+```bash
+for c in $(aws cloudformation describe-stack-resources --region us-east-1 --stack-name tiro-flight-deck-staging \
+            --query "StackResources[?LogicalResourceId=='WorkerConnection'||LogicalResourceId=='StatusConnection'].PhysicalResourceId" --output text); do
+  aws events describe-connection --region us-east-1 --name "${c##*/}" \
+    --query '{State:ConnectionState,Auth:AuthorizationType,ApiKeyHeader:AuthParameters.ApiKeyAuthParameters.ApiKeyName,Extra:AuthParameters.InvocationHttpParameters.HeaderParameters[].{Key:Key,Secret:IsValueSecret}}'
+done
+```
+
+Each connection must show:
+
+- `State` `AUTHORIZED`;
+- `Auth` `API_KEY`;
+- `ApiKeyHeader` `Authorization` (its own bearer token, unchanged);
+- `Extra` `[{Key: x-vercel-protection-bypass, Secret: true}]`.
+
+EventBridge never returns secret values, and CloudFormation does not report these properties either (they are write-only), so this is the only configuration check available. The behavioural proof comes in §10.6, and when the schedules are first enabled (`staging-acceptance.md` C7 and E1).
+
+### 10.6 Check that missing or wrong credentials are refused
+
+From CloudShell (the value again only at a silent prompt, and only on curl's standard input):
+
+```bash
+O=https://tiro-flight-deck-staging.vercel.app
+read -rs V
+bp() { printf 'header = "x-vercel-protection-bypass: %s"\n' "$V" | curl --config - -s -o /dev/null -w '%{http_code}\n' "$@"; }
+curl -s -o /dev/null -w 'no bypass:            %{http_code}\n' "$O/pilot"           # expect 401 or a redirect, not 200
+printf 'header = "x-vercel-protection-bypass: wrong-value-000000"\n' | curl --config - -s -o /dev/null -w 'wrong bypass:         %{http_code}\n' "$O/pilot"
+printf 'bypass, /pilot:       '; bp "$O/pilot"                                   # expect 200 (closed form)
+printf 'bypass, no bearer:    '; bp "$O/flight-deck/internal/status"             # expect 401 (404 before the console gate)
+printf 'bypass, no bearer:    '; bp -X POST "$O/flight-deck/internal/worker"      # expect 401 (404 before the gate)
+unset V
+```
+
+These need a deployment to exist. Only Flight Deck's bearer tokens, which EventBridge holds, turn the last two into 200 or 202.
+
+### 10.7 Rotating the bypass credential
+
+Do it in this order, so nothing is left half-rotated and no schedule changes state:
+
+1. **Note the schedules' state** (`aws events describe-rule` for both rules). The update below must not change it: `WorkerScheduleState` is always `UsePreviousValue`.
+2. **Vercel:** generate a new bypass secret. If Vercel lets you keep the old one valid alongside it, keep it until step 6. If not, the old value stops working at once: deploys and, if the schedules are on, EventBridge calls are refused until steps 3–5 are done. The status alarm may fire; that is expected.
+3. **GitHub:** replace `VERCEL_AUTOMATION_BYPASS_SECRET` in the `flight-deck-staging` environment.
+4. **Secrets Manager** (CloudShell, silent prompt as in §10.3), keeping the printed new version ID:
+
+   ```bash
+   read -rs V; umask 077; printf '%s' "$V" > ~/bypass.txt; unset V
+   aws secretsmanager put-secret-value --region us-east-1 \
+     --secret-id tiro-flight-deck-staging/vercel-automation-bypass \
+     --secret-string "file://$HOME/bypass.txt" --query VersionId --output text
+   shred -u ~/bypass.txt 2>/dev/null || rm -f ~/bypass.txt
+   ```
+5. **CloudFormation:** a change set as in §10.4, changing **only** `VercelBypassSecretVersionId` to the new ID (`VercelBypassSecretArn` and every other parameter `UsePreviousValue=true`, template unchanged). The new ID is what makes CloudFormation re-read the secret: changing only the value in Secrets Manager does not reach the connections. Review it (`Modify` on the two connections only), execute it, then verify as in §10.5 and §10.6.
+6. **Vercel:** revoke the old secret, if it was kept. Check §10.6 again: the old value must now be refused.
+
+The bearer tokens are rotated separately (`operations.md` §7). The bypass never replaces them.
+
+### 10.8 Limits
+
+- **Write-only configuration.** The header's presence and secret flag can be checked (§10.5), but not its value. A stale value shows only as refused requests: the protection's 401, the status alarm, or a stale worker.
+- **No room for private connectivity.** An EventBridge connection allows at most two authorization blocks: the API key plus these header parameters. Adding private-network `ConnectivityParameters` later would need a different design.
+- **The bypass is project-wide.** The bypass secret passes Deployment Protection for every path of the staging project. That is acceptable only because Flight Deck authenticates every private path itself, and the public form is closed in code on staging.

@@ -59,6 +59,18 @@
         "preview"
       ]
     },
+    "VercelBypassSecretArn": {
+      "Type": "String",
+      "Description": "Optional. ARN of an EXISTING Secrets Manager secret (plain-text value) holding the Vercel 'Protection Bypass for Automation' secret. When set, both EventBridge connections also send x-vercel-protection-bypass, alongside their bearer tokens. The value is read at deploy time through a dynamic reference and stored only in EventBridge's own connection secret; it never appears in the template, parameters, or outputs. Empty: no extra header.",
+      "Default": "",
+      "AllowedPattern": "^$|^arn:aws:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"
+    },
+    "VercelBypassSecretVersionId": {
+      "Type": "String",
+      "Description": "Optional, with VercelBypassSecretArn. The Secrets Manager version ID (not the value) to send. CloudFormation re-reads a secret only when this reference changes, so a rotation is: put the new value, then update the stack with the new version ID. Empty: the current (AWSCURRENT) version, read when the connections are created or changed.",
+      "Default": "",
+      "AllowedPattern": "^$|^[0-9A-Za-z-]{32,64}$"
+    },
     "ProtectiveRetentionDays": {
       "Type": "Number",
       "Description": "Object Lock (governance) retention for every protective log object version. Must exceed the longest database backup or point-in-time window. Events are not expired automatically (the event at the database head must always exist); they hold only keyed hashes, opaque ids and codes. Provisional: 35 days for a 14-day PITR window.",
@@ -128,6 +140,30 @@
               "Ref": "AWS::Region"
             },
             "af-south-1"
+          ]
+        }
+      ]
+    },
+    "HasBypassSecret": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "VercelBypassSecretArn"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "HasBypassSecretVersion": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "VercelBypassSecretVersionId"
+            },
+            ""
           ]
         }
       ]
@@ -308,6 +344,33 @@
             "ApiKeyValue": {
               "Fn::Sub": "Bearer {{resolve:secretsmanager:${WorkerToken}}}"
             }
+          },
+          "InvocationHttpParameters": {
+            "Fn::If": [
+              "HasBypassSecret",
+              {
+                "HeaderParameters": [
+                  {
+                    "Key": "x-vercel-protection-bypass",
+                    "Value": {
+                      "Fn::If": [
+                        "HasBypassSecretVersion",
+                        {
+                          "Fn::Sub": "{{resolve:secretsmanager:${VercelBypassSecretArn}:SecretString:::${VercelBypassSecretVersionId}}}"
+                        },
+                        {
+                          "Fn::Sub": "{{resolve:secretsmanager:${VercelBypassSecretArn}}}"
+                        }
+                      ]
+                    },
+                    "IsValueSecret": true
+                  }
+                ]
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
           }
         }
       }
@@ -422,6 +485,33 @@
             "ApiKeyValue": {
               "Fn::Sub": "Bearer {{resolve:secretsmanager:${MonitorToken}}}"
             }
+          },
+          "InvocationHttpParameters": {
+            "Fn::If": [
+              "HasBypassSecret",
+              {
+                "HeaderParameters": [
+                  {
+                    "Key": "x-vercel-protection-bypass",
+                    "Value": {
+                      "Fn::If": [
+                        "HasBypassSecretVersion",
+                        {
+                          "Fn::Sub": "{{resolve:secretsmanager:${VercelBypassSecretArn}:SecretString:::${VercelBypassSecretVersionId}}}"
+                        },
+                        {
+                          "Fn::Sub": "{{resolve:secretsmanager:${VercelBypassSecretArn}}}"
+                        }
+                      ]
+                    },
+                    "IsValueSecret": true
+                  }
+                ]
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
           }
         }
       }

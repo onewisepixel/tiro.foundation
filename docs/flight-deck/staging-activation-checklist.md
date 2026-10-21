@@ -1,53 +1,50 @@
 # Flight Deck: staging activation checklist
 
-For: the founder. Work through it in order. Each ☐ that creates a resource or a charge needs your explicit go-ahead at that step. **Nothing below has been done.**
-Revision date: 2026-10-19. Details: `staging-setup.md`. Tests: `staging-acceptance.md`.
-**Region: us-east-1 (N. Virginia), in the existing `tiro-stage` AWS account.** Neon `aws-us-east-1`; Vercel functions `iad1`. Not London: that was the earlier cost comparison only.
+For: the founder. Work through it in order. Each ☐ that creates a resource or a charge, or changes what staging can do, needs your explicit go-ahead at that step.
+Revision date: 2026-10-21. Details: `staging-setup.md`. Tests: `staging-acceptance.md`.
+**Region: us-east-1 (N. Virginia), in the existing `tiro-stage` AWS account (821507736007).** Neon `aws-us-east-1`; Vercel functions `iad1`.
 
-## 1. Before any provisioning (no cost)
+✓ = **done**, as reported by the founder on 2026-10-21 (not verified from this repository). ☐ = **awaiting your authorization**.
 
-- ☐ **Vercel plan.** Check Settings → Billing for the public site.
-  - Hobby → a new Pro team for staging ($20/month).
-  - Pro → a new project in the existing team ($0, but no hard-limit pause).
-- ☐ **Neon terms.** Confirm on neon.com/pricing, on the day:
-  - Scale compute $0.222/CU-hour, with no monthly minimum;
-  - storage $0.35/GB-month;
-  - history $0.20/GB-month, up to 30 days;
-  - the **`aws-us-east-1`** region is available on Scale.
-- ☐ **`tiro-stage` account checks** (`staging-setup.md` §2):
-  - root MFA is on, and you can sign in through single sign-on with MFA;
-  - an inventory of what else runs there and in which regions. Use a region-restricting policy only if nothing there needs another region;
-  - no existing SNS topic `tiro-flight-deck-alarms`, budget `tiro-flight-deck-staging-aws`, or Cognito domain prefix of the same name;
-  - whether an IAM OIDC provider for `https://oidc.vercel.com` already exists. If so, the stack skips its provider and role, and you create the role by hand (§3);
-  - the budget amount covers Flight Deck's $15 **plus** the usual cost of everything else in the account, or a stack-name filter is added.
-- ☐ **Mailboxes.** A dedicated, monitored TIRO operations mailbox, and your escalation address.
-- ☐ **Estimate approved.** About $44/month, or about $64 with a new Vercel Pro team, for Flight Deck alone, against the $75 planning ceiling (`staging-setup.md` §8). Taxes extra; alerts, not hard caps.
+## 1. Before provisioning
 
-## 2. Services (needs your approval; the first charges start here)
+- ✓ Vercel plan checked; staging project `tiro-flight-deck-staging` in team `TIRO`.
+- ✓ Neon terms confirmed; database `flight_deck_staging` (synthetic only).
+- ✓ `tiro-stage` account checks (`staging-setup.md` §2), mailboxes, and estimate approved against the $75 planning ceiling. The bypass secret adds $0.40 a month (§8).
 
-- ☐ Create the Neon organization and the `tiro-flight-deck-staging` project (Scale, **`aws-us-east-1`**). Set compute fixed at 0.25 CU, history 14 days, and a spending notification at $45.
-- ☐ Create the Vercel staging project (and a Pro team, if needed). Keep the Functions region at **`iad1`** (the default). Set OIDC issuer mode Global, automatic Git deployments off, and Spend Management notifications.
+## 2. Services and resources
 
-## 3. Resources and configuration
+- ✓ Neon project (Scale, `aws-us-east-1`, fixed 0.25 CU, 14-day history, spending notification).
+- ✓ Vercel staging project, with **Vercel Authentication** (Deployment Protection) on and the automation-bypass secret generated.
+- ✓ Stack `tiro-flight-deck-staging` deployed in us-east-1, with **both schedules DISABLED**.
+- ✓ Five migrations applied; database initialized as synthetic.
+- ✓ GitHub environment `flight-deck-staging` (you as required reviewer): variables `VERCEL_ORG_ID`, `VERCEL_STAGING_PROJECT_ID`, `VERCEL_PUBLIC_SITE_PROJECT_ID`, `FLIGHT_DECK_STAGING_ORIGIN`; secrets `VERCEL_STAGING_TOKEN`, `VERCEL_AUTOMATION_BYPASS_SECRET`.
+- ✓ `FLIGHT_DECK_MODE=disabled`; public form, outbound email, and social publishing off.
 
-- ☐ Deploy the template into **`tiro-stage`, us-east-1**, as stack `tiro-flight-deck-staging`, with the staging parameters and the schedule DISABLED. Confirm both email subscriptions.
-- ☐ If a Vercel OIDC provider already existed: add the staging audience to it, and create the staging role by hand, exactly as in the template.
-- ☐ Create the Neon owner and app roles; get their **direct** URLs.
-- ☐ Set the Vercel staging variables (`staging-setup.md` §4): every region value `us-east-1`, including `AWS_REGION`. Set none on the public site's project.
-- ☐ Create the GitHub environment `flight-deck-staging` (you as required reviewer), with its variables and secrets.
+## 3. Automation bypass (this change)
+
+- ☐ Review and merge the draft pull request `flight-deck/staging-automation-bypass`.
+- ☐ Store the **same** bypass value in Secrets Manager as `tiro-flight-deck-staging/vercel-automation-bypass` (CloudShell, silent prompt; `staging-setup.md` §10.3). Keep the ARN and version ID it prints; never read the value back.
+- ☐ Create the change set with `VercelBypassSecretArn` and `VercelBypassSecretVersionId`, every other parameter unchanged (§10.4).
+- ☐ **Review it:** `Modify` on `WorkerConnection` and `StatusConnection` only, no replacement, no schedule enabled. Then execute.
+- ☐ Verify both connections (§10.5): `AUTHORIZED`, `Authorization` API key unchanged, extra secret header `x-vercel-protection-bypass`.
 
 ## 4. First deploy
 
-- ☐ `migrate`, `init --synthetic`, `add-operator` (yourself), from your machine, signed in to `tiro-stage` with the protective-log variables set.
-- ☐ Run **Deploy Flight Deck staging**, approve it, and check that the smoke checks pass.
-- ☐ Sign in with MFA; approve the console gate at `/flight-deck/gates`; set `WorkerScheduleState=ENABLED`.
+- ☐ Decide to set `FLIGHT_DECK_MODE=production` in the staging project's Production environment. The deploy workflow refuses any other mode. Production mode alone still opens nothing until the console gate is approved, and on staging the public form cannot open at all.
+- ☐ `add-operator` for yourself, if not already done (`staging-setup.md` §4).
+- ☐ Run **Deploy Flight Deck staging**, type the confirmation, approve the run, and check that the smoke checks pass. They now include "protection refuses no or wrong bypass" and "the status endpoint refuses a call with the bypass but no bearer token".
+- ☐ Run the credential checks in §10.6 once (missing and wrong bypass refused; bypass without a bearer token refused).
+- ☐ Sign in with MFA; approve the console gate at `/flight-deck/gates`.
+- ☐ Decide to set `WorkerScheduleState=ENABLED` (a reviewed change set; nothing else changes).
 
 ## 5. Prove it
 
-- ☐ `staging-acceptance.md` stages A to F, recorded in `acceptance.md` §7.
+- ☐ `staging-acceptance.md` stages A to F, including C7 (Deployment Protection) and E1 (scheduled calls pass protection and Flight Deck's own tokens), recorded in `acceptance.md` §7.
 - ☐ Weekly cost check across AWS (Flight Deck's stack in `tiro-stage`), Neon, and Vercel during the first month.
 
 ## Afterwards
 
+- To rotate the bypass: `staging-setup.md` §10.7. The change set always keeps `WorkerScheduleState` unchanged.
 - To stop: `staging-setup.md` §9. Remove Flight Deck's resources only; **do not close `tiro-stage`**. The log bucket cannot be deleted until its retention has passed.
 - Not authorized by any of this: real contact data, the public form, outbound messages, or a production deployment.

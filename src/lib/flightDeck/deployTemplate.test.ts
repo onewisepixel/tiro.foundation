@@ -102,3 +102,95 @@ test("deploy template: a status monitor alarms on any non-200 without retries; a
   assert.equal(budget.Budget.TimeUnit, "MONTHLY");
   assert.deepEqual(budget.NotificationsWithSubscribers.map((n) => n.Notification.NotificationType).sort(), ["ACTUAL", "ACTUAL", "FORECASTED"]);
 });
+
+// ---------- Vercel Deployment Protection bypass (staging) ----------
+
+type Auth = {
+  ApiKeyAuthParameters: { ApiKeyName: string; ApiKeyValue: unknown };
+  InvocationHttpParameters?: { "Fn::If": [string, { HeaderParameters: { Key: string; Value: unknown; IsValueSecret: boolean }[] }, unknown] };
+};
+const authOf = (name: string) => (t.Resources[name].Properties as { AuthParameters: Auth }).AuthParameters;
+
+test("deploy template: both EventBridge connections keep their own bearer tokens and add the bypass header only when its secret is configured", () => {
+  for (const [name, token] of [
+    ["WorkerConnection", "WorkerToken"],
+    ["StatusConnection", "MonitorToken"],
+  ] as const) {
+    const auth = authOf(name);
+    assert.equal(t.Resources[name].Properties.AuthorizationType, "API_KEY", `${name} keeps API-key authentication`);
+    assert.equal(auth.ApiKeyAuthParameters.ApiKeyName, "Authorization", `${name} keeps the Authorization header`);
+    assert.deepEqual(auth.ApiKeyAuthParameters.ApiKeyValue, { "Fn::Sub": `Bearer {{resolve:secretsmanager:\${${token}}}}` }, `${name} keeps its own bearer token`);
+    const [condition, whenSet, otherwise] = auth.InvocationHttpParameters!["Fn::If"];
+    assert.equal(condition, "HasBypassSecret");
+    assert.deepEqual(otherwise, { Ref: "AWS::NoValue" }, `${name}: no header, and no placeholder, without the secret`);
+    assert.deepEqual(whenSet.HeaderParameters, [
+      {
+        Key: "x-vercel-protection-bypass",
+        // Pinned to a version ID when one is given (a rotation changes it,
+        // which is what makes CloudFormation re-read the secret);
+        // otherwise the current version. Either way, only a reference.
+        Value: {
+          "Fn::If": [
+            "HasBypassSecretVersion",
+            { "Fn::Sub": "{{resolve:secretsmanager:${VercelBypassSecretArn}:SecretString:::${VercelBypassSecretVersionId}}}" },
+            { "Fn::Sub": "{{resolve:secretsmanager:${VercelBypassSecretArn}}}" },
+          ],
+        },
+        IsValueSecret: true,
+      },
+    ]);
+    // At most two AuthParameters properties are allowed (the schema's
+    // maxProperties): the API key and these header parameters.
+    assert.deepEqual(Object.keys(auth).sort(), ["ApiKeyAuthParameters", "InvocationHttpParameters"]);
+  }
+  assert.deepEqual((t as unknown as { Conditions: Record<string, unknown> }).Conditions.HasBypassSecret, { "Fn::Not": [{ "Fn::Equals": [{ Ref: "VercelBypassSecretArn" }, ""] }] });
+});
+
+test("deploy template: the bypass secret is referenced by ARN only, never present in the template, parameters or outputs", () => {
+  const param = (t.Parameters as Record<string, { Default?: string; AllowedPattern?: string }>).VercelBypassSecretArn;
+  assert.equal(param.Default, "", "optional: absent by default");
+  assert.ok(new RegExp(param.AllowedPattern!).test("arn:aws:secretsmanager:us-east-1:821507736007:secret:tiro-flight-deck-staging/vercel-bypass-AbCdEf"));
+  assert.ok(!new RegExp(param.AllowedPattern!).test("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"), "a raw secret value is not accepted as the parameter");
+  const raw = fs.readFileSync("deploy/flight-deck/flight-deck.template.json", "utf8");
+  // The header is sent by exactly the two connections, and its only value
+  // is the dynamic reference (checked in the test above).
+  assert.equal(raw.match(/"Key": "x-vercel-protection-bypass"/g)?.length, 2, "one header per connection, nowhere else");
+  assert.equal(raw.match(/resolve:secretsmanager:\$\{VercelBypassSecretArn\}/g)?.length, 4, "two forms per connection");
+  const version = (t.Parameters as Record<string, { Default?: string; AllowedPattern?: string }>).VercelBypassSecretVersionId;
+  assert.equal(version.Default, "");
+  assert.ok(new RegExp(version.AllowedPattern!).test("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
+  assert.doesNotMatch(JSON.stringify((t as unknown as { Outputs: unknown }).Outputs), /VercelBypassSecretVersionId/);
+  assert.doesNotMatch(JSON.stringify((t as unknown as { Outputs: unknown }).Outputs), /VercelBypassSecretArn|protection-bypass/);
+  // The schedules stay off unless deliberately enabled.
+  assert.equal(t.Parameters.WorkerScheduleState.Default, "DISABLED");
+});
+
+test("deploy workflow: manual and approved only; isolation checks intact; smoke checks pass protection with the bypass, never a bearer token, never exposing the secret", () => {
+  const wf = fs.readFileSync(".github/workflows/deploy-flight-deck-staging.yml", "utf8");
+  const triggers = wf.slice(wf.indexOf("\non:"), wf.indexOf("\npermissions:"));
+  assert.match(triggers, /workflow_dispatch:/);
+  assert.doesNotMatch(triggers, /\b(push|pull_request|pull_request_target|schedule|workflow_run|repository_dispatch):/, "no automatic trigger");
+  assert.match(wf, /if: inputs\.confirm == 'deploy synthetic staging'/);
+  assert.match(wf, /environment: flight-deck-staging/);
+  assert.match(wf, /refusing: that is the public site's project/);
+  assert.match(wf, /grep -qx 'FLIGHT_DECK_DEPLOYMENT="staging"'/);
+  assert.match(wf, /grep -qx 'FLIGHT_DECK_MODE="production"'/);
+  assert.match(wf, /FLIGHT_DECK_PUBLIC_FORM_ENABLED="true"' "\$f" \|\| \{ echo "the public form must stay off"/);
+  assert.match(wf, /FLIGHT_DECK_OUTBOUND_EMAIL_ENABLED="true"' "\$f" \|\| \{ echo "outbound email must stay off"/);
+  assert.match(wf, /run: npm test/);
+  assert.match(wf, /run: npm run test:flight-deck-pg/);
+
+  const smoke = wf.slice(wf.indexOf("name: Smoke check"));
+  assert.match(smoke, /BYPASS: \$\{\{ secrets\.VERCEL_AUTOMATION_BYPASS_SECRET \}\}/);
+  assert.match(smoke, /test -n "\$BYPASS" \|\| \{ echo "VERCEL_AUTOMATION_BYPASS_SECRET is missing or empty"; exit 1; \}/);
+  // The secret goes to curl on stdin only: never a -H argument, a URL
+  // query parameter, or an echo.
+  assert.match(smoke, /printf 'header = "x-vercel-protection-bypass: %s"\\n' "\$BYPASS" \| curl --config -/);
+  assert.doesNotMatch(smoke, /-H\s+["']?x-vercel-protection-bypass/i);
+  assert.doesNotMatch(smoke, /x-vercel-protection-bypass=|x-vercel-set-bypass-cookie/);
+  assert.doesNotMatch(smoke, /echo[^\n]*\$BYPASS/);
+  // Flight Deck's own authentication is exercised, not bypassed.
+  assert.doesNotMatch(smoke, /Authorization|Bearer|WORKER_TOKEN|MONITOR_TOKEN/);
+  assert.match(smoke, /case "\$code" in 401\|404\)/);
+  assert.match(smoke, /Form not yet open/);
+});
