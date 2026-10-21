@@ -15,9 +15,16 @@
 # state. The parameter list is derived, not typed: the template's parameters
 # from CloudFormation (get-template-summary) and the stack's from
 # describe-stacks. A template parameter the stack does not have stops the
-# script, because it would otherwise take its default. The change set is
-# refused unless its only changes are in-place modifications of
-# WorkerConnection and StatusConnection. Read-only AWS calls apart from
+# script, because it would otherwise take its default.
+#
+# The finished change set is checked in full (bypass-change-set-policy.mjs,
+# on the DescribeChangeSet JSON). The direct changes must be exactly
+# WorkerConnection and StatusConnection, each changing only AuthParameters,
+# in place. CloudFormation also lists five dependants, as Dynamic changes,
+# because they read those connections' attributes (ARNs). Each is allowed
+# only for its exact property and causing attribute. Anything else stops
+# the script: any other resource, property, static change, replacement,
+# parameter value, or stack. Read-only AWS calls apart from
 # create-change-set. Docs: docs/flight-deck/staging-setup.md §10.4, §10.7.
 set -euo pipefail
 
@@ -26,6 +33,7 @@ REGION="us-east-1"
 # The staging account (tiro-stage). Checked before any CloudFormation call.
 EXPECTED_ACCOUNT="821507736007"
 TEMPLATE="deploy/flight-deck/flight-deck.template.json"
+POLICY="scripts/flight-deck/bypass-change-set-policy.mjs"
 secret_arn=""
 version_id=""
 
@@ -49,6 +57,10 @@ if [ -n "$secret_arn" ] && [[ "$secret_arn" != arn:aws:secretsmanager:"$REGION":
   exit 2
 fi
 
+# The change set is checked with Node.js (preinstalled in AWS CloudShell).
+command -v node >/dev/null 2>&1 || { echo "STOP: node is required to check the change set; nothing was created." >&2; exit 2; }
+[ -f "$POLICY" ] || { echo "run from the repository root ($POLICY not found)" >&2; exit 2; }
+
 # Refuse to touch any stack outside tiro-stage.
 account=$(aws sts get-caller-identity --region "$REGION" --no-cli-pager --query Account --output text) || {
   echo "STOP: could not confirm the AWS account (are you signed in?). Nothing was created." >&2
@@ -69,6 +81,8 @@ stack_list=$(aws cloudformation describe-stacks --region "$REGION" --no-cli-page
 schedules=$(aws cloudformation describe-stacks --region "$REGION" --no-cli-pager --stack-name "$STACK" \
   --query "Stacks[0].Parameters[?ParameterKey=='WorkerScheduleState'].ParameterValue | [0]" --output text)
 read -r -a template_keys <<<"$template_list"
+stack_parameters=$(aws cloudformation describe-stacks --region "$REGION" --no-cli-pager \
+  --stack-name "$STACK" --query 'Stacks[0].Parameters' --output json)
 read -r -a stack_keys <<<"$stack_list"
 [ "${#template_keys[@]}" -gt 0 ] && [ "${#stack_keys[@]}" -gt 0 ] || { echo "STOP: could not read the template's or the stack's parameters" >&2; exit 1; }
 
@@ -118,17 +132,19 @@ if ! aws cloudformation wait change-set-create-complete --region "$REGION" --sta
   exit 1
 fi
 
-changes=$(aws cloudformation describe-change-set --region "$REGION" --no-cli-pager --stack-name "$STACK" --change-set-name "$name" \
-  --query 'Changes[].ResourceChange.[LogicalResourceId,Action,Replacement]' --output text)
-echo "Change set $name:"
-printf '%s\n' "$changes"
-unexpected=$(printf '%s\n' "$changes" | awk 'NF && !(($1 == "WorkerConnection" || $1 == "StatusConnection") && $2 == "Modify" && $3 == "False")')
-expected=$(printf '%s\n' "$changes" | awk '($1 == "WorkerConnection" || $1 == "StatusConnection") && $2 == "Modify" && $3 == "False"' | wc -l | tr -d ' ')
-if [ -n "$unexpected" ] || [ "$expected" != 2 ]; then
-  echo "STOP: this change set does more than modify the two connections in place. Do not execute it; delete it with:" >&2
+echo "Change set $name, every change detail (resource, action, replacement, property, evaluation, source, cause):"
+policy_args=(--stack "$STACK" --stack-parameters "$stack_parameters" --version-id "$version_id")
+[ -z "$secret_arn" ] || policy_args+=(--secret-arn "$secret_arn")
+if ! aws cloudformation describe-change-set --region "$REGION" --no-cli-pager --stack-name "$STACK" --change-set-name "$name" --output json \
+  | node "$POLICY" "${policy_args[@]}"; then
+  echo "Do not execute it. Delete it with:" >&2
   echo "  aws cloudformation delete-change-set --region $REGION --stack-name $STACK --change-set-name $name" >&2
   exit 1
 fi
-echo "Only WorkerConnection and StatusConnection change, in place. After your own review, execute with:"
+echo "Direct changes: WorkerConnection and StatusConnection (AuthParameters, in place)."
+echo "Also listed: the dependants CloudFormation re-evaluates from their ARNs (Dynamic), each checked for its exact property and cause."
+echo "Review the COMPLETE change set yourself before executing it:"
+echo "  aws cloudformation describe-change-set --region $REGION --no-cli-pager --stack-name $STACK --change-set-name $name --output json"
+echo "Then, and only then, execute with:"
 echo "  aws cloudformation execute-change-set --region $REGION --stack-name $STACK --change-set-name $name"
 echo "  aws cloudformation wait stack-update-complete --region $REGION --stack-name $STACK"
