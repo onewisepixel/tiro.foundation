@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { SubmitButton } from "@/components/flight-deck/client";
 import { Badge, Empty, Field, Notice, PageTitle, Return, Section, StageBadge, StatusBadge, day, when } from "@/components/flight-deck/ui";
 import { can } from "@/lib/flightDeck/access";
-import { DEMO_IDENTITIES, displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { contactEligibility } from "@/lib/flightDeck/permissions";
 import { MESSAGE_TEMPLATES } from "@/lib/flightDeck/templates";
 import { PUBLIC_TOPICS } from "@/lib/flightDeck/pilotCopy";
@@ -32,6 +32,7 @@ const ELIGIBILITY: Record<string, string> = { "case-open": "Case open: held", "n
 
 export default async function ProspectPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
+  const { displayNameFor, assignableOwners } = await operatorDirectory(rt.identity);
   const { id } = await params;
   const sp = await searchParams;
   const data = await rt.store.read((tx) => {
@@ -145,7 +146,7 @@ export default async function ProspectPage({ params, searchParams }: { params: P
                   <Field label="Owner" htmlFor="ownerId">
                     <select id="ownerId" name="ownerId" defaultValue={p.ownerId ?? ""} className="tiro-input">
                       <option value="">Unassigned</option>
-                      {DEMO_IDENTITIES.filter((i) => i.role !== "reviewer").map((i) => (
+                      {assignableOwners.map((i) => (
                         <option key={i.id} value={i.id}>
                           {i.displayName}
                         </option>
