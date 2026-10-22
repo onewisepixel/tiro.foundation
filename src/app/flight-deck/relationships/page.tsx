@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { Empty, Notice, PageTitle, StageBadge, day } from "@/components/flight-deck/ui";
-import { displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { STAGES, type Stage } from "@/lib/flightDeck/types";
 import { STAGE_LABELS } from "@/lib/flightDeck/workflow";
 import { requirePage } from "../guard";
 
 export default async function RelationshipsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt } = await requirePage();
+  const { displayNameFor } = await operatorDirectory(rt.identity);
   const params = await searchParams;
   const stage = typeof params.stage === "string" && (STAGES as readonly string[]).includes(params.stage) ? (params.stage as Stage) : null;
   const { rows, counts } = await rt.store.read((tx) => {

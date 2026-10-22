@@ -10,7 +10,8 @@ import { decide, GateError, payloadFor, submitForReview } from "./approvals";
 import { decideMode, isLoopbackHost, localDemoActive, publicFormOpen, PRIVACY_NOTICE_VERSION } from "./config";
 import { queueDispatch, recordManualPublication, recordManualSend, retryJob, runDueJobs } from "./dispatch";
 import { createContentDraft, createOutreachDraft, editContentDraft, editOutreachDraft, setCampaignState } from "./drafts";
-import { DEMO_IDENTITIES } from "./identities";
+import { DEMO_IDENTITIES, operatorDirectory } from "./identities";
+import { MemoryIdentityStore } from "./identity";
 import { processInterest, type IntakeContext } from "./intake";
 import { contactEligibility } from "./permissions";
 import { createManualProspect, editProspect, eraseProspect, exportProspect, recordInteraction, reviewPermissionBasis, transitionStage, withdraw } from "./prospects";
@@ -66,6 +67,31 @@ class ConfirmingProvider implements EmailProvider {
 }
 
 const providers = (email: EmailProvider = new DisabledEmailProvider()): Providers => ({ email, social: new DisabledSocialPublisher() });
+
+test("operator directory: production names and owners use registered operators, not demo identities", async () => {
+  const identity = new MemoryIdentityStore();
+  const now = new Date("2026-10-21T12:00:00Z");
+  const founder = await identity.addOperator({ email: "founder@example.org", displayName: "TIRO Founder", role: "founder" }, now);
+  const operator = await identity.addOperator({ email: "operator@example.org", displayName: "TIRO Operator", role: "operator" }, now);
+  const reviewer = await identity.addOperator({ email: "reviewer@example.org", displayName: "TIRO Reviewer", role: "reviewer" }, now);
+  const inactive = await identity.addOperator({ email: "inactive@example.org", displayName: "Former Operator", role: "operator" }, now);
+  await identity.deactivateOperator(inactive.id, now);
+
+  const live = await operatorDirectory(identity);
+  assert.equal(live.displayNameFor(founder.id), "TIRO Founder");
+  assert.equal(live.displayNameFor(operator.id), "TIRO Operator");
+  assert.equal(live.displayNameFor(inactive.id), "Former Operator"); // historical audit attribution
+  assert.equal(live.displayNameFor(reviewer.id), "TIRO Reviewer");
+  assert.equal(live.displayNameFor("usr_demofounder01"), "Unknown user"); // no demo fallback in cloud
+  assert.equal(live.displayNameFor("system"), "Automation");
+  assert.equal(live.displayNameFor(null), "Unassigned");
+  assert.deepEqual(live.assignableOwners.map((o) => o.id), [founder.id, operator.id]);
+  assert.deepEqual(live.activeReviewers.map((o) => o.id), [founder.id, operator.id, reviewer.id]);
+
+  const demo = await operatorDirectory(null);
+  assert.equal(demo.displayNameFor(DEMO_IDENTITIES[0].id), "Demo Founder (synthetic)");
+  assert.deepEqual(demo.assignableOwners.map((o) => o.id), DEMO_IDENTITIES.filter((o) => o.role !== "reviewer").map((o) => o.id));
+});
 
 // ---------- Mode and flags (5, 6, 15) ----------
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { when } from "@/components/flight-deck/ui";
 import { AccessDenied } from "@/lib/flightDeck/access";
-import { displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { exportProspect } from "@/lib/flightDeck/prospects";
 import { STAGE_LABELS } from "@/lib/flightDeck/workflow";
 import { requirePage } from "../../../guard";
@@ -10,6 +10,7 @@ import { requirePage } from "../../../guard";
 // Printable summary for one relationship. Permission-bound and audited.
 export default async function PrintProspect({ params }: { params: Promise<{ id: string }> }) {
   const { rt, actor } = await requirePage();
+  const { displayNameFor } = await operatorDirectory(rt.identity);
   const { id } = await params;
   const data = await rt.store
     .transaction((tx) => (tx.get("prospects", id) ? exportProspect(tx, actor, id) : null))

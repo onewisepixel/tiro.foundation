@@ -3,7 +3,7 @@ import { SubmitButton } from "@/components/flight-deck/client";
 import { Badge, Empty, Field, Notice, PageTitle, Return, Section, StatusBadge, day, when } from "@/components/flight-deck/ui";
 import { can } from "@/lib/flightDeck/access";
 import { privacyNoticeIsDraft, PRIVACY_NOTICE_VERSION } from "@/lib/flightDeck/config";
-import { displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { computeAlerts } from "@/lib/flightDeck/worker";
 import { confirmLiftAction, liftSuppressionAction, operatorAction, pauseAction, reconcileAction, resetSeedAction, retryJobAction, runWorkerAction } from "../actions";
 import { checkRecovery } from "@/lib/flightDeck/recovery";
@@ -14,6 +14,7 @@ const TONE_LABEL: Record<Tone, string> = { done: "Live", blocked: "Off", attenti
 
 export default async function HealthPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
+  const { displayNameFor } = await operatorDirectory(rt.identity);
   const params = await searchParams;
   const here = "/flight-deck/health";
   // Detects a stale or inconsistent database every time Health is opened.
