@@ -86,6 +86,7 @@ test("operator directory: production names and owners use registered operators, 
   assert.equal(live.displayNameFor("system"), "Automation");
   assert.equal(live.displayNameFor(null), "Unassigned");
   assert.deepEqual(live.assignableOwners.map((o) => o.id), [founder.id, operator.id]);
+  assert.deepEqual(live.activeReviewers.map((o) => o.id), [founder.id, operator.id, reviewer.id]);
 
   const demo = await operatorDirectory(null);
   assert.equal(demo.displayNameFor(DEMO_IDENTITIES[0].id), "Demo Founder (synthetic)");
