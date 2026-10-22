@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Badge, Empty, Field, Notice, PageTitle, Return, Section, when } from "@/components/flight-deck/ui";
 import { can } from "@/lib/flightDeck/access";
 import { payloadFor } from "@/lib/flightDeck/approvals";
-import { DEMO_IDENTITIES } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { contactEligibility } from "@/lib/flightDeck/permissions";
 import { decideAction } from "../actions";
 import { requirePage } from "../guard";
@@ -23,6 +23,7 @@ type Item = {
 
 export default async function ApprovalsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
+  const { activeReviewers } = await operatorDirectory(rt.identity);
   const params = await searchParams;
   const items = await rt.store.read((tx) => {
     const out: Item[] = [];
@@ -153,7 +154,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
                   <Field label="Second reviewer (optional)" htmlFor={`sr-${item.id}`}>
                     <select id={`sr-${item.id}`} name="secondReviewerId" className="tiro-input" defaultValue="">
                       <option value="">None</option>
-                      {DEMO_IDENTITIES.filter((i) => i.id !== actor.id).map((i) => (
+                      {activeReviewers.filter((i) => i.id !== actor.id).map((i) => (
                         <option key={i.id} value={i.id}>
                           {i.displayName}
                         </option>
