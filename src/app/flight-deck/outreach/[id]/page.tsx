@@ -4,7 +4,7 @@ import { CopyButton, SubmitButton } from "@/components/flight-deck/client";
 import { Badge, Empty, Field, Notice, PageTitle, Return, Section, StatusBadge, when } from "@/components/flight-deck/ui";
 import { can } from "@/lib/flightDeck/access";
 import { currentApproval, payloadFor } from "@/lib/flightDeck/approvals";
-import { displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { contactEligibility } from "@/lib/flightDeck/permissions";
 import { archiveDraftAction, editOutreachAction, manualSendAction, queueDispatchAction, submitForReviewAction } from "../../actions";
 import { requirePage } from "../../guard";
@@ -13,6 +13,7 @@ const ELIGIBILITY: Record<string, string> = { "case-open": "An open case holds o
 
 export default async function OutreachDraftPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
+  const { displayNameFor } = await operatorDirectory(rt.identity);
   const { id } = await params;
   const sp = await searchParams;
   const data = await rt.store.read((tx) => {
