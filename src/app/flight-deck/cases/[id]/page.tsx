@@ -4,7 +4,7 @@ import { CopyButton, SubmitButton } from "@/components/flight-deck/client";
 import { Badge, Empty, Field, Notice, PageTitle, Return, Section, StatusBadge, day, when } from "@/components/flight-deck/ui";
 import { can } from "@/lib/flightDeck/access";
 import { PLAYBOOKS, REDACTABLE } from "@/lib/flightDeck/cases";
-import { displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { CASE_TEMPLATES } from "@/lib/flightDeck/templates";
 import { caseStepAction, redactAction, resolveCaseAction } from "../../actions";
 import { requirePage } from "../../guard";
@@ -13,6 +13,7 @@ const FIELD_LABEL: Record<string, string> = { displayName: "Name", organizationN
 
 export default async function CasePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt, actor } = await requirePage();
+  const { displayNameFor } = await operatorDirectory(rt.identity);
   const { id } = await params;
   const sp = await searchParams;
   const data = await rt.store.read((tx) => {
