@@ -49,5 +49,8 @@ export async function operatorDirectory(identity: IdentityStore | null) {
     assignableOwners: operators
       .filter((operator) => ("active" in operator ? operator.active : true) && (operator.role === "founder" || operator.role === "operator"))
       .map((operator) => ({ id: operator.id, displayName: operator.displayName })),
+    activeReviewers: operators
+      .filter((operator) => ("active" in operator ? operator.active : true))
+      .map((operator) => ({ id: operator.id, displayName: operator.displayName })),
   };
 }
