@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Empty, Notice, PageTitle, when } from "@/components/flight-deck/ui";
-import { displayNameFor } from "@/lib/flightDeck/identities";
+import { operatorDirectory } from "@/lib/flightDeck/identities";
 import { requirePage } from "../guard";
 
 const HREF: Record<string, (id: string) => string> = {
@@ -16,6 +16,7 @@ const PAGE = 150;
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { rt } = await requirePage();
+  const { displayNameFor } = await operatorDirectory(rt.identity);
   const params = await searchParams;
   const page = Math.max(0, Number(typeof params.page === "string" ? params.page : 0) || 0);
   const { events, total } = await rt.store.auditPage(page * PAGE, PAGE);
