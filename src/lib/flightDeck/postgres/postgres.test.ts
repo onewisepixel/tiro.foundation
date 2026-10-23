@@ -12,8 +12,8 @@ import { SYSTEM } from "../access";
 import { decide, GateError, payloadFor, submitForReview } from "../approvals";
 import { DEFAULT_SETTINGS, SettingsSchema } from "../types";
 import { must } from "../schema";
-import { queueDispatch, recordManualSend, runDueJobs } from "../dispatch";
-import { createOutreachDraft, editOutreachDraft } from "../drafts";
+import { queueDispatch, recordManualPublication, recordManualSend, runDueJobs } from "../dispatch";
+import { createContentDraft, createOutreachDraft, editContentDraft, editOutreachDraft } from "../drafts";
 import { DEMO_IDENTITIES } from "../identities";
 import { PostgresIdentityStore, signInOperator } from "../identity";
 import { recordInterest } from "../intake";
@@ -210,6 +210,76 @@ test("duplicate requests: queuing the same approved message from two requests at
   await Promise.all([runDueJobs(store, { email: provider, social: new DisabledSocialPublisher() }), runDueJobs(store, { email: provider, social: new DisabledSocialPublisher() })]);
   assert.equal(provider.calls.filter((c) => c.purpose === "outreach").length, 1, "claimed by exactly one runner");
   assert.equal((await store.read((tx) => tx.list("receipts", (r) => r.subjectType === "outreach"))).length, 1);
+});
+
+test("stale content approval: Postgres refuses both dispatch paths without writing jobs or receipts", async () => {
+  // Recreate the staging sequence entirely in a disposable synthetic database.
+  // No identity session, provider, network dispatch, or cloud staging access is involved.
+  const { store, pool } = await fresh();
+  const contentId = await store.transaction((tx) => {
+    const c = createContentDraft(tx, FOUNDER, {
+      campaignId: null,
+      title: "TIRO TEST — Approval Versioning Fixture",
+      channel: "linkedin",
+      originCategory: "abstraction",
+      sourceReference: "Internal synthetic QA",
+      assetDescription: null,
+      assetPermission: null,
+      body: "SYNTHETIC STAGING TEST — version A. DO NOT PUBLISH.",
+      scheduledFor: null,
+    });
+    submitForReview(tx, FOUNDER, "content", c.id);
+    decide(tx, FOUNDER, "content", c.id, "approved", payloadFor(tx, "content", c.id).hash);
+    return c.id;
+  });
+
+  await store.transaction((tx) => {
+    const c = tx.require("content", contentId);
+    editContentDraft(tx, FOUNDER, c.id, c.version, {
+      title: c.title,
+      channel: c.channel,
+      originCategory: c.originCategory,
+      sourceReference: c.sourceReference,
+      assetDescription: c.assetDescription,
+      assetPermission: c.assetPermission,
+      body: "SYNTHETIC STAGING TEST — version B, edited after approval. DO NOT PUBLISH.",
+      scheduledFor: c.scheduledFor,
+    });
+  });
+
+  const state = await store.read((tx) => ({
+    version: tx.require("content", contentId).currentVersion,
+    status: tx.require("content", contentId).status,
+    approvals: tx.list("approvals", (a) => a.subjectId === contentId).map((a) => ({
+      version: a.subjectVersion,
+      state: a.state,
+      reason: a.invalidatedReason,
+    })),
+  }));
+  assert.deepEqual(state, {
+    version: 2,
+    status: "draft",
+    approvals: [{ version: 1, state: "invalidated", reason: "content-edited" }],
+  });
+
+  // Count physical PostgreSQL rows before and after both rejected attempts.
+  const counts = "SELECT (SELECT count(*)::int FROM fd_jobs) AS jobs, (SELECT count(*)::int FROM fd_receipts) AS receipts, (SELECT count(*)::int FROM fd_audit) AS audit_events";
+  const before = (await pool.query(counts)).rows[0];
+  assert.equal(before.jobs, 0);
+  assert.equal(before.receipts, 0);
+
+  await assert.rejects(
+    store.transaction((tx) => queueDispatch(tx, FOUNDER, "content", contentId)),
+    (e) => e instanceof GateError && e.code === "no-approval",
+  );
+  await assert.rejects(
+    store.transaction((tx) => recordManualPublication(tx, FOUNDER, contentId, null)),
+    (e) => e instanceof GateError && e.code === "no-approval",
+  );
+
+  const after = (await pool.query(counts)).rows[0];
+  assert.deepEqual(after, before, "blocked actions create neither dispatch, receipt nor audit side effects");
+  assert.equal((await store.read((tx) => tx.require("content", contentId))).status, "draft");
 });
 
 // ---------- Races ----------
