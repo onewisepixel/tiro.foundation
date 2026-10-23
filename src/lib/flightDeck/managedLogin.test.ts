@@ -177,7 +177,23 @@ test("logo: the same drawing as the official mark and TiroMark.tsx; only the col
       assert.ok(primary.includes(`${jsx}="${v}"`), `TiroMark.tsx has ${jsx}="${v}"`);
     }
   }
-  assert.match(logoSvg(), /viewBox="0 0 90 202"/);
+  assert.match(logoSvg(), /viewBox="-56 0 202 202"/);
+  assert.match(fs.readFileSync(MARK_SOURCE, "utf8"), /viewBox="0 0 90 202"/, "official source remains unchanged");
+});
+
+test("logo: Cognito FORM_LOGO aspect ratio is 1:1 to 4:1 without scaling the official mark", () => {
+  const svg = logoSvg();
+  const root = /<svg width="(\\d+)" height="(\\d+)" viewBox="(-?[\\d.]+) (-?[\\d.]+) ([\\d.]+) ([\\d.]+)"/.exec(svg);
+  assert.ok(root, "SVG root declares dimensions and viewBox");
+  const [, width, height, x, y, viewWidth, viewHeight] = root;
+  const ratio = Number(width) / Number(height);
+  assert.ok(ratio >= 1 && ratio <= 4, `Cognito FORM_LOGO ratio ${ratio}:1 must be between 1:1 and 4:1`);
+  assert.equal(Number(viewWidth) / Number(viewHeight), ratio, "viewport does not distort the mark");
+  assert.equal(Number(viewWidth), 202);
+  assert.equal(Number(viewHeight), 202);
+  assert.equal(Number(x), -56, "original 90-unit-wide drawing is centered horizontally");
+  assert.equal(Number(y), 0);
+  assert.equal((202 - 90) / 2, 56);
 });
 
 test("logo: only elements and attributes in Cognito's SVG allowlist; no script, link, metadata, or external reference", () => {
