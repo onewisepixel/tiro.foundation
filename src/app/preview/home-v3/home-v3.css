@@ -1,0 +1,435 @@
+/* ======================================================================
+   Homepage v3 — "Written for people we will never meet" (preview only)
+   Scoped to .hv3. Built only from the existing TIRO tokens.
+
+   Two motifs:
+     The scale   time measured in generations, running off both edges of
+                 the page. The past is drawn as recorded (solid); the
+                 future as open (dotted), the same line grammar the Living
+                 Trace uses for "recorded" and "unknown". The mark stands
+                 at now.
+     The gloss   every section carries its own provenance in the margin:
+                 which accepted document its statements come from.
+
+   Motion only moves toward the static final state and runs only under
+   prefers-reduced-motion: no-preference.
+   ====================================================================== */
+
+.hv3 {
+  --hv3-max: 76rem;
+  --hv3-gen: 44px; /* one generation (25 years) on the scale */
+  --hv3-line: var(--tiro-mineral-line);
+  --hv3-faint: color-mix(in srgb, var(--tiro-mineral-line) 40%, transparent);
+}
+
+.hv3 [id] {
+  scroll-margin-top: 5rem;
+}
+
+.hv3-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--hv3-max);
+  padding-inline: 1.5rem;
+}
+
+@media (max-width: 480px) {
+  .hv3-frame {
+    padding-inline: 1rem;
+  }
+}
+
+/* ---------- Section row: gloss + body ---------- */
+.hv3-row {
+  display: grid;
+  gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .hv3-row {
+    grid-template-columns: 11.5rem minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+}
+
+/* ---------- The gloss ---------- */
+.hv3-gloss {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  color: var(--tiro-text-muted);
+  border-top: 1px solid var(--tiro-border-strong);
+  padding-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hv3-gloss {
+    position: sticky;
+    top: 6rem;
+    align-self: start;
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+.hv3-gloss dt {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.625rem;
+  color: var(--tiro-text-subtle);
+}
+
+.hv3-gloss dd {
+  color: var(--tiro-text-soft);
+}
+
+.hv3-gloss a {
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 3px;
+  transition: color var(--lt-dur-quick) ease, text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.hv3-gloss a:hover {
+  color: var(--tiro-text);
+  text-decoration-color: var(--tiro-accent);
+}
+
+/* ---------- The scale ---------- */
+.hv3-scale {
+  --hv3-now: 50%;
+  --hv3-mk: 44px; /* mark width */
+  position: relative;
+  height: 10rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  touch-action: pan-y;
+}
+
+@media (min-width: 768px) {
+  .hv3-scale {
+    --hv3-now: 58%;
+    --hv3-mk: 64px;
+    height: 11rem;
+  }
+}
+
+.hv3-scale[data-variant="closing"] {
+  --hv3-now: 14%;
+  height: 6rem;
+  -webkit-mask-image: linear-gradient(to right, #000 70%, transparent);
+  mask-image: linear-gradient(to right, #000 70%, transparent);
+}
+
+/* x = 0 of the drawing is now; the ruler line is 40px above the bottom. */
+.hv3-scale > svg {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--hv3-now) - 2400px);
+  width: 4800px;
+  height: 120px;
+  overflow: visible;
+}
+
+.hv3-scale-mark {
+  position: absolute;
+  left: calc(var(--hv3-now) - var(--hv3-mk) * 47 / 90);
+  top: calc(100% - 40px - var(--hv3-mk) * 182 / 90);
+  width: var(--hv3-mk);
+}
+
+.hv3-scale-cursor {
+  position: absolute;
+  bottom: 40px;
+  width: 1px;
+  height: 3.25rem;
+  background: var(--tiro-accent);
+  pointer-events: none;
+}
+
+.hv3-scale-readout {
+  position: absolute;
+  bottom: calc(40px + 3.6rem);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--tiro-bg);
+  padding: 0.1rem 0.4rem;
+}
+
+/* ---------- Primary action ---------- */
+.hv3-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--tiro-accent);
+  background: var(--tiro-accent);
+  color: var(--tiro-bg);
+  padding: 0.9rem 1.4rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: filter var(--lt-dur-quick) ease;
+}
+
+.hv3-cta:hover {
+  filter: brightness(1.08);
+}
+
+.hv3-arrow {
+  display: inline-block;
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv3-cta:hover .hv3-arrow,
+.hv3-path:hover .hv3-arrow,
+.hv3-path:focus-visible .hv3-arrow {
+  transform: translateX(4px);
+}
+
+/* ---------- The catalogue card ----------
+   An index card: a ruled face, a heading rule, and the rod hole every
+   catalogue card has carried for a century and a half. */
+.hv3-card-stage {
+  perspective: 1600px;
+}
+
+.hv3-card-turn {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0ms;
+}
+
+.hv3-card-face {
+  grid-area: 1 / 1;
+  min-height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.hv3-card-face[data-face="back"] {
+  transform: rotateY(180deg);
+}
+
+.hv3-card-turn[data-turned="true"] {
+  transform: rotateY(180deg);
+}
+
+.hv3-card {
+  position: relative;
+  border: 1px solid var(--tiro-border-strong);
+  background-color: var(--tiro-raised);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(1.75rem - 1px),
+    color-mix(in srgb, var(--tiro-mineral-line) 16%, transparent) calc(1.75rem - 1px),
+    color-mix(in srgb, var(--tiro-mineral-line) 16%, transparent) 1.75rem
+  );
+  background-position: 0 4.5rem;
+  box-shadow: 0 1px 0 var(--tiro-border), 0 28px 50px -36px rgba(20, 22, 31, 0.45);
+  padding: 1.25rem 1.5rem 2.5rem;
+}
+
+@media (max-width: 480px) {
+  .hv3-card {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+.hv3-card-rule {
+  height: 2px;
+  background: var(--tiro-accent);
+  opacity: 0.75;
+  margin: 0.6rem -1.5rem 0.9rem;
+}
+
+@media (max-width: 480px) {
+  .hv3-card-rule {
+    margin-inline: -1rem;
+  }
+}
+
+.hv3-card-hole {
+  position: absolute;
+  left: 50%;
+  bottom: 0.85rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-left: -0.45rem;
+  border-radius: 9999px;
+  background: var(--hv3-section-bg, var(--tiro-bg));
+  box-shadow: inset 0 1px 2px rgba(20, 22, 31, 0.35);
+  border: 1px solid var(--tiro-border-strong);
+}
+
+.hv3-card[data-sealed="true"] {
+  outline: 1px solid var(--tiro-border);
+  outline-offset: 5px;
+  background-image: none;
+}
+
+.hv3-field {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 0.15rem 1rem;
+  padding: 0.4rem 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 400px) {
+  .hv3-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Two accounts (Discover) ---------- */
+.hv3-accounts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.5rem minmax(0, 1fr);
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .hv3-accounts {
+    grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 1fr);
+  }
+}
+
+.hv3-account {
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-raised);
+  padding: 1rem;
+  transition: border-color var(--lt-dur-base) ease, opacity var(--lt-dur-base) ease, background-color var(--lt-dur-base) ease;
+}
+
+@media (min-width: 768px) {
+  .hv3-account {
+    padding: 1.25rem 1.4rem;
+  }
+}
+
+.hv3-account:hover {
+  border-color: var(--tiro-text-subtle);
+}
+
+.hv3-account[aria-pressed="true"] {
+  border-color: var(--tiro-accent);
+  background: color-mix(in srgb, var(--tiro-accent) 6%, var(--tiro-raised));
+}
+
+.hv3-chain {
+  width: 1px;
+  margin-inline: auto;
+  background: var(--tiro-mark);
+  transition: opacity var(--lt-dur-base) ease, width var(--lt-dur-base) ease;
+}
+
+.hv3-chain[data-lit="true"] {
+  width: 2px;
+}
+
+.hv3 [data-dim="true"] {
+  opacity: 0.35;
+}
+
+/* ---------- Participate ---------- */
+.hv3-path {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  align-items: baseline;
+  padding: 1.4rem 0.25rem;
+  border-top: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.hv3-path:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .hv3-card-turn {
+    transition: transform 800ms var(--lt-ease);
+  }
+
+  .hv3 [data-lt-reveal="pending"] .hv3-rise {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  .hv3 [data-lt-reveal="shown"] .hv3-rise {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: hv3-rise 900ms var(--lt-ease) forwards;
+    animation-delay: var(--lt-delay, 0ms);
+  }
+
+  .hv3-enter {
+    animation: hv3-enter 420ms var(--lt-ease) both;
+  }
+}
+
+/* Reduced motion: the card swaps faces without turning. */
+@media (prefers-reduced-motion: reduce) {
+  .hv3-card-turn,
+  .hv3-card-turn[data-turned="true"] {
+    transform: none;
+  }
+  .hv3-card-face,
+  .hv3-card-face[data-face="back"] {
+    transform: none;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+  }
+  .hv3-card-turn[data-turned="true"] [data-face="front"],
+  .hv3-card-turn[data-turned="false"] [data-face="back"] {
+    visibility: hidden;
+  }
+  .hv3-arrow,
+  .hv3-chain,
+  .hv3-account {
+    transition: none !important;
+  }
+}
+
+@keyframes hv3-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hv3-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  .hv3-scale {
+    display: none;
+  }
+  .hv3 [data-lt-reveal] * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
