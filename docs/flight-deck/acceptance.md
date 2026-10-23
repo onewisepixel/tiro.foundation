@@ -1,6 +1,6 @@
 # Flight Deck: acceptance evidence (0.2.1 recovery hardening and staging readiness)
 
-Status: **Local evidence, 2026-10-19.** Nothing is deployed. No AWS resource or account exists, there is no real contact data, no message has been sent, and no post has been published. The public form is closed. The 0.2.1 review corrections are in §0. The original 0.2.1 evidence (2026-10-18, commit `6976b6a`, CI green on that commit per the founder's review) follows from §1. The 0.2 evidence is in §8.
+Status: **Historical local evidence dated 2026-10-19, not current cloud status.** The original statement that nothing had been deployed applied on that date. Dedicated synthetic cloud staging was subsequently provisioned and tested; see the [2026-10-23 limited staging checkpoint](staging-checkpoint-2026-10-23.md) and §7. No real contact data or public intake has been approved. The 0.2.1 review corrections are in §0. The original 0.2.1 evidence (2026-10-18, commit `6976b6a`, CI green on that commit per the founder's review) follows from §1. The 0.2 evidence is in §8.
 
 ## −1. Staging preparation, Architecture A (2026-10-19)
 
@@ -128,11 +128,16 @@ As in 0.2, plus `health-recovery-desktop.png` (Health with the protective log ve
 
 ## 7. Staging records
 
-To be filled from `staging-acceptance.md`.
+See [the dated 2026-10-23 checkpoint](staging-checkpoint-2026-10-23.md) for evidence, provenance labels, control boundaries and open items. These are **limited private synthetic-console checks**; they do not satisfy the complete stages A–F of [the staging acceptance plan](staging-acceptance.md).
 
-| Stage | Date | Who | Outcome | Defects |
+| Stage | Date (UTC) | Who / evidence | Outcome | Exceptions |
 | --- | --- | --- | --- | --- |
-| | | | | |
+| Console activation | 2026-10-21 23:08 | Founder authorization; signed protective-log event; later Neon gate check | Pass for **console only** | Public-form gate never approved |
+| Identity, relationships and contact denial | 2026-10-21–23 | Founder-observed console tests, PR #7; independent database reconciliation | Limited pass | Full A-stage identity denial matrix not completed |
+| Editorial approval and invalidation | 2026-10-23 | Founder-observed UI and independent Neon approval/version state | Limited pass | No live authenticated forced-request test |
+| Backend stale-approval regression | 2026-10-23 | PR #11, GitHub CI run 39931656022 with real PostgreSQL | Pass in CI | CI test does not invoke staging HTTP endpoint |
+| Health and outbound controls | 2026-10-23 | Founder-observed Health; independent Neon and Vercel read-only checks | Limited pass | Scheduled workers off; D–F exercises not run |
+| Full staging acceptance A–F | Pending | — | **Not completed / not signed** | Restore, worker/alarm, incident and accessibility matrices still open |
 
 ## 8. 0.2 evidence (2026-10-17, unchanged)
 
