@@ -57,7 +57,7 @@ aws() {
         shift
       done
       case "$input" in file:///*) ;; *) echo "expected a local file:// CLI input, got: $input" >&2; return 91 ;; esac
-      local request_path="${input#file://}"
+      local request_path="@{input#file://}"
       printf '%s\n' "$request_path" > "$CAP/request-path"
       [ -f "$request_path" ] || { echo "request file missing" >&2; return 92; }
       [ "$(stat -c '%a' "$request_path")" = 600 ] || { echo "request file is not private" >&2; return 93; }
