@@ -1,7 +1,7 @@
 # Flight Deck: staging acceptance (Architecture A, real providers)
 
 For: the founder, and whoever helps run the tests.
-Status: **Not run.** Every test needs the staging accounts in `staging-setup.md`, which do not exist yet.
+Status: **Partially exercised, not fully accepted (2026-10-23).** Dedicated synthetic-only staging now exists. The private Console, permission rejection, approval/versioning, UI denial, Health, and an automated PostgreSQL stale-approval regression passed a **limited checkpoint**; see [the dated evidence record](staging-checkpoint-2026-10-23.md) and [acceptance.md §7](acceptance.md#7-staging-records). The complete A–F matrix below has **not** passed: worker schedules intentionally remain disabled, and restoration, alarm, incident, adversarial identity and manual accessibility tests are outstanding. Do not interpret the limited result as permission to enable any gate, scheduler, provider, real contact, or public deployment.
 Revision date: 2026-10-21 (adds C7, C8 and E7 for Vercel Deployment Protection; E1 and E4 extended). Supersedes the topology-neutral plan of 2026-10-18.
 
 Staging is synthetic only. Use test operators and invented records; never a real prospect's details. Record each test's date, who ran it, the outcome, and any defect in `acceptance.md` §7. Stop at the first failure, fix it, and repeat that stage.
