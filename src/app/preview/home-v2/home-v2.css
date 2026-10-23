@@ -1,0 +1,445 @@
+/* ======================================================================
+   Homepage v2 — "Archival Futurism" exploration (preview only)
+   Scoped to .hv2 so nothing here reaches the live site. Built only from
+   the existing TIRO tokens in globals.css; no new colours.
+
+   Motion rules carried over from the Living Trace: every animation runs
+   only under prefers-reduced-motion: no-preference and only ever moves
+   TOWARD the static final state, so the page is complete without it.
+   ====================================================================== */
+
+.hv2 {
+  --hv2-max: 72rem;
+  --hv2-datum: var(--tiro-mineral-line);
+  --hv2-hair: color-mix(in srgb, var(--tiro-mineral-line) 55%, transparent);
+  --hv2-faint: color-mix(in srgb, var(--tiro-mineral-line) 32%, transparent);
+}
+
+.hv2-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--hv2-max);
+  padding-inline: 1.5rem;
+}
+
+@media (max-width: 480px) {
+  .hv2-frame {
+    padding-inline: 1rem;
+  }
+}
+
+.hv2 section {
+  scroll-margin-top: 4.5rem;
+}
+
+.hv2 [id] {
+  scroll-margin-top: 5.5rem;
+}
+
+/* ---------- Section surfaces ---------- */
+.hv2-surface-witness {
+  background: color-mix(in srgb, var(--tiro-accent) 5%, var(--tiro-bg));
+}
+
+.hv2-surface-discover {
+  background: var(--tiro-bg-deep);
+}
+
+/* ---------- Datum: the resonance line, turned to the horizontal ----------
+   Every section is built on one. Decorative; the section heading carries
+   the meaning. */
+.hv2-datum {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.hv2-datum-line {
+  height: 1px;
+  flex: 1 1 auto;
+  background: var(--hv2-datum);
+  transform-origin: left;
+}
+
+/* ---------- Hero ---------- */
+.hv2-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.hv2-hero-grid {
+  display: grid;
+  gap: 3rem;
+  padding-top: 7.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hv2-hero-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    align-items: end;
+    gap: 2rem;
+    min-height: 100svh;
+    padding-top: 6rem;
+  }
+}
+
+.hv2-hero-text {
+  padding-bottom: 0;
+}
+
+@media (min-width: 1024px) {
+  .hv2-hero-text {
+    align-self: center;
+    padding-bottom: 4rem;
+  }
+}
+
+.hv2-drawing {
+  position: relative;
+  width: 100%;
+  max-width: 26rem;
+  margin-inline: auto;
+  aspect-ratio: 600 / 580;
+}
+
+@media (min-width: 1024px) {
+  .hv2-drawing {
+    max-width: 36rem;
+    margin-right: 0;
+  }
+}
+
+.hv2-drawing svg.hv2-construction {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* The full-width datum, continuous with the drawing's own ground line
+   (y = 560 of 580). Clipped by the hero's overflow. */
+.hv2-ground {
+  position: absolute;
+  top: calc(100% * 560 / 580);
+  left: -100vw;
+  right: -100vw;
+  height: 1px;
+  background: var(--hv2-datum);
+  pointer-events: none;
+}
+
+.hv2-mark {
+  position: absolute;
+  /* Mark at 1.5x in a 600-unit drawing: left 229.5, top 36, width 135. */
+  left: calc(100% * 229.5 / 600);
+  top: calc(100% * 36 / 580);
+  width: calc(100% * 135 / 600);
+}
+
+.hv2-protractor {
+  transform-box: view-box;
+  transform-origin: 297px 66px;
+  transform: rotate(var(--hv2-turn, 0deg));
+}
+
+.hv2-station circle {
+  transition: fill var(--lt-dur-base) ease, stroke var(--lt-dur-base) ease, r var(--lt-dur-base) ease;
+}
+
+.hv2-station[data-near="true"] .hv2-station-ring {
+  stroke: var(--tiro-accent);
+}
+
+.hv2-station[data-near="true"] .hv2-station-dot {
+  fill: var(--tiro-accent);
+}
+
+.hv2-station-label {
+  opacity: 0;
+  transition: opacity var(--lt-dur-base) ease;
+}
+
+.hv2-station[data-near="true"] .hv2-station-label {
+  opacity: 1;
+}
+
+/* ---------- Primary action ---------- */
+.hv2-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--tiro-accent);
+  background: var(--tiro-accent);
+  color: var(--tiro-bg);
+  padding: 0.9rem 1.4rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: filter var(--lt-dur-quick) ease;
+}
+
+.hv2-cta:hover {
+  filter: brightness(1.08);
+}
+
+.hv2-cta-arrow {
+  display: inline-block;
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv2-cta:hover .hv2-cta-arrow,
+.hv2-path:hover .hv2-cta-arrow,
+.hv2-path:focus-visible .hv2-cta-arrow {
+  transform: translateX(4px);
+}
+
+/* ---------- Record slip (Witness / Preserve) ---------- */
+.hv2-slip {
+  position: relative;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-raised);
+  box-shadow: 0 1px 0 var(--tiro-border), 0 24px 48px -32px rgba(20, 22, 31, 0.35);
+}
+
+.hv2-field {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px dashed var(--tiro-border);
+  transition: background-color var(--lt-dur-base) ease;
+}
+
+@media (max-width: 520px) {
+  .hv2-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.hv2-field[data-lit="true"] {
+  background: color-mix(in srgb, var(--tiro-accent) 7%, transparent);
+}
+
+.hv2-field::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--tiro-accent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv2-field[data-lit="true"]::before {
+  transform: scaleY(1);
+}
+
+.hv2-question {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 0.85rem;
+  padding: 0.95rem 0.25rem;
+  text-align: left;
+  border-top: 1px solid var(--tiro-border);
+  transition: color var(--lt-dur-quick) ease, background-color var(--lt-dur-quick) ease;
+}
+
+.hv2-question:hover {
+  background: var(--tiro-surface);
+}
+
+.hv2-question[aria-pressed="true"] {
+  background: var(--tiro-surface-strong);
+}
+
+/* ---------- Discover drawing ---------- */
+.hv2-graph .hv2-graph-drawing {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.hv2-graph .hv2-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.hv2-graph .hv2-node-focus {
+  opacity: 0;
+}
+
+.hv2-graph .hv2-node:focus-visible .hv2-node-focus {
+  opacity: 1;
+}
+
+.hv2-graph [data-dim="true"] {
+  opacity: 0.22;
+}
+
+.hv2-graph .hv2-edge,
+.hv2-graph .hv2-node {
+  transition: opacity var(--lt-dur-base) ease;
+}
+
+.hv2-graph .hv2-edge path {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.hv2-graph .hv2-edge[data-lit="true"] path {
+  stroke-width: 2;
+}
+
+/* ---------- Access states (Respect) ---------- */
+.hv2-tab {
+  border-bottom: 2px solid transparent;
+  padding: 0.65rem 0.1rem;
+  margin-bottom: -1px;
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+  transition: color var(--lt-dur-quick) ease, border-color var(--lt-dur-quick) ease;
+}
+
+.hv2-tab:hover {
+  color: var(--tiro-text);
+}
+
+.hv2-tab[aria-selected="true"] {
+  color: var(--tiro-text);
+  border-bottom-color: var(--tiro-accent);
+}
+
+/* ---------- Participate paths ---------- */
+.hv2-path {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 1.25rem;
+  align-items: baseline;
+  padding: 1.5rem 0.25rem;
+  border-top: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.hv2-path:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- Movement rail (xl) ---------- */
+.hv2-rail a[aria-current="true"] .hv2-rail-tick {
+  width: 1.75rem;
+  background: var(--tiro-accent);
+}
+
+.hv2-rail a[aria-current="true"] .hv2-rail-index {
+  color: var(--tiro-accent);
+}
+
+.hv2-rail-tick {
+  display: block;
+  height: 1px;
+  width: 0.9rem;
+  background: var(--tiro-border-strong);
+  transition: width var(--lt-dur-base) var(--lt-ease), background-color var(--lt-dur-base) ease;
+}
+
+.hv2-rail-name {
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity var(--lt-dur-quick) ease, transform var(--lt-dur-quick) ease;
+  pointer-events: none;
+}
+
+.hv2-rail a:hover .hv2-rail-name,
+.hv2-rail a:focus-visible .hv2-rail-name,
+.hv2-rail:hover a[aria-current="true"] .hv2-rail-name {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .hv2-protractor {
+    transition: transform 900ms var(--lt-ease);
+  }
+
+  /* Rise: content settles into place once its section is reached
+     (Reveal.tsx sets "pending" only on regions that start below the fold). */
+  .hv2 [data-lt-reveal="pending"] .hv2-rise {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  .hv2 [data-lt-reveal="shown"] .hv2-rise {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: hv2-rise 900ms var(--lt-ease) forwards;
+    animation-delay: var(--lt-delay, 0ms);
+  }
+
+  .hv2 [data-lt-reveal="pending"] .hv2-datum-line {
+    transform: scaleX(0);
+  }
+
+  .hv2 [data-lt-reveal="shown"] .hv2-datum-line {
+    transform: scaleX(0);
+    animation: lt-grow-right 1200ms var(--lt-ease) forwards;
+  }
+
+  .hv2-panel-enter {
+    animation: hv2-panel 420ms var(--lt-ease) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hv2-protractor,
+  .hv2-station circle,
+  .hv2-station-label,
+  .hv2-field,
+  .hv2-field::before,
+  .hv2-rail-tick,
+  .hv2-rail-name,
+  .hv2-cta-arrow {
+    transition: none !important;
+  }
+}
+
+@keyframes hv2-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hv2-panel {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  .hv2-rail,
+  .hv2-construction {
+    display: none;
+  }
+  .hv2 [data-lt-reveal] * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
