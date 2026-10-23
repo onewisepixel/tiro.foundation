@@ -51,7 +51,18 @@ aws() {
     "cognito-idp describe-managed-login-branding-by-client")
       if [ -f "$CAP/style" ]; then cat "$CAP/style"; else echo "An error occurred (ResourceNotFoundException) when calling the DescribeManagedLoginBrandingByClient operation" >&2; return 254; fi ;;
     "cognito-idp create-managed-login-branding" | "cognito-idp update-managed-login-branding")
-      node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);require("fs").writeFileSync(process.argv[1],s);const b={ManagedLoginBrandingId:r.ManagedLoginBrandingId||"${STYLE_ID}",UserPoolId:r.UserPoolId,UseCognitoProvidedValues:false,Settings:r.Settings,Assets:r.Assets};require("fs").writeFileSync(process.argv[2],JSON.stringify({ManagedLoginBranding:b}))})' "$CAP/request-$op" "$CAP/style"
+      local input="" arg
+      while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--cli-input-json" ]; then input="$2"; break; fi
+        shift
+      done
+      case "$input" in file:///*) ;; *) echo "expected a local file:// CLI input, got: $input" >&2; return 91 ;; esac
+      local request_path="@{input#file://}"
+      printf '%s\n' "$request_path" > "$CAP/request-path"
+      [ -f "$request_path" ] || { echo "request file missing" >&2; return 92; }
+      [ "$(stat -c '%a' "$request_path")" = 600 ] || { echo "request file is not private" >&2; return 93; }
+      [ "@{STUB_FAIL_WRITE:-}" = 1 ] && { echo "simulated AWS write rejection" >&2; return 94; }
+      node -e 'const fs=require("fs");const s=fs.readFileSync(process.argv[1],"utf8");const r=JSON.parse(s);fs.writeFileSync(process.argv[2],s);const b={ManagedLoginBrandingId:r.ManagedLoginBrandingId||"${STYLE_ID}",UserPoolId:r.UserPoolId,UseCognitoProvidedValues:false,Settings:r.Settings,Assets:r.Assets};fs.writeFileSync(process.argv[3],JSON.stringify({ManagedLoginBranding:b}))' "$request_path" "$CAP/request-$op" "$CAP/style"
       [ "@{STUB_MUTATE:-}" = 1 ] && : > "$CAP/mutated"
       echo "${STYLE_ID}" ;;
     "cognito-idp update-user-pool-domain")
@@ -77,7 +88,8 @@ function run(args: string[], state: State = {}, env: Record<string, string> = {}
   const r = spawnSync("bash", ["-c", cmd], { encoding: "utf8", env: { ...process.env, CAP, ...env } });
   const argv = fs.existsSync(path.join(work, "argv")) ? fs.readFileSync(path.join(work, "argv"), "utf8") : "";
   const version = fs.readFileSync(path.join(work, "version"), "utf8").trim();
-  return { code: r.status, out: `${r.stdout}${r.stderr}`, argv, version };
+  const requestPath = fs.existsSync(path.join(work, "request-path")) ? fs.readFileSync(path.join(work, "request-path"), "utf8").trim() : null;
+  return { code: r.status, out: `${r.stdout}${r.stderr}`, argv, version, requestPath };
 }
 const WRITES = /create-managed-login-branding|update-managed-login-branding|update-user-pool-domain/;
 const FORBIDDEN = /update-user-pool-client|update-user-pool |set-user-pool-mfa-config|set-ui-customization|delete-user-pool|admin-|create-user-pool-domain|delete-user-pool-domain|delete-managed-login-branding/;
@@ -123,11 +135,24 @@ test("apply-branding creates the TIRO style from the repository, verifies it, an
   assert.equal(r.code, 0, r.out);
   const sent = JSON.parse(fs.readFileSync(path.join(work, "request-create-managed-login-branding"), "utf8"));
   assert.deepEqual(sent, createRequest({ userPoolId: POOL, clientId: CLIENT }), "exactly the repository's request");
-  assert.match(r.argv, /create-managed-login-branding .*--cli-input-json file:\/\/\/dev\/stdin/);
+  assert.match(r.argv, /create-managed-login-branding .*--cli-input-json file:\/\/\/.*tiro-managed-login-request\./);
+  assert.ok(r.requestPath, "the CLI received a file path");
+  assert.equal(fs.existsSync(r.requestPath), false, "temporary request removed after success");
   assert.match(r.out, /matches the repository \(settings and assets\)/);
   assert.match(r.out, /Unchanged: app client/);
   assert.doesNotMatch(r.argv, /update-user-pool-domain/);
   assert.equal(r.version, "1", "users see no change yet");
+});
+
+
+test("temporary request is removed after AWS rejects a branding write", () => {
+  const r = run(["apply-branding", "--confirm", "apply-branding"], {}, { STUB_FAIL_WRITE: "1" });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /simulated AWS write rejection/);
+  assert.ok(r.requestPath, "the CLI received a file path");
+  assert.equal(fs.existsSync(r.requestPath), false, "temporary request removed after failure");
+  assert.equal(r.version, "1");
+  assert.doesNotMatch(r.argv, /update-user-pool-domain/);
 });
 
 test("apply-branding updates an existing style in place (by its ID), rather than creating a second", () => {
