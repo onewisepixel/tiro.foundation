@@ -36,6 +36,10 @@ export function logoSvg(source = fs.readFileSync(path.join(ROOT, MARK_SOURCE), "
     .replace(/\s+xmlns:c2pa="[^"]*"/g, "")
     .replace(/\s+role="[^"]*"/g, "")
     .replace(/currentColor/g, MARK_COLOR)
+    // Cognito FORM_LOGO requires a width:height ratio of 1:1 to 4:1.
+    // Center the original 90x202 drawing in a transparent 202x202 canvas.
+    // A viewBox shift preserves every shape, coordinate, and stroke width.
+    .replace('<svg width="90" height="202" viewBox="0 0 90 202"', '<svg width="202" height="202" viewBox="-56 0 202 202"')
     .replace(/\r\n/g, "\n");
   return svg.endsWith("\n") ? svg : `${svg}\n`;
 }
