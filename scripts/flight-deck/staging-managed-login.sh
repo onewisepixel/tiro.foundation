@@ -116,12 +116,17 @@ case "$cmd" in
     ;;
   apply-branding)
     before=$(snapshot)
+    # AWS CLI does not reliably parse file:///dev/stdin for --cli-input-json.
+    # Store the request in a private, short-lived file and remove it on exit,
+    # including when the CLI rejects the request. The file contains no secrets.
+    request_file=$(mktemp "${TMPDIR:-/tmp}/tiro-managed-login-request.XXXXXXXX")
+    trap 'rm -f -- "$request_file"' EXIT
     if [ -z "$style_id" ]; then
-      node "$BUILD" create-request --user-pool-id "$POOL" --client-id "$CLIENT" \
-        | idp create-managed-login-branding --cli-binary-format base64 --cli-input-json file:///dev/stdin --query 'ManagedLoginBranding.ManagedLoginBrandingId' --output text
+      node "$BUILD" create-request --user-pool-id "$POOL" --client-id "$CLIENT" > "$request_file"
+      idp create-managed-login-branding --cli-binary-format base64 --cli-input-json "file://$request_file" --query 'ManagedLoginBranding.ManagedLoginBrandingId' --output text
     else
-      node "$BUILD" update-request --user-pool-id "$POOL" --branding-id "$style_id" \
-        | idp update-managed-login-branding --cli-binary-format base64 --cli-input-json file:///dev/stdin --query 'ManagedLoginBranding.ManagedLoginBrandingId' --output text
+      node "$BUILD" update-request --user-pool-id "$POOL" --branding-id "$style_id" > "$request_file"
+      idp update-managed-login-branding --cli-binary-format base64 --cli-input-json "file://$request_file" --query 'ManagedLoginBranding.ManagedLoginBrandingId' --output text
     fi
     idp describe-managed-login-branding-by-client --user-pool-id "$POOL" --client-id "$CLIENT" --output json | node "$BUILD" verify --user-pool-id "$POOL"
     unchanged_since "$before"
