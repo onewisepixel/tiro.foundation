@@ -183,7 +183,7 @@ test("logo: the same drawing as the official mark and TiroMark.tsx; only the col
 
 test("logo: Cognito FORM_LOGO aspect ratio is 1:1 to 4:1 without scaling the official mark", () => {
   const svg = logoSvg();
-  const root = /<svg width="(\\d+)" height="(\\d+)" viewBox="(-?[\\d.]+) (-?[\\d.]+) ([\\d.]+) ([\\d.]+)"/.exec(svg);
+  const root = /<svg width="(\d+)" height="(\d+)" viewBox="(-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+)"/.exec(svg);
   assert.ok(root, "SVG root declares dimensions and viewBox");
   const [, width, height, x, y, viewWidth, viewHeight] = root;
   const ratio = Number(width) / Number(height);
