@@ -40,6 +40,10 @@ Revision date: 2026-10-21. Details: `staging-setup.md`. Tests: `staging-acceptan
 - ☐ Sign in with MFA; approve the console gate at `/flight-deck/gates`.
 - ☐ Decide to set `WorkerScheduleState=ENABLED` (a reviewed change set; nothing else changes).
 
+## 4a. TIRO-branded sign-in (optional, presentation only)
+
+- ☐ `bash scripts/flight-deck/staging-managed-login.sh plan` (read-only), then `apply-branding`, preview in the console, `switch-to-managed-login`, and the test plan (`managed-login.md` §4–5). It also makes the gate re-authentication (`prompt=login`) take effect. Rollback: `rollback-to-classic` (§6).
+
 ## 5. Prove it
 
 - ☐ `staging-acceptance.md` stages A to F, including C7 (Deployment Protection) and E1 (scheduled calls pass protection and Flight Deck's own tokens), recorded in `acceptance.md` §7.

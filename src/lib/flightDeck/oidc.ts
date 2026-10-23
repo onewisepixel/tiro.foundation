@@ -14,7 +14,7 @@
 //     table (identity.ts). The role comes from that table, not the token.
 //
 // MFA is enforced by the user pool's configuration (MfaConfiguration ON;
-// deploy/flight-deck/cognito.template.json), which Cognito applies before
+// OperatorPool in deploy/flight-deck/flight-deck.template.json), which Cognito applies before
 // it issues any token. Cognito ID tokens do not reliably carry an "amr"
 // claim, so MFA cannot be re-checked per token; the deployment test checks
 // the pool configuration instead.

@@ -1,0 +1,9 @@
+<svg width="90" height="202" viewBox="0 0 90 202" xmlns="http://www.w3.org/2000/svg">
+<title>TIRO mark</title>
+<desc>Origin circumpunct feeding an asymmetric transmission triangle, releasing a single resonance line.</desc>
+<circle cx="45" cy="20" r="8" fill="none" stroke="#c79a4b" stroke-width="2.4"/>
+<circle cx="45" cy="20" r="2.6" fill="#c79a4b"/>
+<line x1="45" y1="29" x2="45" y2="60" stroke="#c79a4b" stroke-width="3" stroke-linecap="round"/>
+<path d="M20,60 L70,66 L47,135 Z" fill="none" stroke="#c79a4b" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="47" y1="135" x2="47" y2="182" stroke="#c79a4b" stroke-width="2" stroke-linecap="round"/>
+</svg>
