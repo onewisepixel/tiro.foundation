@@ -1,7 +1,7 @@
 # Milestone 3.0: Repository reconciliation and integration architecture
 
-Status: **Revision 1, after founder review.** Direction approved conditionally; the decisions in §9 are **proposed, pending founder confirmation**. Nothing has been merged into `main`, deleted, or changed in any authorization path or hosting setting. Nothing has been successfully published by this work. Pushes have, however, triggered automatic Vercel deployment attempts: they fail on one of two connected Vercel projects and succeed, as previews, on the other (§7.1).
-Date: 2026-10-29 (revision 1, same day).
+Status: **Revision 2: Gate 0 evidence verified; decisions prepared for approval.** (Revision 1 followed the founder review.) Direction approved conditionally; the decisions in §9 are **proposed, pending founder confirmation**. Nothing has been merged into `main`, deleted, or changed in any authorization path or hosting setting. Nothing has been successfully published by this work. Pushes have, however, triggered automatic Vercel deployment attempts: they fail on one of two connected Vercel projects and succeed, as previews, on the other (§7.1).
+Date: 2026-10-29 (revisions 1 and 2, same day).
 Owner: TIRO founder / Steward.
 Builds on: `living-archive-consolidation.md` (component inventory, V5 ↔ Memory v1), `decisions.md` (decisions 30–39).
 
@@ -169,7 +169,9 @@ What the repository shows:
 - The **team** project was first deployed at `bb64d48` and has **succeeded on every `main` tip and on all nine Living Archive and plan commits**. Vercel can therefore build and finalize this code, worker route included.
 - Production (`www.tiro.foundation`) is live and current in its behaviour: Flight Deck answers 404 with private headers, and no `/preview/` route is exposed. Its cache age fits the team project's production deploy of `d7b6b1a`. Which project owns the domain is visible only in Vercel.
 
-So Gate 0 probably means **confirming that the team project serves the domains and retiring the failing duplicate**, not repairing a broken pipeline. If the personal project turns out to own the domains, production has been frozen since 2026-10-19 and the options below apply to it.
+**Revision 2 (independently verified in Vercel and GitHub):** the team project owns both domains, both verified; its production deployment is READY at `d7b6b1a`; and its preview of PR #13 is READY. The personal project's domains are unverified. **Gate 0's technical condition is met**; retiring the duplicate is administrative and non-blocking (`public-site-hosting-readiness.md` §1, §4).
+
+Revision 1's inference, now confirmed: Gate 0 meant **confirming that the team project serves the domains and retiring the failing duplicate**, not repairing a broken pipeline. If the personal project turns out to own the domains, production has been frozen since 2026-10-19 and the options below apply to it.
 
 | Option | Change | Cost | Risk |
 | --- | --- | --- | --- |
@@ -185,7 +187,13 @@ So Gate 0 probably means **confirming that the team project serves the domains a
 - The 18 Bash-script tests must pass in CI on the integration PR (they cannot be confirmed on this Windows host).
 - `main` has **no branch protection** (verified through the GitHub API). Until a required status check is configured, "CI before merge" is a convention, not an enforced gate.
 - While the personal Vercel project stays connected, every commit and PR carries a failing "Vercel – tiro-foundation" check from it. On the integration PR that failure is expected and is not a regression; the team project's check is the meaningful one.
-- `verify-disclosure.mjs` hard-codes `/preview/memory-v1/records/DEMO-MP-*` and `/living-trace/*`; it must follow the routes in Phase 3, or it will pass vacuously or fail.
+- `verify-disclosure.mjs` hard-codes `/preview/memory-v1/records/DEMO-MP-*` and `/living-trace/*`; it must follow the routes in Phase 3, or it will pass vacuously or fail. **Confirmed vacuous case:** when no `/preview/memory-v1/records/DEMO-MP-*` route exists, it prints "scenario-page checks skipped" and passes. Moving the records in Phase 3 would silently disable the authority-scenario checks.
+- **The disclosure verifier is not in CI** (revision 2 assessment). Recommendation: add it **before Phase 3**, as its own small PR:
+  1. Add a step `npm run verify:disclosure` after `Test` in `ci.yml`. CI's build already writes `.next`, the directory the verifier reads, and the verifier runs in seconds with no network or credentials. It passes on PR #13's head today.
+  2. In the same PR, make the skipped case fail: replace the hard-coded preview prefix with the list of routes expected to carry the scenario, and fail if none is found.
+  3. In Phase 3, retarget those routes to `/memory-project/records/*` and add the decision-45 `noindex` check for every synthetic record page.
+
+  Merging it before Phase 3 means the phase that moves the routes is the first one checked by them. Risk is low: it changes a workflow file, not hosting or repository settings. It does need its own approval, as it changes CI.
 - No production page may link to `/preview/` (decision 30): add an automated check.
 
 ## 8. Implementation plan
@@ -203,7 +211,7 @@ Each phase is one or more PRs into `main`, merged with a merge commit so a phase
 
 ## 9. Decisions needed from the founder
 
-**Proposed founder positions, pending confirmation.** These are the founder's recommended positions from the review of 2026-10-29. They are **not recorded** in `decisions.md` and authorize nothing until the founder confirms them there.
+**Proposed founder positions, pending confirmation.** These are the founder's recommended positions from the review of 2026-10-29. They are **not recorded** in `decisions.md` and authorize nothing until the founder confirms them there. Revision 2 prepares them for approval as draft decisions 40–45 in `milestone-3.0-founder-decisions.md`; item 5 becomes an administrative matter after Gate 0.
 
 | # | Question | Proposed position | Consequence for this plan |
 | --- | --- | --- | --- |
