@@ -73,9 +73,9 @@ Each step is reversible until step 5.
 4. **Verify** on the next push to any branch: exactly one "Vercel – tiro-foundation" status (the team's), green; the team project still builds; the production domain is unchanged.
 5. **After an observation period** (suggested two weeks): optionally delete the personal project. This is irreversible; its deployment history is preserved here (§1) and in GitHub's commit statuses.
 
-## 5. Recommended branch protection for `main` (not applied)
+## 5. Branch protection for `main` (applied 2026-10-29)
 
-`main` has no protection today. Recommended, as a repository ruleset or a classic branch protection rule:
+Applied on 2026-10-29 with the founder's authorization, as a classic branch protection rule through the GitHub API, and verified by reading it back. The required check is pinned to the GitHub Actions app (ID 15368, read from an actual `build-lint-test` check run). No ruleset is used. Before that, `main` had no protection.
 
 | Setting | Value | Note |
 | --- | --- | --- |
