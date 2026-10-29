@@ -1,0 +1,791 @@
+/* ======================================================================
+   Homepage v5 — "The Living Archive" (preview only)
+   Scoped to .hv5. Built only from the existing TIRO tokens: parchment and
+   ink with the terracotta accent in the light theme, indigo with gold in
+   the dark. Type is the site's own Spectral, Karla, and Space Mono.
+
+   One line runs through the page: the mark's resonance line, continued
+   (Thread.tsx). Every section begins on a node of it.
+
+   Motion only moves toward the static final state, runs only under
+   prefers-reduced-motion: no-preference, and is never scroll-linked.
+   ====================================================================== */
+
+.hv5 {
+  --hv5-max: 78rem;
+  --hv5-pad: 1.5rem;
+  --hv5-gutter: 2rem;
+  --hv5-hair: color-mix(in srgb, var(--tiro-mineral-line) 50%, transparent);
+  --hv5-faint: color-mix(in srgb, var(--tiro-mineral-line) 30%, transparent);
+  position: relative;
+}
+
+@media (max-width: 480px) {
+  .hv5 {
+    --hv5-pad: 1rem;
+    --hv5-gutter: 1.6rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hv5 {
+    --hv5-gutter: 3.5rem;
+  }
+}
+
+.hv5 [id] {
+  scroll-margin-top: 5rem;
+}
+
+.hv5-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--hv5-max);
+  padding-inline: var(--hv5-pad);
+}
+
+/* Every section: the thread's gutter, then the content. */
+.hv5-grid {
+  display: grid;
+  grid-template-columns: var(--hv5-gutter) minmax(0, 1fr);
+}
+
+/* ---------- Thread and nodes ---------- */
+.hv5-thread {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+  opacity: 0;
+}
+
+.hv5-thread[data-ready="true"] {
+  opacity: 1;
+}
+
+.hv5-thread path {
+  fill: none;
+  stroke: var(--tiro-accent);
+  stroke-width: 1.25;
+  opacity: 0.85;
+}
+
+.hv5-node {
+  position: relative;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 0.05rem;
+  border-radius: 9999px;
+  background: var(--hv5-section-bg, var(--tiro-bg));
+}
+
+.hv5-node::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 1.5px solid var(--tiro-accent);
+  background: var(--hv5-section-bg, var(--tiro-bg));
+  transition: background-color var(--lt-dur-base) ease;
+}
+
+.hv5-node[data-current="true"]::before {
+  background: var(--tiro-accent);
+}
+
+.hv5-node[data-end="true"]::before {
+  border-style: dashed;
+}
+
+.hv5-eyebrow {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 18px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+/* ---------- Hero ---------- */
+.hv5-hero {
+  position: relative;
+  overflow: hidden;
+  padding-top: 6.5rem;
+}
+
+.hv5-hero-grid {
+  display: grid;
+  gap: 2.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hv5-hero-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+}
+
+.hv5-h1 > span {
+  display: block;
+}
+
+.hv5-h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 0.98;
+  font-size: clamp(3.4rem, 11vw, 4.6rem);
+}
+
+@media (min-width: 768px) {
+  .hv5-h1 {
+    font-size: clamp(4.6rem, 8.4vw, 7.4rem);
+  }
+}
+
+.hv5-lede {
+  text-wrap: pretty;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.4;
+  color: var(--tiro-text);
+}
+
+@media (min-width: 768px) {
+  .hv5-lede {
+    font-size: 1.6rem;
+  }
+}
+
+.hv5-principle {
+  text-wrap: pretty;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.15rem;
+  line-height: 1.45;
+  color: var(--tiro-text-muted);
+}
+
+@media (min-width: 768px) {
+  .hv5-principle {
+    font-size: 1.4rem;
+  }
+}
+
+.hv5-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--tiro-accent);
+  background: var(--tiro-accent);
+  color: var(--tiro-bg);
+  padding: 1rem 1.6rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: filter var(--lt-dur-quick) ease;
+}
+
+.hv5-cta:hover {
+  filter: brightness(1.08);
+}
+
+.hv5-arrow {
+  display: inline-block;
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv5-cta:hover .hv5-arrow,
+.hv5-path:hover .hv5-arrow,
+.hv5-path:focus-visible .hv5-arrow {
+  transform: translateX(4px);
+}
+
+.hv5-secondary {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--tiro-text);
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 6px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.hv5-secondary:hover {
+  text-decoration-color: var(--tiro-accent);
+}
+
+/* ---------- Strands (hero figure) ---------- */
+.hv5-strands-wrap {
+  position: relative;
+}
+
+.hv5-strands {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+  aspect-ratio: 760 / 860;
+}
+
+@media (min-width: 1024px) {
+  .hv5-strands {
+    max-width: none;
+  }
+}
+
+.hv5-strands > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.hv5-construct {
+  stroke: var(--hv5-faint);
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+}
+
+.hv5-frame-rec rect {
+  fill: color-mix(in srgb, var(--tiro-text) 2.5%, transparent);
+  stroke: var(--hv5-faint);
+  stroke-width: 1;
+}
+
+.hv5-frame-rec line {
+  stroke: var(--hv5-faint);
+  stroke-width: 1;
+}
+
+.hv5-open {
+  fill: none;
+  stroke: var(--hv5-hair);
+  stroke-width: 1.25;
+  stroke-dasharray: 1.5 6;
+  stroke-linecap: round;
+}
+
+.hv5-above {
+  stroke: var(--hv5-hair);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+
+.hv5-resonance {
+  stroke: var(--tiro-accent);
+  stroke-width: 1.25;
+  opacity: 0.85;
+}
+
+.hv5-strand-in {
+  fill: none;
+  stroke: var(--tiro-mineral-line);
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+.hv5-strand-out {
+  fill: none;
+  stroke: var(--tiro-accent);
+  stroke-width: 1.1;
+  opacity: 0.7;
+  transition: opacity var(--lt-dur-base) ease, stroke-width var(--lt-dur-base) ease;
+}
+
+.hv5-node-hollow {
+  fill: var(--tiro-bg);
+  stroke: var(--tiro-accent);
+  stroke-width: 1.4;
+}
+
+.hv5-node-filled {
+  fill: var(--tiro-accent);
+}
+
+.hv5-node-dot {
+  fill: var(--tiro-mineral-line);
+}
+
+.hv5-pathway {
+  transition: opacity var(--lt-dur-base) ease;
+}
+
+.hv5-pathway[data-state="lit"] .hv5-strand-out {
+  opacity: 1;
+  stroke-width: 2;
+}
+
+.hv5-pathway[data-state="dim"] {
+  opacity: 0.25;
+}
+
+.hv5-thread-start {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+}
+
+/* The three terms: real buttons beside their terminals. */
+.hv5-terms li {
+  position: absolute;
+  left: var(--tx);
+  top: var(--ty);
+  transform: translate(10px, -50%);
+}
+
+.hv5-term {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--tiro-text);
+  border-bottom: 1px solid transparent;
+  transition: color var(--lt-dur-quick) ease, border-color var(--lt-dur-quick) ease;
+}
+
+.hv5-term::after {
+  content: "+";
+  margin-left: 0.55rem;
+  color: var(--tiro-accent);
+  letter-spacing: 0;
+}
+
+.hv5-term[aria-expanded="true"]::after {
+  content: "−";
+}
+
+.hv5-term:hover,
+.hv5-term[aria-expanded="true"] {
+  color: var(--tiro-accent);
+}
+
+/* Narrow figure: the terms leave the drawing and sit above it as a row of
+   buttons, their definition beneath them, so no label crosses the mark and
+   the resonance line runs clear from the mark into the page. */
+@media (max-width: 1023px) {
+  .hv5-terms {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.25rem 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .hv5-terms li {
+    position: static;
+    transform: none;
+  }
+}
+
+.hv5-definition {
+  display: none;
+}
+
+.hv5-definition[data-open="true"] {
+  display: block;
+  position: absolute;
+  z-index: 7;
+  /* Opens over the inbound strands, ending short of the mark: the mark is
+     never covered. */
+  right: 56%;
+  top: var(--ty);
+  transform: translateY(-50%);
+  width: min(18rem, 70%);
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-raised);
+  padding: 1rem 1.1rem;
+  box-shadow: 0 18px 40px -28px rgba(20, 22, 31, 0.5);
+}
+
+@media (max-width: 1023px) {
+  .hv5-definition[data-open="true"] {
+    position: static;
+    transform: none;
+    width: auto;
+    margin-bottom: 1rem;
+  }
+}
+
+/* ---------- The strip: three movements, three ways in ---------- */
+.hv5-strip {
+  display: grid;
+  margin-top: 2.5rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+@media (min-width: 768px) {
+  .hv5-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.hv5-strip a {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
+  padding: 1.15rem 1rem 1.25rem 0;
+  border-bottom: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+@media (min-width: 768px) {
+  .hv5-strip a {
+    border-bottom: none;
+    padding-inline: 1.25rem;
+    border-left: 1px solid var(--tiro-border);
+  }
+  .hv5-strip li:first-child a {
+    border-left: none;
+    padding-left: 0;
+  }
+}
+
+.hv5-strip a:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- Section rhythm ---------- */
+.hv5-section {
+  position: relative;
+  padding-block: 6rem;
+}
+
+@media (min-width: 768px) {
+  .hv5-section {
+    padding-block: 8.5rem;
+  }
+}
+
+.hv5-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  font-size: clamp(2.5rem, 7vw, 4.75rem);
+}
+
+.hv5-cite {
+  display: inline-block;
+  margin-top: 0.85rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+}
+
+.hv5-cite:hover {
+  color: var(--tiro-text);
+}
+
+/* Why: the founding statement as an inscription. */
+.hv5-inscription {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.04;
+  font-size: clamp(2.6rem, 7.2vw, 6.25rem);
+  color: var(--tiro-text);
+}
+
+/* ---------- Record layers ---------- */
+.hv5-layers {
+  display: grid;
+  gap: 2.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hv5-layers {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    gap: 4rem;
+    align-items: start;
+  }
+}
+
+.hv5-layers-figure {
+  width: 100%;
+  max-width: 34rem;
+}
+
+.hv5-layers-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.hv5-sheet {
+  cursor: pointer;
+}
+
+.hv5-sheet-lift {
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv5-sheet-lift[data-on="true"] {
+  transform: translateY(-10px);
+}
+
+.hv5-sheet-plane {
+  fill: var(--tiro-raised);
+  stroke: var(--tiro-text-subtle);
+  stroke-width: 1.25;
+  transition: fill var(--lt-dur-base) ease, stroke var(--lt-dur-base) ease;
+}
+
+.hv5-sheet-lift[data-on="true"] .hv5-sheet-plane {
+  stroke: var(--tiro-accent);
+  stroke-width: 1.75;
+  fill: color-mix(in srgb, var(--tiro-accent) 7%, var(--tiro-raised));
+}
+
+.hv5-sheet-field {
+  stroke: var(--hv5-hair);
+  stroke-width: 1;
+}
+
+.hv5-sheet-leader {
+  stroke: var(--hv5-hair);
+  stroke-width: 1;
+}
+
+.hv5-sheet-label {
+  font-family: var(--font-code);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  fill: var(--tiro-text-muted);
+}
+
+.hv5-sheet-lift[data-on="true"] .hv5-sheet-label {
+  fill: var(--tiro-accent);
+}
+
+.hv5-layer-tabs {
+  display: grid;
+  border-top: 1px solid var(--tiro-border);
+}
+
+.hv5-layer-tab {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 7.5rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.75rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.hv5-layer-tab:hover {
+  background: var(--tiro-surface);
+}
+
+.hv5-layer-tab[aria-selected="true"] {
+  background: var(--tiro-surface-strong);
+  box-shadow: inset 2px 0 0 var(--tiro-accent);
+}
+
+.hv5-layer-panel {
+  margin-top: 1.5rem;
+  min-height: 12rem;
+}
+
+/* ---------- Two accounts (from v3.1) ---------- */
+.hv5-accounts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.5rem minmax(0, 1fr);
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .hv5-accounts {
+    grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 1fr);
+  }
+}
+
+.hv5-account {
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-raised);
+  padding: 1rem;
+  transition: border-color var(--lt-dur-base) ease, opacity var(--lt-dur-base) ease, background-color var(--lt-dur-base) ease;
+}
+
+@media (min-width: 768px) {
+  .hv5-account {
+    padding: 1.25rem 1.4rem;
+  }
+}
+
+.hv5-account:hover {
+  border-color: var(--tiro-text-subtle);
+}
+
+.hv5-account[aria-pressed="true"] {
+  border-color: var(--tiro-accent);
+  background: color-mix(in srgb, var(--tiro-accent) 6%, var(--tiro-raised));
+}
+
+.hv5-chain {
+  width: 1px;
+  margin-inline: auto;
+  background: var(--tiro-mark);
+  transition: opacity var(--lt-dur-base) ease, width var(--lt-dur-base) ease;
+}
+
+.hv5-chain[data-lit="true"] {
+  width: 2px;
+}
+
+.hv5 [data-dim="true"] {
+  opacity: 0.35;
+}
+
+/* ---------- The sealed sheet ---------- */
+.hv5-sealed {
+  display: grid;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+@media (min-width: 640px) {
+  .hv5-sealed {
+    grid-template-columns: 11rem minmax(0, 1fr);
+  }
+}
+
+/* ---------- Take part ---------- */
+.hv5-paths {
+  display: grid;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+@media (min-width: 768px) {
+  .hv5-paths {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.hv5-path {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  height: 100%;
+  padding: 1.5rem 1rem 1.6rem 0;
+  border-bottom: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+@media (min-width: 768px) {
+  .hv5-paths li:nth-child(even) .hv5-path {
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--tiro-border);
+  }
+}
+
+.hv5-path:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .hv5-thread {
+    transition: opacity 900ms var(--lt-ease) 600ms;
+  }
+
+  .hv5 [data-lt-reveal="pending"] .hv5-rise {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  .hv5 [data-lt-reveal="shown"] .hv5-rise {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: hv5-rise 900ms var(--lt-ease) forwards;
+    animation-delay: var(--lt-delay, 0ms);
+  }
+
+  /* The record separates into its layers once, when it is reached. */
+  .hv5 [data-lt-reveal="pending"] .hv5-sheet {
+    transform: translateY(var(--hv5-collapse));
+  }
+
+  .hv5 [data-lt-reveal="shown"] .hv5-sheet {
+    transform: translateY(var(--hv5-collapse));
+    animation: hv5-separate 1300ms var(--lt-ease) forwards;
+    animation-delay: calc(300ms + var(--lt-delay, 0ms));
+  }
+
+  .hv5-enter {
+    animation: hv5-enter 420ms var(--lt-ease) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hv5-sheet-lift,
+  .hv5-sheet-plane,
+  .hv5-strand-out,
+  .hv5-pathway,
+  .hv5-arrow,
+  .hv5-chain,
+  .hv5-account,
+  .hv5-node::before {
+    transition: none !important;
+  }
+}
+
+@keyframes hv5-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hv5-separate {
+  to {
+    transform: none;
+  }
+}
+
+@keyframes hv5-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  .hv5-thread,
+  .hv5-strands svg {
+    display: none;
+  }
+  .hv5 [data-lt-reveal] * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

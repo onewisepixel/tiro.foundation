@@ -1,0 +1,657 @@
+/* ======================================================================
+   Homepage v3.1 — refinement of v3 (preview only)
+   Scoped to .hv31. Built only from the existing TIRO tokens.
+
+   The scale is an instrument: the past recorded (solid, ticked), the
+   future open (dotted, hollow stations), the mark standing on the present.
+   A surveyor's plumb line ties the hero's statement to the present, and the
+   closing statement to the open origin of what comes next.
+
+   Geometry shared by the hero, the scale, and the close:
+     frame       76rem max, 1.5rem side padding (1rem at <=480px)
+     text column at lg: frame left + 1.5rem + 11.5rem gloss + 3.5rem gap
+     --hv31-mk   the mark's width; its resonance line sits on "now"
+
+   Motion only moves toward the static final state and runs only under
+   prefers-reduced-motion: no-preference.
+   ====================================================================== */
+
+.hv31 {
+  --hv31-max: 76rem;
+  --hv31-pad: 1.5rem;
+  --hv31-gen: 44px;
+  --hv31-mk: 56px;
+  /* Where the text column begins, measured across the full page width. */
+  --hv31-text-x: calc(max(0px, (100% - var(--hv31-max)) / 2) + var(--hv31-pad));
+}
+
+@media (max-width: 480px) {
+  .hv31 {
+    --hv31-pad: 1rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .hv31 {
+    --hv31-mk: 72px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hv31 {
+    --hv31-mk: 84px;
+    --hv31-text-x: calc(max(0px, (100% - var(--hv31-max)) / 2) + var(--hv31-pad) + 15rem);
+  }
+}
+
+.hv31 [id] {
+  scroll-margin-top: 5rem;
+}
+
+.hv31-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--hv31-max);
+  padding-inline: var(--hv31-pad);
+}
+
+/* ---------- Section row: sources + body ---------- */
+.hv31-row {
+  display: grid;
+  gap: 2.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hv31-row {
+    grid-template-columns: 11.5rem minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+}
+
+/* ---------- Sources (the gloss) ----------
+   Secondary to the content, but readable: body-face titles, code-face
+   section and status. In the margin on wide screens; after the section,
+   as its footnote, on narrow ones. */
+.hv31-sources {
+  order: 2;
+  border-top: 1px solid var(--tiro-border-strong);
+  padding-top: 0.85rem;
+}
+
+@media (min-width: 1024px) {
+  .hv31-sources {
+    order: 0;
+    position: sticky;
+    top: 6rem;
+    align-self: start;
+  }
+}
+
+.hv31-sources-head {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+.hv31-sources ol {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .hv31-sources ol {
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1rem 2rem;
+  }
+}
+
+.hv31-source-title {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--tiro-text);
+}
+
+a.hv31-source-title {
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+a.hv31-source-title:hover {
+  text-decoration-color: var(--tiro-accent);
+}
+
+.hv31-source-meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  letter-spacing: 0.03em;
+  color: var(--tiro-text-muted);
+}
+
+.hv31-source-status {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+}
+
+/* ---------- Hero ---------- */
+.hv31-hero-lower {
+  display: grid;
+  gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .hv31-hero-lower {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+    gap: 0;
+  }
+}
+
+/* The plumb line from the statement down to the mark's origin. Its x is
+   the mark's stem (45 of 90 units), 2 units left of the resonance line. */
+.hv31-plumb {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .hv31-plumb {
+    display: block;
+    position: relative;
+  }
+
+  .hv31-plumb::before {
+    content: "";
+    position: absolute;
+    top: 0.5rem;
+    bottom: calc(var(--hv31-mk) * -12 / 90);
+    left: calc(50% - var(--hv31-mk) * 2 / 90);
+    border-left: 1px dashed var(--tiro-mineral-line);
+  }
+
+  .hv31-plumb::after {
+    content: "";
+    position: absolute;
+    top: 0.5rem;
+    left: calc(50% - var(--hv31-mk) * 2 / 90 - 5px);
+    width: 11px;
+    height: 1px;
+    background: var(--tiro-mineral-line);
+  }
+}
+
+/* ---------- The scale ---------- */
+.hv31-scale-wrap {
+  --hv31-now: 50%;
+  position: relative;
+  height: calc(48px + var(--hv31-mk) * 182 / 90);
+}
+
+@media (min-width: 768px) {
+  .hv31-scale-wrap {
+    --hv31-now: 64%;
+  }
+}
+
+/* At lg the present sits under the centre of the hero's right half, where
+   the plumb line falls: text-x + 13/16 of the text column
+   (the lower row splits 1.25fr : 0.75fr). */
+@media (min-width: 1024px) {
+  .hv31-scale-wrap {
+    --hv31-now: calc(var(--hv31-text-x) + (min(100%, var(--hv31-max)) - 2 * var(--hv31-pad) - 15rem) * 0.8125);
+  }
+}
+
+.hv31-scale-wrap[data-variant="closing"] {
+  --hv31-now: calc(var(--hv31-text-x) + 8px);
+  height: 6rem;
+}
+
+.hv31-scale {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+
+.hv31-scale-wrap[data-variant="closing"] .hv31-scale {
+  cursor: default;
+}
+
+.hv31-scale:focus-visible {
+  outline: 2px solid var(--tiro-accent);
+  outline-offset: -2px;
+}
+
+.hv31-scale-ruler {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+
+.hv31-scale-wrap[data-variant="closing"] .hv31-scale-ruler {
+  -webkit-mask-image: linear-gradient(to right, #000 65%, transparent);
+  mask-image: linear-gradient(to right, #000 65%, transparent);
+}
+
+/* x = 0 of the drawing is now; the rule is 48px above the bottom. */
+.hv31-scale-ruler > svg {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--hv31-now) - 2400px);
+  width: 4800px;
+  height: 120px;
+  overflow: visible;
+}
+
+.hv31-scale-mark {
+  position: absolute;
+  left: calc(var(--hv31-now) - var(--hv31-mk) * 47 / 90);
+  top: 0;
+  width: var(--hv31-mk);
+  pointer-events: none;
+}
+
+.hv31-scale-cursor {
+  position: absolute;
+  bottom: 48px;
+  width: 1px;
+  height: 3.5rem;
+  background: var(--tiro-accent);
+  pointer-events: none;
+}
+
+.hv31-scale-readout {
+  position: absolute;
+  bottom: calc(48px + 3.75rem);
+  left: clamp(8.5rem, var(--hv31-x), calc(100% - 8.5rem));
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 16rem;
+  text-align: center;
+  pointer-events: none;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-bg);
+  padding: 0.3rem 0.55rem;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--tiro-text);
+}
+
+.hv31-scale-help {
+  position: absolute;
+  left: var(--hv31-text-x);
+  max-width: calc(var(--hv31-now) - var(--hv31-text-x) - var(--hv31-mk));
+  top: 0;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  color: var(--tiro-text-muted);
+}
+
+.hv31-scale-status {
+  display: none;
+}
+
+/* Below lg there is no clear space beside the mark: the reading and the
+   keyboard help move under the scale, as one line of text each. */
+@media (max-width: 1023px) {
+  .hv31-scale-readout {
+    display: none;
+  }
+
+  .hv31-scale-status[data-shown="true"] {
+    display: block;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    padding: 0.4rem var(--hv31-pad) 0 var(--hv31-text-x);
+    font-family: var(--font-code);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: var(--tiro-text);
+    background: var(--tiro-bg);
+    z-index: 2;
+  }
+
+  /* The status line carries the key hints here; the help stays available
+     to assistive technology through aria-describedby. */
+  .hv31-scale-help[data-shown="true"] {
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hv31-scale-status[data-shown="true"] {
+    padding-bottom: 0.5rem;
+  }
+}
+
+.hv31-scale-help[data-shown="false"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Primary action ---------- */
+.hv31-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--tiro-accent);
+  background: var(--tiro-accent);
+  color: var(--tiro-bg);
+  padding: 0.9rem 1.4rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: filter var(--lt-dur-quick) ease;
+}
+
+.hv31-cta:hover {
+  filter: brightness(1.08);
+}
+
+.hv31-arrow {
+  display: inline-block;
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv31-cta:hover .hv31-arrow,
+.hv31-path:hover .hv31-arrow,
+.hv31-path:focus-visible .hv31-arrow {
+  transform: translateX(4px);
+}
+
+/* ---------- The catalogue card ---------- */
+.hv31-card-stage {
+  perspective: 1600px;
+}
+
+.hv31-card-turn {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0ms;
+}
+
+.hv31-card-face {
+  grid-area: 1 / 1;
+  min-height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.hv31-card-face[data-face="back"] {
+  transform: rotateY(180deg);
+}
+
+.hv31-card-turn[data-turned="true"] {
+  transform: rotateY(180deg);
+}
+
+.hv31-card {
+  position: relative;
+  border: 1px solid var(--tiro-border-strong);
+  background-color: var(--tiro-raised);
+  box-shadow: 0 1px 0 var(--tiro-border), 0 28px 50px -36px rgba(20, 22, 31, 0.45);
+  padding: 1.25rem 1.5rem 2.75rem;
+}
+
+@media (max-width: 480px) {
+  .hv31-card {
+    padding: 1rem 1rem 2.75rem;
+  }
+}
+
+.hv31-card-rule {
+  height: 2px;
+  background: var(--tiro-accent);
+  opacity: 0.75;
+  margin: 0.6rem -1.5rem 1rem;
+}
+
+@media (max-width: 480px) {
+  .hv31-card-rule {
+    margin-inline: -1rem;
+  }
+}
+
+.hv31-card-hole {
+  position: absolute;
+  left: 50%;
+  bottom: 0.9rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-left: -0.45rem;
+  border-radius: 9999px;
+  background: var(--hv31-section-bg, var(--tiro-bg));
+  box-shadow: inset 0 1px 2px rgba(20, 22, 31, 0.35);
+  border: 1px solid var(--tiro-border-strong);
+}
+
+.hv31-card[data-sealed="true"] {
+  outline: 1px solid var(--tiro-border);
+  outline-offset: 5px;
+}
+
+/* The card's provenance spine: from the human source (gold origin) down
+   through authority and context to the conditions of stewardship. */
+.hv31-spine {
+  position: relative;
+  display: grid;
+  gap: 0;
+}
+
+.hv31-spine::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 12px;
+  bottom: 1.4rem;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--tiro-accent), var(--tiro-mineral-line) 45%);
+}
+
+.hv31-step {
+  position: relative;
+  padding: 0.55rem 0 0.55rem 1.9rem;
+}
+
+.hv31-step-dot {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  top: 0.45rem;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  background: var(--tiro-raised);
+}
+
+.hv31-step-dot > span {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--tiro-mineral-line);
+  background: var(--tiro-raised);
+}
+
+/* ---------- Two accounts (Discover) ---------- */
+.hv31-accounts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.5rem minmax(0, 1fr);
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .hv31-accounts {
+    grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 1fr);
+  }
+}
+
+.hv31-account {
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-raised);
+  padding: 1rem;
+  transition: border-color var(--lt-dur-base) ease, opacity var(--lt-dur-base) ease, background-color var(--lt-dur-base) ease;
+}
+
+@media (min-width: 768px) {
+  .hv31-account {
+    padding: 1.25rem 1.4rem;
+  }
+}
+
+.hv31-account:hover {
+  border-color: var(--tiro-text-subtle);
+}
+
+.hv31-account[aria-pressed="true"] {
+  border-color: var(--tiro-accent);
+  background: color-mix(in srgb, var(--tiro-accent) 6%, var(--tiro-raised));
+}
+
+.hv31-chain {
+  width: 1px;
+  margin-inline: auto;
+  background: var(--tiro-mark);
+  transition: opacity var(--lt-dur-base) ease, width var(--lt-dur-base) ease;
+}
+
+.hv31-chain[data-lit="true"] {
+  width: 2px;
+}
+
+.hv31 [data-dim="true"] {
+  opacity: 0.35;
+}
+
+/* ---------- Participate ---------- */
+.hv31-path {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  align-items: baseline;
+  padding: 1.4rem 0.25rem;
+  border-top: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.hv31-path:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- Close ----------
+   The plumb line runs from the closing statement to the open origin; its x
+   matches the closing scale's "now" (text-x + 8px). */
+.hv31-close-plumb {
+  position: relative;
+  height: 2.5rem;
+}
+
+.hv31-close-plumb::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0;
+  left: 8px;
+  border-left: 1px dashed var(--tiro-mineral-line);
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .hv31-card-turn {
+    transition: transform 800ms var(--lt-ease);
+  }
+
+  .hv31 [data-lt-reveal="pending"] .hv31-rise {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  .hv31 [data-lt-reveal="shown"] .hv31-rise {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: hv31-rise 900ms var(--lt-ease) forwards;
+    animation-delay: var(--lt-delay, 0ms);
+  }
+
+  .hv31-enter {
+    animation: hv31-enter 420ms var(--lt-ease) both;
+  }
+}
+
+/* Reduced motion: the card swaps faces without turning. */
+@media (prefers-reduced-motion: reduce) {
+  .hv31-card-turn,
+  .hv31-card-turn[data-turned="true"] {
+    transform: none;
+  }
+  .hv31-card-face,
+  .hv31-card-face[data-face="back"] {
+    transform: none;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+  }
+  .hv31-card-turn[data-turned="true"] [data-face="front"],
+  .hv31-card-turn[data-turned="false"] [data-face="back"] {
+    visibility: hidden;
+  }
+  .hv31-arrow,
+  .hv31-chain,
+  .hv31-account {
+    transition: none !important;
+  }
+}
+
+@keyframes hv31-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hv31-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  .hv31-scale-wrap {
+    display: none;
+  }
+  .hv31 [data-lt-reveal] * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

@@ -1,0 +1,759 @@
+/* ======================================================================
+   Homepage v4 — "A section through an imagined site" (preview only)
+   Scoped to .hv4. Built only from the existing TIRO tokens.
+
+   The six movements as six places on a speculative site, drawn in section
+   in the survey vocabulary of v3.1: canopy, terraces, raised archive,
+   boardwalks, closed room, pier's end. The ground line is the generational
+   scale: each terrace a generation of the recorded past, the water beyond
+   the shore the open future.
+
+   Motion only moves toward the static final state and runs only under
+   prefers-reduced-motion: no-preference.
+   ====================================================================== */
+
+.hv4 {
+  --hv4-max: 76rem;
+  --hv4-pad: 1.5rem;
+  --hv4-bg: var(--tiro-bg);
+  --hv4-faint: color-mix(in srgb, var(--tiro-mineral-line) 45%, transparent);
+  --hv4-poche: color-mix(in srgb, var(--tiro-text) 5%, var(--tiro-bg));
+  /* Where the text column begins, across the full page width. */
+  --hv4-text-x: calc(max(0px, (100% - var(--hv4-max)) / 2) + var(--hv4-pad));
+}
+
+@media (max-width: 480px) {
+  .hv4 {
+    --hv4-pad: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hv4 {
+    --hv4-text-x: calc(max(0px, (100% - var(--hv4-max)) / 2) + var(--hv4-pad) + 15rem);
+  }
+}
+
+.hv4 [id] {
+  scroll-margin-top: 5rem;
+}
+
+.hv4-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--hv4-max);
+  padding-inline: var(--hv4-pad);
+}
+
+/* ---------- Section row: sources + body ---------- */
+.hv4-row {
+  display: grid;
+  gap: 2.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hv4-row {
+    grid-template-columns: 11.5rem minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+}
+
+/* ---------- Sources ---------- */
+.hv4-sources {
+  order: 2;
+  border-top: 1px solid var(--tiro-border-strong);
+  padding-top: 0.85rem;
+}
+
+@media (min-width: 1024px) {
+  .hv4-sources {
+    order: 0;
+    position: sticky;
+    top: 6rem;
+    align-self: start;
+  }
+}
+
+.hv4-sources-head {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+.hv4-sources ol {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .hv4-sources ol {
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1rem 2rem;
+  }
+}
+
+.hv4-source-title {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--tiro-text);
+}
+
+a.hv4-source-title {
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+a.hv4-source-title:hover {
+  text-decoration-color: var(--tiro-accent);
+}
+
+.hv4-source-meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  letter-spacing: 0.03em;
+  color: var(--tiro-text-muted);
+}
+
+.hv4-source-status {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+}
+
+/* ---------- Hero ----------
+   At lg the statement sits in the sky over the open water (right), and
+   the drawing rises beneath it: the canopy on the left climbs past the
+   statement's baseline. The drawing is 2400 x 640, full width, so its
+   height is 26.667vw; it tucks 48% of that under the text block. */
+.hv4-hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.hv4-hero-text {
+  position: relative;
+  z-index: 2;
+  padding-top: 7rem;
+}
+
+@media (min-width: 1024px) {
+  .hv4-hero-text {
+    padding-left: calc(var(--hv4-pad) + 40%);
+    pointer-events: none;
+  }
+
+  .hv4-hero-text > * {
+    pointer-events: auto;
+  }
+}
+
+/* ---------- The site (Fig. 1) ---------- */
+.hv4-site {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin-top: 2.5rem;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+
+@media (min-width: 768px) {
+  .hv4-site {
+    aspect-ratio: 12 / 5;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hv4-site {
+    aspect-ratio: 2400 / 640;
+    margin-top: calc(-26.667vw * 0.48);
+  }
+}
+
+.hv4-site > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hv4-site:focus-visible {
+  outline: 2px solid var(--tiro-accent);
+  outline-offset: -2px;
+}
+
+.hv4-tread {
+  stroke: transparent;
+  stroke-width: 4;
+}
+
+.hv4-tread[data-lit="true"] {
+  stroke: var(--tiro-accent);
+}
+
+.hv4-scale-label {
+  font-family: var(--font-code);
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  fill: var(--tiro-text-muted);
+}
+
+.hv4-scale-caps {
+  font-family: var(--font-code);
+  font-size: 18px;
+  letter-spacing: 0.18em;
+}
+
+.hv4-short {
+  display: none;
+}
+
+.hv4-callout-ring {
+  fill: var(--hv4-bg);
+  stroke: var(--tiro-text-subtle);
+  stroke-width: 1.25;
+  transition: fill var(--lt-dur-base) ease, stroke var(--lt-dur-base) ease;
+}
+
+.hv4-callout-num {
+  font-family: var(--font-code);
+  font-size: 19px;
+  fill: var(--tiro-accent);
+}
+
+.hv4-callout-label {
+  font-family: var(--font-code);
+  font-size: 18px;
+  letter-spacing: 0.14em;
+  fill: var(--tiro-text-soft);
+}
+
+.hv4-callout[data-hot="true"] .hv4-callout-ring {
+  fill: var(--tiro-accent);
+  stroke: var(--tiro-accent);
+}
+
+.hv4-callout[data-hot="true"] .hv4-callout-num {
+  fill: var(--hv4-bg);
+}
+
+/* Narrow screens see the drawing at about a third of its size: larger
+   type for what remains, short century labels, numbers without names
+   (the key below names every place). */
+@media (max-width: 767px) {
+  .hv4-callout-label {
+    display: none;
+  }
+  .hv4-callout-ring {
+    r: 30px;
+  }
+  .hv4-callout-num {
+    font-size: 30px;
+    transform: translateY(4px);
+  }
+  .hv4-scale-label {
+    font-size: 30px;
+  }
+  .hv4-scale-caps {
+    font-size: 28px;
+  }
+  .hv4-long {
+    display: none;
+  }
+  .hv4-short {
+    display: inline;
+  }
+}
+
+.hv4-site-readout {
+  position: absolute;
+  left: clamp(8.5rem, var(--hv4-x), calc(100% - 8.5rem));
+  /* Just under the drawing, following the cursor: the sky above belongs
+     to the statement. */
+  top: calc(var(--hv4-y) + 0.5rem);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 16rem;
+  text-align: center;
+  pointer-events: none;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-bg);
+  padding: 0.3rem 0.55rem;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--tiro-text);
+  z-index: 3;
+}
+
+.hv4-site-status {
+  display: none;
+}
+
+.hv4-site-help {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Below lg there is no clear sky over the cursor: the reading moves under
+   the drawing as a line of text. */
+@media (max-width: 1023px) {
+  .hv4-site-readout {
+    display: none;
+  }
+  .hv4-site-status[data-shown="true"] {
+    display: block;
+    margin-top: 0.5rem;
+    padding-inline: var(--hv4-pad);
+    font-family: var(--font-code);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: var(--tiro-text);
+  }
+}
+
+
+/* ---------- Fig. 1 caption and key ---------- */
+.hv4-fig {
+  margin-top: 1rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+}
+
+.hv4-key {
+  margin-top: 1.25rem;
+  display: grid;
+  border-top: 1px solid var(--tiro-border);
+}
+
+@media (min-width: 640px) {
+  .hv4-key {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hv4-key {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.hv4-key-item {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem 0.25rem;
+  border-bottom: 1px solid var(--tiro-border);
+  font-size: 0.95rem;
+  line-height: 1.35;
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+a.hv4-key-item:hover {
+  background: var(--tiro-surface);
+}
+
+.hv4-key-num,
+.hv4-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid var(--tiro-text-subtle);
+  border-radius: 9999px;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--tiro-accent);
+  flex-shrink: 0;
+}
+
+/* ---------- Kicker: the place a section stands in ---------- */
+.hv4-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.75rem;
+  margin-bottom: 2rem;
+}
+
+.hv4-kicker > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.9rem;
+  color: var(--tiro-text-soft);
+}
+
+.hv4-kicker em {
+  font-style: italic;
+  font-family: var(--font-display);
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- Primary action ---------- */
+.hv4-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--tiro-accent);
+  background: var(--tiro-accent);
+  color: var(--tiro-bg);
+  padding: 0.9rem 1.4rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: filter var(--lt-dur-quick) ease;
+}
+
+.hv4-cta:hover {
+  filter: brightness(1.08);
+}
+
+.hv4-arrow {
+  display: inline-block;
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.hv4-cta:hover .hv4-arrow,
+.hv4-path:hover .hv4-arrow,
+.hv4-path:focus-visible .hv4-arrow {
+  transform: translateX(4px);
+}
+
+/* ---------- The catalogue card (from v3.1) ---------- */
+.hv4-card-stage {
+  perspective: 1600px;
+}
+
+.hv4-card-turn {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0ms;
+}
+
+.hv4-card-face {
+  grid-area: 1 / 1;
+  min-height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.hv4-card-face[data-face="back"] {
+  transform: rotateY(180deg);
+}
+
+.hv4-card-turn[data-turned="true"] {
+  transform: rotateY(180deg);
+}
+
+.hv4-card {
+  position: relative;
+  border: 1px solid var(--tiro-border-strong);
+  background-color: var(--tiro-raised);
+  box-shadow: 0 1px 0 var(--tiro-border), 0 28px 50px -36px rgba(20, 22, 31, 0.45);
+  padding: 1.25rem 1.5rem 2.75rem;
+}
+
+@media (max-width: 480px) {
+  .hv4-card {
+    padding: 1rem 1rem 2.75rem;
+  }
+}
+
+.hv4-card-rule {
+  height: 2px;
+  background: var(--tiro-accent);
+  opacity: 0.75;
+  margin: 0.6rem -1.5rem 1rem;
+}
+
+@media (max-width: 480px) {
+  .hv4-card-rule {
+    margin-inline: -1rem;
+  }
+}
+
+.hv4-card-hole {
+  position: absolute;
+  left: 50%;
+  bottom: 0.9rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-left: -0.45rem;
+  border-radius: 9999px;
+  background: var(--hv4-section-bg, var(--tiro-bg));
+  box-shadow: inset 0 1px 2px rgba(20, 22, 31, 0.35);
+  border: 1px solid var(--tiro-border-strong);
+}
+
+/* The closed room: the sealed card drawn as a room in plan, its walls
+   doubled and unbroken. No door. */
+.hv4-card[data-sealed="true"] {
+  border: 4px double var(--tiro-text-subtle);
+  outline: 1px solid var(--tiro-border);
+  outline-offset: 6px;
+}
+
+.hv4-spine {
+  position: relative;
+  display: grid;
+  gap: 0;
+}
+
+.hv4-spine::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 12px;
+  bottom: 1.4rem;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--tiro-accent), var(--tiro-mineral-line) 45%);
+}
+
+.hv4-step {
+  position: relative;
+  padding: 0.55rem 0 0.55rem 1.9rem;
+}
+
+.hv4-step-dot {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  top: 0.45rem;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  background: var(--tiro-raised);
+}
+
+.hv4-step-dot > span {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--tiro-mineral-line);
+  background: var(--tiro-raised);
+}
+
+/* ---------- Two accounts, drawn as boardwalks in plan ---------- */
+.hv4-accounts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.5rem minmax(0, 1fr);
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .hv4-accounts {
+    grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 1fr);
+  }
+}
+
+.hv4-account {
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  border: 1px solid var(--tiro-border-strong);
+  background: var(--tiro-raised);
+  padding: 1rem;
+  transition: border-color var(--lt-dur-base) ease, opacity var(--lt-dur-base) ease, background-color var(--lt-dur-base) ease;
+}
+
+@media (min-width: 768px) {
+  .hv4-account {
+    padding: 1.25rem 1.4rem;
+  }
+}
+
+.hv4-account:hover {
+  border-color: var(--tiro-text-subtle);
+}
+
+.hv4-account[aria-pressed="true"] {
+  border-color: var(--tiro-accent);
+  background: color-mix(in srgb, var(--tiro-accent) 6%, var(--tiro-raised));
+}
+
+/* Twin rails with planks. */
+.hv4-rail-v {
+  width: 9px;
+  margin-left: -4px;
+  border-inline: 1px solid var(--tiro-mineral-line);
+  background: repeating-linear-gradient(to bottom, transparent 0 5px, var(--hv4-faint) 5px 6px);
+}
+
+.hv4-rail-h {
+  height: 9px;
+  margin-top: -4px;
+  border-block: 1px solid var(--tiro-mineral-line);
+  background: repeating-linear-gradient(to right, transparent 0 5px, var(--hv4-faint) 5px 6px);
+}
+
+/* Each account's own path to its source: a gold boardwalk. */
+.hv4-chain {
+  width: 9px;
+  margin-inline: auto;
+  border-inline: 1px solid var(--tiro-mark);
+  background: repeating-linear-gradient(to bottom, transparent 0 5px, color-mix(in srgb, var(--tiro-mark) 45%, transparent) 5px 6px);
+  transition: opacity var(--lt-dur-base) ease, border-width var(--lt-dur-base) ease;
+}
+
+.hv4-chain[data-lit="true"] {
+  border-inline-width: 2px;
+}
+
+.hv4 [data-dim="true"] {
+  opacity: 0.35;
+}
+
+/* ---------- Participate ---------- */
+.hv4-path {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  align-items: baseline;
+  padding: 1.4rem 0.25rem;
+  border-top: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.hv4-path:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- The pier's end (close) ---------- */
+.hv4-close-plumb {
+  position: relative;
+  height: 2.5rem;
+}
+
+.hv4-close-plumb::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0;
+  left: 8px;
+  border-left: 1px dashed var(--tiro-mineral-line);
+}
+
+.hv4-pier {
+  position: relative;
+  height: 128px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 62%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 62%, transparent);
+}
+
+@media (max-width: 1023px) {
+  .hv4-pier {
+    -webkit-mask-image: linear-gradient(to right, #000 75%, transparent);
+    mask-image: linear-gradient(to right, #000 75%, transparent);
+  }
+}
+
+/* x = 0 of the drawing sits under the statement (text-x + 8px); the svg's
+   own top (y = 12 of 140) meets the plumb line above. */
+.hv4-pier > svg {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--hv4-text-x) + 8px - 2400px);
+  width: 4800px;
+  height: 140px;
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .hv4-card-turn {
+    transition: transform 800ms var(--lt-ease);
+  }
+
+  .hv4 [data-lt-reveal="pending"] .hv4-rise {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  .hv4 [data-lt-reveal="shown"] .hv4-rise {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: hv4-rise 900ms var(--lt-ease) forwards;
+    animation-delay: var(--lt-delay, 0ms);
+  }
+
+  .hv4-enter {
+    animation: hv4-enter 420ms var(--lt-ease) both;
+  }
+}
+
+/* Reduced motion: the card swaps faces without turning. */
+@media (prefers-reduced-motion: reduce) {
+  .hv4-card-turn,
+  .hv4-card-turn[data-turned="true"] {
+    transform: none;
+  }
+  .hv4-card-face,
+  .hv4-card-face[data-face="back"] {
+    transform: none;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+  }
+  .hv4-card-turn[data-turned="true"] [data-face="front"],
+  .hv4-card-turn[data-turned="false"] [data-face="back"] {
+    visibility: hidden;
+  }
+  .hv4-arrow,
+  .hv4-chain,
+  .hv4-account,
+  .hv4-callout-ring {
+    transition: none !important;
+  }
+}
+
+@keyframes hv4-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hv4-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  .hv4-site,
+  .hv4-pier {
+    display: none;
+  }
+  .hv4 [data-lt-reveal] * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
