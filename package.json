@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --import ./scripts/test/server-only-hook.mjs --test src/lib/recordKind.test.ts src/data/memories.test.ts src/lib/publicMemoryApi.test.ts src/lib/livingTrace/projection.test.ts src/lib/livingTrace/layout.test.ts src/lib/flightDeck/flightDeck.test.ts src/lib/flightDeck/production.test.ts src/lib/flightDeck/deployTemplate.test.ts src/lib/flightDeck/protective.test.ts src/lib/flightDeck/s3Sink.test.ts src/lib/flightDeck/stagingScripts.test.ts src/lib/flightDeck/bypassChangeSetPolicy.test.ts src/lib/flightDeck/managedLogin.test.ts src/lib/flightDeck/managedLoginScript.test.ts \"backend/src/**/*.test.ts\"",
+    "test": "tsx --import ./scripts/test/server-only-hook.mjs --test src/lib/recordKind.test.ts src/data/memories.test.ts src/lib/publicMemoryApi.test.ts src/lib/livingTrace/projection.test.ts src/lib/livingTrace/layout.test.ts src/lib/livingTrace/authorityProjection.test.ts src/lib/livingTrace/citation.test.ts src/lib/flightDeck/flightDeck.test.ts src/lib/flightDeck/production.test.ts src/lib/flightDeck/deployTemplate.test.ts src/lib/flightDeck/protective.test.ts src/lib/flightDeck/s3Sink.test.ts src/lib/flightDeck/stagingScripts.test.ts src/lib/flightDeck/bypassChangeSetPolicy.test.ts src/lib/flightDeck/managedLogin.test.ts src/lib/flightDeck/managedLoginScript.test.ts \"backend/src/**/*.test.ts\"",
     "verify:disclosure": "node scripts/test/verify-disclosure.mjs",
     "dev:flight-deck": "node scripts/flight-deck/dev.mjs",
     "e2e:flight-deck": "node scripts/flight-deck/e2e.mjs",

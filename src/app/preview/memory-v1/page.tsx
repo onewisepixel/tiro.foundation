@@ -8,6 +8,7 @@ import MethodLayers from "@/components/preview/memory-v1/MethodLayers";
 import Reveal from "@/components/trace/Reveal";
 import { SyntheticPill } from "@/components/trace/SyntheticNotice";
 import { USE_CATEGORIES } from "@/lib/livingTrace/evidence";
+import { listScenario } from "@/lib/livingTrace/authorityProjection";
 import { listDiscoverable, projectGraph, relationsFor, SPECIMEN_ROUTE } from "@/lib/livingTrace/projection";
 import "./memory-v1.css";
 
@@ -38,6 +39,8 @@ export const metadata: Metadata = {
 };
 
 const SPECIMEN = "DEMO-LT-0001";
+// The fictional authority scenario: each capacity held by a different party.
+const AUTHORITY_SCENARIO = "DEMO-MP-0001";
 
 const SECTIONS = [
   { id: "why", label: "Why" },
@@ -209,7 +212,7 @@ export default function MemoryProjectPreview() {
             </p>
           </div>
           <div className="mv1-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
-            <MethodLayers specimenId={SPECIMEN} />
+            <MethodLayers specimenId={SPECIMEN} authorityId={AUTHORITY_SCENARIO} />
           </div>
         </Reveal>
       </section>
@@ -256,6 +259,17 @@ export default function MemoryProjectPreview() {
                 </li>
               ),
             )}
+            {listScenario().map((s) => (
+              <li key={s.recordId}>
+                <Link href={`${RECORDS_BASE}/${s.recordId}`}>
+                  <span className="mv1-catalogue-id">{s.recordId}</span>
+                  <span className="mv1-catalogue-title">{s.title}</span>
+                  <span className="mv1-catalogue-state">
+                    Authority scenario · fictional <span aria-hidden="true">→</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
           </ul>
           <p className="mv1-body mt-6 !text-sm">
             A record that is not discoverable appears nowhere: not listed, not counted, and not marked as hidden.

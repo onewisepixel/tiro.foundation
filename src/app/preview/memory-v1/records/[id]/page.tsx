@@ -13,8 +13,9 @@ import PermissionGrid from "@/components/trace/PermissionGrid";
 import SyntheticNotice, { SyntheticPill } from "@/components/trace/SyntheticNotice";
 import TemporalRail from "@/components/trace/TemporalRail";
 import VoiceSource from "@/components/trace/VoiceSource";
-import type { EvidenceState } from "@/lib/livingTrace/evidence";
-import { discoverableRouteIds, listDiscoverable, projectGraph, relationsFor, resolveRecord, SPECIMEN_ROUTE } from "@/lib/livingTrace/projection";
+import { listScenario, resolveScenarioRecord, scenarioRouteIds, type AuthorityRecord } from "@/lib/livingTrace/authorityProjection";
+import { USE_CATEGORIES, USE_GRANT_LABEL, type EvidenceState } from "@/lib/livingTrace/evidence";
+import { discoverableRouteIds, listDiscoverable, projectGraph, relationsFor, resolveRecord, SPECIMEN_ROUTE, type SpecimenRecord } from "@/lib/livingTrace/projection";
 import "../../memory-v1.css";
 
 // A memory record, in two coordinated views.
@@ -30,18 +31,24 @@ import "../../memory-v1.css";
 // discoverable ids are generated and dynamicParams = false, so an
 // undiscoverable record's id 404s exactly like an id that never existed. A
 // restricted record renders its authorized notice and nothing else, under
-// a generic title. Every value comes from the projection.
+// a generic title. Every value comes from a projection: the Living Trace
+// specimens (projection.ts) or the fictional authority scenario
+// (authorityProjection.ts), whose records add parties, a signer's mandate,
+// per-use authorizations, and a version.
 export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return discoverableRouteIds().map((id) => ({ id }));
+  return [...discoverableRouteIds(), ...scenarioRouteIds()].map((id) => ({ id }));
 }
+
+const resolveAny = (id: string) => resolveRecord(id) ?? resolveScenarioRecord(id);
+const isAuthority = (r: SpecimenRecord | AuthorityRecord): r is AuthorityRecord => "parties" in r;
 
 type PageProps = { params: Promise<{ id: string }> };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const resolved = resolveRecord(id);
+  const resolved = resolveAny(id);
   const robots = { index: false, follow: false };
   if (!resolved) {
     return { robots };
@@ -102,9 +109,90 @@ function Crumbs({ id }: { id: string }) {
   );
 }
 
+// The scenario's parties, each in one capacity, and the signer's mandate.
+function Parties({ record }: { record: AuthorityRecord }) {
+  return (
+    <>
+      <dl className="mv1-fields">
+        {record.parties.map((p) => (
+          <div key={p.id}>
+            <dt className="mv1-dt">{p.capacity}</dt>
+            <dd>
+              {p.label} <EvidenceTag evidence={p.evidence} />
+              <span className="mt-1 block text-sm text-[var(--tiro-text-muted)]">{p.role}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mv1-mandate mt-6">
+        <h3 className="mv1-dt">Signer&apos;s mandate</h3>
+        <p className="mt-2 text-[0.9375rem] text-[var(--tiro-text)]">
+          {record.mandate.signer} signs for {record.mandate.represents}, not in their own right.
+        </p>
+        <dl className="mt-3 grid gap-2 text-sm text-[var(--tiro-text-soft)]">
+          <div>
+            <dt className="inline text-[var(--tiro-text-muted)]">Scope: </dt>
+            <dd className="inline">{record.mandate.scope}</dd>
+          </div>
+          <div>
+            <dt className="inline text-[var(--tiro-text-muted)]">Duration: </dt>
+            <dd className="inline">{record.mandate.until}</dd>
+          </div>
+          <div>
+            <dt className="inline text-[var(--tiro-text-muted)]">Mandate document: </dt>
+            <dd className="inline">Restricted. Never published.</dd>
+          </div>
+        </dl>
+      </div>
+    </>
+  );
+}
+
+// Who decided each use, on what basis, within what scope, until when.
+function Authorizations({ record }: { record: AuthorityRecord }) {
+  return (
+    <ol className="mv1-auths">
+      {USE_CATEGORIES.map((u) => {
+        const a = record.authorizations.find((x) => x.use === u.key);
+        if (!a) {
+          return null;
+        }
+        return (
+          <li key={u.key}>
+            <p className="flex flex-wrap items-baseline justify-between gap-x-4">
+              <span className="text-[var(--tiro-text)]">{u.label}</span>
+              <span className="mv1-grant" data-grant={a.grant}>
+                {USE_GRANT_LABEL[a.grant]}
+              </span>
+            </p>
+            <dl className="mt-1.5 grid gap-1 text-sm">
+              <div>
+                <dt className="inline text-[var(--tiro-text-muted)]">Decided by: </dt>
+                <dd className="inline text-[var(--tiro-text-soft)]">{a.decidedBy.map((d) => `${d.label} (${d.capacity.toLowerCase()})`).join("; ")}</dd>
+              </div>
+              <div>
+                <dt className="inline text-[var(--tiro-text-muted)]">Scope: </dt>
+                <dd className="inline text-[var(--tiro-text-soft)]">{a.scope}</dd>
+              </div>
+              <div>
+                <dt className="inline text-[var(--tiro-text-muted)]">Basis: </dt>
+                <dd className="inline text-[var(--tiro-text-soft)]">{a.basis}</dd>
+              </div>
+              <div>
+                <dt className="inline text-[var(--tiro-text-muted)]">Review: </dt>
+                <dd className="inline text-[var(--tiro-text-soft)]">{a.review}</dd>
+              </div>
+            </dl>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export default async function RecordPreview({ params }: PageProps) {
   const { id } = await params;
-  const resolved = resolveRecord(id);
+  const resolved = resolveAny(id);
   if (!resolved) {
     notFound();
   }
@@ -125,6 +213,9 @@ export default async function RecordPreview({ params }: PageProps) {
                 Synthetic demonstration of a restricted record. The &ldquo;rights authority&rdquo; named in the notice is part of the fiction. View this
                 page&apos;s source: the record&apos;s title, description, and other layers are not in it, because they were never sent.
               </p>
+              <div className="mt-8">
+                <CopyCitation input={{ kind: "restricted", reference: resolved.notice.reference }} />
+              </div>
               <p className="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-sm">
                 <Link href="/preview/memory-v1#records" className="mv1-more">
                   Back to the demonstration records
@@ -140,19 +231,18 @@ export default async function RecordPreview({ params }: PageProps) {
     );
   }
 
-  const record = resolved.record;
+  const record: SpecimenRecord | AuthorityRecord = resolved.record;
+  const authority = isAuthority(record) ? record : null;
   const graph = projectGraph();
   const relations = relationsFor(graph, record.recordId);
   const toPreview = (href: string | null) => (href ? href.replace(SPECIMEN_ROUTE, RECORDS_BASE) : null);
   const sourceLink = relations.find((r) => r.edge.provenance && r.edge.relation === "Source of the account");
   const derived: ConcordanceRow[] = relations.filter((r) => r !== sourceLink).map((r) => ({ ...r, otherHref: toPreview(r.otherHref) }));
 
-  const publicIds = listDiscoverable().flatMap((e) => (e.state === "public" ? [e.recordId] : []));
+  const publicIds = [...listDiscoverable().flatMap((e) => (e.state === "public" ? [e.recordId] : [])), ...listScenario().map((s) => s.recordId)];
   const at = publicIds.indexOf(record.recordId);
   const prev = at > 0 ? publicIds[at - 1] : null;
   const next = at < publicIds.length - 1 ? publicIds[at + 1] : null;
-  const created = record.provenance.find((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.at))?.at;
-  const citation = `The Tiro Foundation, The Memory Project. “${record.title}.” Record ${record.recordId}, synthetic demonstration${created ? `, created ${created}` : ""}. Not archival evidence.`;
 
   return (
     <main className="mv1 bg-[var(--tiro-bg)] pt-[63px] text-[var(--tiro-text)]">
@@ -174,7 +264,17 @@ export default async function RecordPreview({ params }: PageProps) {
             <dt className="mv1-dt">Custody</dt>
             <dd className="text-sm text-[var(--tiro-text-soft)]">{record.custodyStatus}</dd>
           </div>
+          <div className="flex gap-2">
+            <dt className="mv1-dt">Version</dt>
+            <dd className="text-sm text-[var(--tiro-text-soft)]">{authority ? authority.version : "Not yet versioned"}</dd>
+          </div>
         </dl>
+        {authority ? (
+          <p className="mv1-scenario mt-6 max-w-3xl">
+            <strong>Fictional scenario.</strong> Every party below is invented to show the capacities behind a memory held by different people,
+            and who decides each use. No real person, community, or institution is represented.
+          </p>
+        ) : null}
         <p className="mv1-fineprint mt-4">Schema proposal: no approved Memory Record Specification yet.</p>
       </header>
 
@@ -210,11 +310,15 @@ export default async function RecordPreview({ params }: PageProps) {
           </LayerSection>
 
           <LayerSection k="authority">
-            <dl className="mv1-fields">
-              {record.capacities.map((c) => (
-                <Field key={c.capacity} term={c.capacity} value={c.value} evidence={c.evidence} />
-              ))}
-            </dl>
+            {authority ? (
+              <Parties record={authority} />
+            ) : (
+              <dl className="mv1-fields">
+                {record.capacities.map((c) => (
+                  <Field key={c.capacity} term={c.capacity} value={c.value} evidence={c.evidence} />
+                ))}
+              </dl>
+            )}
             <p className="mv1-body mt-4 !text-sm">
               {CAPACITIES.join(", ")} are separate capacities. One person may hold several only with supporting evidence.
             </p>
@@ -225,8 +329,17 @@ export default async function RecordPreview({ params }: PageProps) {
               <Field term="Publication" value={record.publicationStatus} />
               <Field term="Custody" value={record.custodyStatus} />
             </dl>
-            <h3 className="mv1-dt mb-2 mt-6">Permitted uses, each on its own</h3>
-            <PermissionGrid uses={record.uses} />
+            {authority ? (
+              <>
+                <h3 className="mv1-dt mb-2 mt-6">Each use: who decided, on what basis</h3>
+                <Authorizations record={authority} />
+              </>
+            ) : (
+              <>
+                <h3 className="mv1-dt mb-2 mt-6">Permitted uses, each on its own</h3>
+                <PermissionGrid uses={record.uses} />
+              </>
+            )}
             <h3 className="mv1-dt mb-2 mt-6">Withdrawal</h3>
             <p className="mv1-body !text-[0.9375rem]">
               {record.withdrawal}{" "}
@@ -255,10 +368,19 @@ export default async function RecordPreview({ params }: PageProps) {
             <h2 id="mv1-cite-title" className="mv1-layer-label">
               Cite this record
             </h2>
-            <div className="mv1-cite-block mt-5">
-              <p className="mv1-dt">Citation format, shown on a demonstration</p>
-              <p className="mv1-cite-text mt-2">{citation}</p>
-              <CopyCitation text={citation} />
+            <div className="mt-5">
+              <CopyCitation
+                input={{
+                  kind: "record",
+                  recordId: record.recordId,
+                  title: record.title,
+                  // Credited only as authorized: the Living Trace specimens claim no authority, so they name no source.
+                  attribution: authority ? authority.attribution : null,
+                  version: authority ? authority.version : null,
+                  persistentUrl: null,
+                  synthetic: true,
+                }}
+              />
             </div>
           </section>
 

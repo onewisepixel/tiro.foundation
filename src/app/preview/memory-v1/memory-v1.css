@@ -1179,3 +1179,44 @@ a.mv1-cite:hover {
     transform: none !important;
   }
 }
+
+/* ---------- Authority scenario (Milestone 2.1) ----------
+   The fictional scenario's banner, the signer's mandate, and the per-use
+   authorizations: who decided, on what basis, in what scope, until when. */
+.mv1-scenario {
+  border-left: 2px solid var(--tiro-accent);
+  padding-left: 1rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--tiro-text-soft);
+}
+
+.mv1-mandate {
+  border: 1px solid var(--tiro-border-strong);
+  outline: 1px solid var(--tiro-border);
+  outline-offset: 4px;
+  background: var(--tiro-raised);
+  padding: 1rem 1.25rem;
+}
+
+.mv1-auths {
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.mv1-auths > li {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+.mv1-grant {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+}
+
+.mv1-grant[data-grant="granted"],
+.mv1-grant[data-grant="limited"] {
+  color: var(--tiro-text);
+}

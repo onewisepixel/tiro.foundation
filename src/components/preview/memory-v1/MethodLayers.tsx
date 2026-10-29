@@ -10,7 +10,9 @@ import { ALL_LAYERS, CAPACITIES, RECORDS_BASE, type LayerKey } from "./layers";
 // what that layer holds and why, with a way into the same layer of the
 // specimen record. The drawing is a pointer shortcut; the tablist is the
 // interface.
-export default function MethodLayers({ specimenId }: { specimenId: string }) {
+// The Authority layer links to the fictional authority scenario, where each
+// capacity is held by a different party; the others link to the specimen.
+export default function MethodLayers({ specimenId, authorityId }: { specimenId: string; authorityId: string }) {
   const [active, setActive] = useState<LayerKey>("account");
   const tabs = useRef<Partial<Record<LayerKey, HTMLButtonElement | null>>>({});
   const layer = ALL_LAYERS.find((l) => l.key === active)!;
@@ -79,8 +81,12 @@ export default function MethodLayers({ specimenId }: { specimenId: string }) {
                 </p>
               </div>
             ) : null}
-            <Link href={`${RECORDS_BASE}/${specimenId}#layer-${active}`} className="mv1-more mt-6">
-              {index < 5 ? `See the ${layer.label.toLowerCase()} layer in a specimen record` : "See what is derived from a specimen record"}
+            <Link href={`${RECORDS_BASE}/${active === "authority" ? authorityId : specimenId}#layer-${active}`} className="mv1-more mt-6">
+              {active === "authority"
+                ? "See six capacities held by six different parties"
+                : index < 5
+                  ? `See the ${layer.label.toLowerCase()} layer in a specimen record`
+                  : "See what is derived from a specimen record"}
               <span aria-hidden="true"> →</span>
             </Link>
           </div>
