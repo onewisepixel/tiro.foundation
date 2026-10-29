@@ -1,6 +1,6 @@
-# The Living Trace — founder decisions
+# Founder design decisions
 
-Status: Record of decisions on the design proposal. These decisions govern the Living Trace work; they are not institutional doctrine and do not amend `/community-rights`, the Manifesto, or `docs/ethos.txt`.
+Status: **The authoritative record of TIRO's design decisions** (from 2026-10-30; previously the Living Trace decisions alone). Each entry records its date, rationale, and conditions or open questions, so later work need not reconstruct the reasoning. These decisions govern design and prototype work; they are not institutional doctrine and do not amend `/community-rights`, the Manifesto, or `docs/ethos.txt`.
 Owner: TIRO founder / Steward.
 
 ## 2026-10-16 — review of Living Trace 0.2
@@ -144,3 +144,39 @@ RI-3 principle: TIRO protects community authority without building a system in w
 
 The contract's coherence does not establish real-world authority or operational readiness. Those require engagement with people, evidence, institutional decisions, and specialist review.
 
+
+## 2026-10-30 — The Living Archive: homepage, Memory Project, and record model (Milestones 1–2.1)
+
+**Verdict.** The Living Archive is approved as the **design direction** for TIRO's public website, and the Memory Project's architecture is approved subject to the refinements below. These are design decisions, not production adoption. The previews remain previews.
+
+| # | Decision | Status | Rationale | Conditions and open questions |
+| --- | --- | --- | --- | --- |
+| 30 | **V5 homepage** (`/preview/home-v5`) as the visual direction | **Approved for future integration** | Communicates why TIRO exists through the actual mark, restrained linework, and doctrine quoted with its sources; works in both themes. | Preview only. Production integration is not authorized (decision 37). On integration, production routes link to production routes only; no production page may point at `/preview/`. |
+| 31 | **Two-view public record pattern**: a structured record as the authoritative view, with a coordinated layer map | **Approved** as the proposed standard for public Memory Project records | *Every record must be complete as information before it becomes an experience.* Structured information is authoritative; visualizations are navigational and explanatory; both read the same record; neither reveals anything the visitor is not entitled to. | Specified in `record-view-contract.md` (a draft for review). The detached **Derived** layer is to be preserved: an original account and an interpretation of it are not equivalent, and interpretation never acquires the source's authority. This applies to any future AI-assisted feature. |
+| 32 | **TIRO Citation Standard v0.1** (`citation-standard-v0.1.md`) | **Provisional** | TIRO's custodianship must never be mistaken for authorship or cultural ownership. Translations and interpretations are separately attributable and citable. | Minimum fields: record title (where publication is permitted), record identifier, source attribution as authorized, custodian, record version, persistent URL, access date. Open: what constitutes a new version; persistent identifiers; attribution variants by audience or language; credit under shared or disputed authority; a machine-readable form. Remains provisional until the record and provenance model is finalized. |
+| 33 | **Distinct contributor/authority fixture** (`DEMO-MP-0001`) | **Approved: synthetic only** | The contributor/authority distinction is fundamental and had to be demonstrated, not only explained. | Deliberately fictional; no real person, community, or institution. One example is sufficient. Kept in its own fixture and projection so the shared Living Trace fixtures, on which other demonstrations depend, are unchanged. It is not evidence of any real authority. |
+| 34 | **Authority is distinct from its execution** (the signer clarification) | **Adopted as a clarification** of the proposed governance model, not a broadening of anyone's authority | The system must recognize collective authority and also represent how a collective exercises it. A signer possesses no independent cultural authority by being a signer, yet an authorized signer may execute a collective's decision within a valid mandate. | The model keeps five things apart: who **possesses** the authority; who **made or authorized** the decision; who **executed** and who **recorded** it; what **mandate** permitted it; and whether that mandate was **valid** for that holder, record, use, and date. A signature outside its mandate has no effect. Incomplete authorization fails closed. Visitors see only a safe consent summary: never a signer's or subject's identity, a mandate's identity or terms, or an attempt without effect (ethos §3.3; contract 0.2 §7.3). Open: what evidence establishes a real collective's mandate (decision 27; requires actual community participation); how dissent within a collective is recorded; revoking or amending a mandate mid-term; whether the source community may see execution detail that visitors may not (audience-dependent disclosure). |
+| 35 | **Disclosure verification**: three protections | **Approved and implemented** (narrowly scoped) | Canary values alone are not enough. | (1) Explicit public-field allowlists for every record projection. (2) Recursive forbidden-field assertions over every public projection, for private keys and values, with the guards themselves tested. (3) Build-output scanning extended to serialized private keys (matched as `"key":`, so prose and documentation that name a field are not false positives) and to identifiers prohibited on the authority scenario's page only. |
+| 36 | **Shared component consolidation** (`living-archive-consolidation.md`) | **Planned, not implemented** | V5 and Memory Project v1 already share tokens, type roles, motion, and layer geometry under two prefixes. | No refactor of approved previews until adoption. |
+| 37 | **Production adoption** of V5, the Memory Project, or the record interface | **Not authorized** | Design approval is not operational readiness. | Requires a separate decision. The Memory Project is presented as in development, never as an operating collection. |
+| 38 | **Global navigation changes** | **Deferred** | The information architecture is settled after the inner pages are evaluated. | The shared `TopNav` is unchanged. |
+| 39 | **Publication of the working documents** (citation standard, record-view contract, consolidation inventory) | **Not yet** | Provisional specifications must not be presented as adopted institutional standards. | They remain internal working documents until their open questions are resolved. TIRO should eventually have a public technical documentation area on its stewardship and provenance architecture. A private review interface may be useful before then. |
+
+### Where the work stands
+
+| Milestone | Status |
+| --- | --- |
+| Public homepage (V5) | Design approved |
+| Memory Project overview | Design approved |
+| Two-view record interface | Pattern approved |
+| Synthetic authority model | Implemented; revised for decision 34 |
+| Citation standard | Provisional v0.1 |
+| Record contract | Documented (draft) |
+| Design-system consolidation | Pending |
+| Production integration | Pending; not authorized |
+
+These statuses reflect the founder's design decisions and the reported implementation and test results, not an independent code audit.
+
+### Principle carried forward
+
+> **TIRO's philosophy is translated into enforceable system behavior.** A distinction drawn in the Manifesto or in Community Rights should, wherever the system depends on it, have a data model, a demonstration, and an automated test.
