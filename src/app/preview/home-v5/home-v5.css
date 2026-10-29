@@ -1,8 +1,10 @@
 /* ======================================================================
    Homepage v5 — "The Living Archive" (preview only)
-   Scoped to .hv5. Built only from the existing TIRO tokens: parchment and
-   ink with the terracotta accent in the light theme, indigo with gold in
-   the dark. Type is the site's own Spectral, Karla, and Space Mono.
+   Scoped to .hv5, on top of the Living Archive system
+   (src/components/archive/archive.css). Built only from the existing TIRO
+   tokens: parchment and ink with the terracotta accent in the light theme,
+   indigo with gold in the dark. Type is the site's own Spectral, Karla,
+   and Space Mono.
 
    One line runs through the page: the mark's resonance line, continued
    (Thread.tsx). Every section begins on a node of it.
@@ -12,17 +14,12 @@
    ====================================================================== */
 
 .hv5 {
-  --hv5-max: 78rem;
-  --hv5-pad: 1.5rem;
   --hv5-gutter: 2rem;
-  --hv5-hair: color-mix(in srgb, var(--tiro-mineral-line) 50%, transparent);
-  --hv5-faint: color-mix(in srgb, var(--tiro-mineral-line) 30%, transparent);
   position: relative;
 }
 
 @media (max-width: 480px) {
   .hv5 {
-    --hv5-pad: 1rem;
     --hv5-gutter: 1.6rem;
   }
 }
@@ -35,13 +32,6 @@
 
 .hv5 [id] {
   scroll-margin-top: 5rem;
-}
-
-.hv5-frame {
-  margin-inline: auto;
-  width: 100%;
-  max-width: var(--hv5-max);
-  padding-inline: var(--hv5-pad);
 }
 
 /* Every section: the thread's gutter, then the content. */
@@ -102,13 +92,9 @@
   border-style: dashed;
 }
 
-.hv5-eyebrow {
-  font-family: var(--font-code);
-  font-size: 0.6875rem;
+/* Every section begins on a node: its label sits on the node's 18px line. */
+.hv5 .la-eyebrow {
   line-height: 18px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--tiro-accent);
 }
 
 /* ---------- Hero ---------- */
@@ -178,23 +164,9 @@
   }
 }
 
-.hv5-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.85rem;
-  border: 1px solid var(--tiro-accent);
-  background: var(--tiro-accent);
-  color: var(--tiro-bg);
-  padding: 1rem 1.6rem;
-  font-family: var(--font-code);
-  font-size: 0.78rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  transition: filter var(--lt-dur-quick) ease;
-}
-
-.hv5-cta:hover {
-  filter: brightness(1.08);
+/* The hero's primary action is a little wider than an inner page's. */
+.hv5 .la-cta {
+  padding-inline: 1.6rem;
 }
 
 .hv5-arrow {
@@ -202,7 +174,7 @@
   transition: transform var(--lt-dur-base) var(--lt-ease);
 }
 
-.hv5-cta:hover .hv5-arrow,
+.la-cta:hover .hv5-arrow,
 .hv5-path:hover .hv5-arrow,
 .hv5-path:focus-visible .hv5-arrow {
   transform: translateX(4px);
@@ -250,32 +222,32 @@
 }
 
 .hv5-construct {
-  stroke: var(--hv5-faint);
+  stroke: var(--la-faint);
   stroke-width: 1;
   stroke-dasharray: 2 5;
 }
 
 .hv5-frame-rec rect {
   fill: color-mix(in srgb, var(--tiro-text) 2.5%, transparent);
-  stroke: var(--hv5-faint);
+  stroke: var(--la-faint);
   stroke-width: 1;
 }
 
 .hv5-frame-rec line {
-  stroke: var(--hv5-faint);
+  stroke: var(--la-faint);
   stroke-width: 1;
 }
 
 .hv5-open {
   fill: none;
-  stroke: var(--hv5-hair);
+  stroke: var(--la-hair);
   stroke-width: 1.25;
   stroke-dasharray: 1.5 6;
   stroke-linecap: round;
 }
 
 .hv5-above {
-  stroke: var(--hv5-hair);
+  stroke: var(--la-hair);
   stroke-width: 1;
   stroke-dasharray: 2 6;
 }
@@ -478,18 +450,9 @@
   font-size: clamp(2.5rem, 7vw, 4.75rem);
 }
 
-.hv5-cite {
-  display: inline-block;
+/* Quotations here are set larger, so their source stands a little further off. */
+.hv5 .la-cite {
   margin-top: 0.85rem;
-  font-family: var(--font-code);
-  font-size: 0.6875rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--tiro-text-muted);
-}
-
-.hv5-cite:hover {
-  color: var(--tiro-text);
 }
 
 /* Why: the founding statement as an inscription. */
@@ -520,59 +483,6 @@
 .hv5-layers-figure {
   width: 100%;
   max-width: 34rem;
-}
-
-.hv5-layers-figure svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  overflow: visible;
-}
-
-.hv5-sheet {
-  cursor: pointer;
-}
-
-.hv5-sheet-lift {
-  transition: transform var(--lt-dur-base) var(--lt-ease);
-}
-
-.hv5-sheet-lift[data-on="true"] {
-  transform: translateY(-10px);
-}
-
-.hv5-sheet-plane {
-  fill: var(--tiro-raised);
-  stroke: var(--tiro-text-subtle);
-  stroke-width: 1.25;
-  transition: fill var(--lt-dur-base) ease, stroke var(--lt-dur-base) ease;
-}
-
-.hv5-sheet-lift[data-on="true"] .hv5-sheet-plane {
-  stroke: var(--tiro-accent);
-  stroke-width: 1.75;
-  fill: color-mix(in srgb, var(--tiro-accent) 7%, var(--tiro-raised));
-}
-
-.hv5-sheet-field {
-  stroke: var(--hv5-hair);
-  stroke-width: 1;
-}
-
-.hv5-sheet-leader {
-  stroke: var(--hv5-hair);
-  stroke-width: 1;
-}
-
-.hv5-sheet-label {
-  font-family: var(--font-code);
-  font-size: 13px;
-  letter-spacing: 0.2em;
-  fill: var(--tiro-text-muted);
-}
-
-.hv5-sheet-lift[data-on="true"] .hv5-sheet-label {
-  fill: var(--tiro-accent);
 }
 
 .hv5-layer-tabs {
@@ -707,43 +617,16 @@
   background: var(--tiro-surface);
 }
 
-/* ---------- Motion ---------- */
+/* ---------- Motion ----------
+   Rise, panel entry, and the record separating into its layers come from
+   the Living Archive system (archive.css). */
 @media (prefers-reduced-motion: no-preference) {
   .hv5-thread {
     transition: opacity 900ms var(--lt-ease) 600ms;
   }
-
-  .hv5 [data-lt-reveal="pending"] .hv5-rise {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-
-  .hv5 [data-lt-reveal="shown"] .hv5-rise {
-    opacity: 0;
-    transform: translateY(14px);
-    animation: hv5-rise 900ms var(--lt-ease) forwards;
-    animation-delay: var(--lt-delay, 0ms);
-  }
-
-  /* The record separates into its layers once, when it is reached. */
-  .hv5 [data-lt-reveal="pending"] .hv5-sheet {
-    transform: translateY(var(--hv5-collapse));
-  }
-
-  .hv5 [data-lt-reveal="shown"] .hv5-sheet {
-    transform: translateY(var(--hv5-collapse));
-    animation: hv5-separate 1300ms var(--lt-ease) forwards;
-    animation-delay: calc(300ms + var(--lt-delay, 0ms));
-  }
-
-  .hv5-enter {
-    animation: hv5-enter 420ms var(--lt-ease) both;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hv5-sheet-lift,
-  .hv5-sheet-plane,
   .hv5-strand-out,
   .hv5-pathway,
   .hv5-arrow,
@@ -754,38 +637,9 @@
   }
 }
 
-@keyframes hv5-rise {
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes hv5-separate {
-  to {
-    transform: none;
-  }
-}
-
-@keyframes hv5-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 @media print {
   .hv5-thread,
   .hv5-strands svg {
     display: none;
-  }
-  .hv5 [data-lt-reveal] * {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
   }
 }

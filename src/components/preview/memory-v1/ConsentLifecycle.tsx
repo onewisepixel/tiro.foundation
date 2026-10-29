@@ -120,7 +120,7 @@ export default function ConsentLifecycle() {
 
       <figcaption>
         <div aria-live="polite">
-          <p key={state} className="mv1-enter font-[family-name:var(--font-display)] text-xl text-[var(--tiro-text)]">
+          <p key={state} className="la-enter font-[family-name:var(--font-display)] text-xl text-[var(--tiro-text)]">
             {current.title}
           </p>
           <p className="mt-2 max-w-[36rem] text-sm leading-relaxed text-[var(--tiro-text-muted)]">{current.body}</p>

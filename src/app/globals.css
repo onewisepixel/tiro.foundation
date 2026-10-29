@@ -323,6 +323,12 @@ html[data-bfcache-pending="true"] body {
   --lt-dur-quick: 160ms;
   --lt-dur-base: 240ms;
   --lt-dur-trace: 1400ms;
+  /* The fixed site header's height (TopNav.tsx: 1px rule + 2 x 1rem
+     padding + its 30px mark and buttons), at every width. Sticky elements
+     sit under it. A constant rather than a measurement, so it does not
+     follow the narrow-screen menu when it opens; checked against the
+     rendered header by scripts/test/living-archive-parity.mjs. */
+  --la-header: 63px;
   /* The mark's resonance line sits at x=47 of its 90-unit viewBox, not
      the center (45): an offset of (mark width / 45). Every spine segment
      and marker uses it, so the line stays continuous with the hero mark

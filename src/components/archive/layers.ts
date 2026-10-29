@@ -1,7 +1,7 @@
-// The layers of a memory record, as the Memory Project explains them.
-// Plain data, shared by the overview (where each layer explains the
-// method) and the record page (where each layer is a section of a real
-// structured record). Wording follows Community Rights & Cultural Data
+// The layers of a memory record, as the Living Archive explains them.
+// Plain data, shared by the homepage (the record in exploded view), the
+// Memory Project overview (where each layer explains the method) and the
+// record page (where each layer is a section of a real structured record). Wording follows Community Rights & Cultural Data
 // Stewardship and docs/ethos.txt §3.2–3.3; nothing here is a field value.
 //
 // The first five are the record. "Derived" is deliberately apart:
@@ -60,5 +60,3 @@ export const ALL_LAYERS: Layer[] = [...RECORD_LAYERS, DERIVED_LAYER];
 
 // The separate capacities behind "Authority" (docs/ethos.txt §3.2).
 export const CAPACITIES = ["Collector", "Contributor", "Subject", "Source authority", "Legal rights holder", "Signer"];
-
-export const RECORDS_BASE = "/preview/memory-v1/records";

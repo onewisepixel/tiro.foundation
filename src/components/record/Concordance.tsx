@@ -5,6 +5,7 @@ import { useState } from "react";
 import { EVIDENCE } from "@/lib/livingTrace/evidence";
 import type { GraphEdge } from "@/lib/livingTrace/graph";
 import { EvidenceStroke } from "@/components/trace/EvidenceTag";
+import "./record.css";
 
 // A concordance: one record's relationships to other accounts, places,
 // events, translations, and readings, each drawn with its evidence line
@@ -26,14 +27,14 @@ export default function Concordance({ rows, idPrefix }: { rows: ConcordanceRow[]
   const [open, setOpen] = useState<string | null>(null);
 
   return (
-    <ul className="mv1-concordance">
+    <ul className="la-concordance">
       {rows.map(({ edge, otherLabel, otherHref, outgoing }) => {
         const isOpen = open === edge.id;
         const { claimants, withheld } = claims(edge);
         const panel = `${idPrefix}-${edge.id}`;
         return (
           <li key={edge.id}>
-            <button type="button" className="mv1-concordance-row" aria-expanded={isOpen} aria-controls={panel} onClick={() => setOpen(isOpen ? null : edge.id)}>
+            <button type="button" className="la-concordance-row" aria-expanded={isOpen} aria-controls={panel} onClick={() => setOpen(isOpen ? null : edge.id)}>
               <span className="pt-1.5">
                 <EvidenceStroke evidence={edge.evidence} width={28} />
               </span>
@@ -47,21 +48,21 @@ export default function Concordance({ rows, idPrefix }: { rows: ConcordanceRow[]
                   {withheld > 0 ? " · includes a withheld account" : ""}
                 </span>
               </span>
-              <span aria-hidden="true" className="mv1-concordance-toggle">
+              <span aria-hidden="true" className="la-concordance-toggle">
                 {isOpen ? "−" : "+"}
               </span>
             </button>
-            <div id={panel} hidden={!isOpen} className="mv1-concordance-panel">
+            <div id={panel} hidden={!isOpen} className="la-concordance-panel">
               <p>{edge.summary}</p>
               <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">{EVIDENCE[edge.evidence].meaning}</p>
               <dl className="mt-3 grid gap-2 text-sm">
                 <div>
-                  <dt className="mv1-dt">Claimed by</dt>
+                  <dt className="la-term">Claimed by</dt>
                   <dd>{claimants.length > 0 ? claimants.join("; ") : "No one. It is recorded as an open question."}</dd>
                 </div>
                 {withheld > 0 ? (
                   <div>
-                    <dt className="mv1-dt">Withheld</dt>
+                    <dt className="la-term">Withheld</dt>
                     <dd>
                       {withheld} further account{withheld === 1 ? "" : "s"} from a restricted source, acknowledged only. Its position, claimant, and
                       source are not sent to this page.
@@ -69,12 +70,12 @@ export default function Concordance({ rows, idPrefix }: { rows: ConcordanceRow[]
                   </div>
                 ) : null}
                 <div>
-                  <dt className="mv1-dt">Recorded by</dt>
+                  <dt className="la-term">Recorded by</dt>
                   <dd>{edge.recordedBy}</dd>
                 </div>
               </dl>
               {otherHref ? (
-                <Link href={otherHref} className="mv1-more mt-3">
+                <Link href={otherHref} className="la-more mt-3">
                   Open {otherLabel}
                   <span aria-hidden="true"> →</span>
                 </Link>

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import Concordance, { type ConcordanceRow } from "@/components/preview/memory-v1/Concordance";
-import CopyCitation from "@/components/preview/memory-v1/CopyCitation";
-import LayerStack from "@/components/preview/memory-v1/LayerStack";
-import { ALL_LAYERS, CAPACITIES, RECORDS_BASE, type LayerKey } from "@/components/preview/memory-v1/layers";
-import RecordMap from "@/components/preview/memory-v1/RecordMap";
+import LayerStack from "@/components/archive/LayerStack";
+import { ALL_LAYERS, CAPACITIES, type LayerKey } from "@/components/archive/layers";
+import { RECORDS_BASE } from "@/components/preview/memory-v1/routes";
+import Concordance, { type ConcordanceRow } from "@/components/record/Concordance";
+import CopyCitation from "@/components/record/CopyCitation";
+import RecordMap from "@/components/record/RecordMap";
 import { RestrictedRecordNotice } from "@/components/trace/Boundary";
 import EvidenceTag from "@/components/trace/EvidenceTag";
 import OriginPoint from "@/components/trace/OriginPoint";
@@ -16,6 +17,7 @@ import VoiceSource from "@/components/trace/VoiceSource";
 import { listScenario, resolveScenarioRecord, scenarioRouteIds, type AuthorityRecord } from "@/lib/livingTrace/authorityProjection";
 import { USE_CATEGORIES, USE_GRANT_LABEL, type EvidenceState } from "@/lib/livingTrace/evidence";
 import { discoverableRouteIds, listDiscoverable, projectGraph, relationsFor, resolveRecord, SPECIMEN_ROUTE, type SpecimenRecord } from "@/lib/livingTrace/projection";
+import "@/components/archive/archive.css";
 import "../../memory-v1.css";
 
 // A memory record, in two coordinated views.
@@ -82,7 +84,7 @@ function LayerSection({ k, children }: { k: LayerKey; children: React.ReactNode 
 function Field({ term, value, evidence, note }: { term: string; value: string; evidence?: EvidenceState; note?: string }) {
   return (
     <div>
-      <dt className="mv1-dt">{term}</dt>
+      <dt className="la-term">{term}</dt>
       <dd>
         {value}
         {evidence ? (
@@ -118,7 +120,7 @@ function Parties({ record }: { record: AuthorityRecord }) {
       <dl className="mv1-fields">
         {record.parties.map((p) => (
           <div key={p.capacity}>
-            <dt className="mv1-dt">{p.capacity}</dt>
+            <dt className="la-term">{p.capacity}</dt>
             <dd>
               {p.label} {p.identityWithheld ? <span className="mv1-withheld">Identity withheld</span> : <EvidenceTag evidence={p.evidence} />}
               <span className="mt-1 block text-sm text-[var(--tiro-text-muted)]">{p.role}</span>
@@ -127,7 +129,7 @@ function Parties({ record }: { record: AuthorityRecord }) {
         ))}
       </dl>
       <div className="mv1-mandate mt-6">
-        <h3 className="mv1-dt">How the collective exercises its authority</h3>
+        <h3 className="la-term">How the collective exercises its authority</h3>
         <p className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--tiro-text)]">
           A representative holds no authority by being a signer. They may carry out the collective&apos;s decisions only within a verified mandate:
           for named uses, of this record, for a set period. A signature outside the mandate has no effect.
@@ -205,8 +207,8 @@ export default async function RecordPreview({ params }: PageProps) {
 
   if (resolved.state === "restricted-notice") {
     return (
-      <main className="mv1 bg-[var(--tiro-bg)] pt-[63px] text-[var(--tiro-text)]">
-        <div className="mv1-frame mv1-record-head">
+      <main className="la mv1 bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+        <div className="la-frame mv1-record-head">
           <Crumbs id={resolved.notice.reference} />
           <div className="mt-10 grid gap-10 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-16">
             <div className="max-w-[13rem]">
@@ -223,10 +225,10 @@ export default async function RecordPreview({ params }: PageProps) {
                 <CopyCitation input={{ kind: "restricted", reference: resolved.notice.reference }} />
               </div>
               <p className="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-sm">
-                <Link href="/preview/memory-v1#records" className="mv1-more">
+                <Link href="/preview/memory-v1#records" className="la-more">
                   Back to the demonstration records
                 </Link>
-                <Link href="/community-rights" className="mv1-more">
+                <Link href="/community-rights" className="la-more">
                   Why access is not entitlement
                 </Link>
               </p>
@@ -251,11 +253,11 @@ export default async function RecordPreview({ params }: PageProps) {
   const next = at < publicIds.length - 1 ? publicIds[at + 1] : null;
 
   return (
-    <main className="mv1 bg-[var(--tiro-bg)] pt-[63px] text-[var(--tiro-text)]">
-      <header className="mv1-frame mv1-record-head">
+    <main className="la mv1 bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header className="la-frame mv1-record-head">
         <Crumbs id={record.recordId} />
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-          <p className="mv1-eyebrow">Memory record · {record.recordId}</p>
+          <p className="la-eyebrow">Memory record · {record.recordId}</p>
           <SyntheticPill />
         </div>
         <SyntheticNotice className="mt-6 max-w-3xl" />
@@ -263,15 +265,15 @@ export default async function RecordPreview({ params }: PageProps) {
         <p className="mv1-lede mt-6 max-w-3xl">{record.summary}</p>
         <dl className="mv1-states mt-8">
           <div className="flex gap-2">
-            <dt className="mv1-dt">Publication</dt>
+            <dt className="la-term">Publication</dt>
             <dd className="text-sm text-[var(--tiro-text-soft)]">{record.publicationStatus}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="mv1-dt">Custody</dt>
+            <dt className="la-term">Custody</dt>
             <dd className="text-sm text-[var(--tiro-text-soft)]">{record.custodyStatus}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="mv1-dt">Version</dt>
+            <dt className="la-term">Version</dt>
             <dd className="text-sm text-[var(--tiro-text-soft)]">{authority ? authority.version : "Not yet versioned"}</dd>
           </div>
         </dl>
@@ -284,7 +286,7 @@ export default async function RecordPreview({ params }: PageProps) {
         <p className="mv1-fineprint mt-4">Schema proposal: no approved Memory Record Specification yet.</p>
       </header>
 
-      <div className="mv1-frame mv1-record-body">
+      <div className="la-frame mv1-record-body">
         <RecordMap />
 
         <article aria-label={`Record ${record.recordId}`} className="min-w-0">
@@ -337,19 +339,19 @@ export default async function RecordPreview({ params }: PageProps) {
             </dl>
             {authority ? (
               <>
-                <h3 className="mv1-dt mb-2 mt-6">Each use: whether it is in effect, and on whose authority</h3>
+                <h3 className="la-term mb-2 mt-6">Each use: whether it is in effect, and on whose authority</h3>
                 <Authorizations record={authority} />
               </>
             ) : (
               <>
-                <h3 className="mv1-dt mb-2 mt-6">Permitted uses, each on its own</h3>
+                <h3 className="la-term mb-2 mt-6">Permitted uses, each on its own</h3>
                 <PermissionGrid uses={record.uses} />
               </>
             )}
-            <h3 className="mv1-dt mb-2 mt-6">Withdrawal</h3>
+            <h3 className="la-term mb-2 mt-6">Withdrawal</h3>
             <p className="mv1-body !text-[0.9375rem]">
               {record.withdrawal}{" "}
-              <Link href="/community-rights" className="mv1-more !text-[0.9375rem]">
+              <Link href="/community-rights" className="la-more !text-[0.9375rem]">
                 Read the governing policy
               </Link>
             </p>
@@ -365,7 +367,7 @@ export default async function RecordPreview({ params }: PageProps) {
             ) : (
               <p className="mv1-body">Nothing has been derived from this record, and no relationships are on record.</p>
             )}
-            <Link href="/living-trace#discover" className="mv1-more mt-5">
+            <Link href="/living-trace#discover" className="la-more mt-5">
               Trace each account to its source in the full synthetic map<span aria-hidden="true"> →</span>
             </Link>
           </LayerSection>
@@ -392,21 +394,21 @@ export default async function RecordPreview({ params }: PageProps) {
 
           <nav aria-label="Other demonstration records" className="mv1-pager mt-16">
             {prev ? (
-              <Link href={`${RECORDS_BASE}/${prev}`} className="mv1-more">
+              <Link href={`${RECORDS_BASE}/${prev}`} className="la-more">
                 <span aria-hidden="true">← </span>Previous record · {prev}
               </Link>
             ) : (
               <span />
             )}
             {next ? (
-              <Link href={`${RECORDS_BASE}/${next}`} className="mv1-more sm:text-right">
+              <Link href={`${RECORDS_BASE}/${next}`} className="la-more sm:text-right">
                 Next record · {next}
                 <span aria-hidden="true"> →</span>
               </Link>
             ) : (
               <span />
             )}
-            <Link href="/preview/memory-v1" className="mv1-more">
+            <Link href="/preview/memory-v1" className="la-more">
               <span aria-hidden="true">← </span>Back to the Memory Project
             </Link>
           </nav>

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
-import LayerStack from "./LayerStack";
-import { ALL_LAYERS, CAPACITIES, RECORDS_BASE, type LayerKey } from "./layers";
+import LayerStack from "@/components/archive/LayerStack";
+import { ALL_LAYERS, CAPACITIES, type LayerKey } from "@/components/archive/layers";
+import { useLayerTabs } from "@/components/archive/useLayerTabs";
+import { RECORDS_BASE } from "./routes";
 
 // The method, explained layer by layer. A tablist (arrow keys, Home/End)
 // beside the exploded record; choosing a layer lifts its sheet and explains
@@ -12,23 +13,12 @@ import { ALL_LAYERS, CAPACITIES, RECORDS_BASE, type LayerKey } from "./layers";
 // interface.
 // The Authority layer links to the fictional authority scenario, where each
 // capacity is held by a different party; the others link to the specimen.
+const KEYS = ALL_LAYERS.map((l) => l.key);
+
 export default function MethodLayers({ specimenId, authorityId }: { specimenId: string; authorityId: string }) {
-  const [active, setActive] = useState<LayerKey>("account");
-  const tabs = useRef<Partial<Record<LayerKey, HTMLButtonElement | null>>>({});
+  const { active, setActive, tabProps } = useLayerTabs<LayerKey>(KEYS, "account");
   const layer = ALL_LAYERS.find((l) => l.key === active)!;
   const index = ALL_LAYERS.indexOf(layer);
-
-  const onKey = (e: React.KeyboardEvent, i: number) => {
-    const delta = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
-    const jump = e.key === "Home" ? 0 : e.key === "End" ? ALL_LAYERS.length - 1 : null;
-    if (!delta && jump === null) {
-      return;
-    }
-    e.preventDefault();
-    const next = ALL_LAYERS[jump ?? (i + delta + ALL_LAYERS.length) % ALL_LAYERS.length].key;
-    setActive(next);
-    tabs.current[next]?.focus();
-  };
 
   return (
     <div className="mv1-method">
@@ -41,19 +31,12 @@ export default function MethodLayers({ specimenId, authorityId }: { specimenId: 
           {ALL_LAYERS.map((l, i) => (
             <button
               key={l.key}
-              ref={(el) => {
-                tabs.current[l.key] = el;
-              }}
               type="button"
-              role="tab"
               id={`mv1-tab-${l.key}`}
-              aria-selected={active === l.key}
               aria-controls="mv1-method-panel"
-              tabIndex={active === l.key ? 0 : -1}
               className="mv1-tab"
               data-derived={l.key === "derived"}
-              onClick={() => setActive(l.key)}
-              onKeyDown={(e) => onKey(e, i)}
+              {...tabProps(l.key, i)}
             >
               <span className="mv1-tab-n">{l.key === "derived" ? "+" : `0${i + 1}`}</span>
               <span className="mv1-tab-label">{l.label}</span>
@@ -63,7 +46,7 @@ export default function MethodLayers({ specimenId, authorityId }: { specimenId: 
         </div>
 
         <div id="mv1-method-panel" role="tabpanel" aria-labelledby={`mv1-tab-${active}`} className="mv1-method-panel">
-          <div key={active} className="mv1-enter">
+          <div key={active} className="la-enter">
             <p className="mv1-panel-q">{layer.question}</p>
             <p className="mt-3 max-w-[34rem] text-base leading-relaxed text-[var(--tiro-text-soft)]">{layer.method}</p>
             {active === "authority" ? (
@@ -81,7 +64,7 @@ export default function MethodLayers({ specimenId, authorityId }: { specimenId: 
                 </p>
               </div>
             ) : null}
-            <Link href={`${RECORDS_BASE}/${active === "authority" ? authorityId : specimenId}#layer-${active}`} className="mv1-more mt-6">
+            <Link href={`${RECORDS_BASE}/${active === "authority" ? authorityId : specimenId}#layer-${active}`} className="la-more mt-6">
               {active === "authority"
                 ? "See six capacities held by six different parties"
                 : index < 5

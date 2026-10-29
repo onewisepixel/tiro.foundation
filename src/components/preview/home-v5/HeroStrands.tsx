@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import TiroMark from "@/components/TiroMark";
+import { cubic, r2 } from "@/lib/geometry";
 
 // The hero figure: memory arriving, held, and carried forward with its
 // context. Strands come in from the left (memories, each from its own
@@ -20,7 +21,6 @@ type Term = "source" | "authority" | "consent";
 
 const W = 760;
 const H = 860; // the resonance line runs on below the strands
-const r2 = (n: number) => Math.round(n * 100) / 100;
 const MW = 120; // mark width in figure units
 const MX = 380 - (MW * 47) / 90; // resonance line on x = 380
 const MY = 80;
@@ -74,15 +74,11 @@ const TERMS: { key: Term; label: string; x: number; y: number; at: [number, numb
 
 const curveIn = (s: { x: number; y: number }, e: { x: number; y: number }) => `M${s.x},${s.y} C${s.x + 130},${s.y} ${e.x - 120},${e.y} ${e.x},${e.y}`;
 const curveOut = (o: { x: number; y: number }, t: { x: number; y: number }) => `M${o.x},${o.y} C${o.x + 140},${o.y} ${t.x - 170},${t.y} ${t.x},${t.y}`;
-// Plain multiplication and rounding, not **: Math.pow can differ in the last
-// digit between the server and the browser, which breaks hydration.
-const bez = (p: number[], t: number) => {
-  const m = 1 - t;
-  return r2(m * m * m * p[0] + 3 * m * m * t * p[1] + 3 * m * t * t * p[2] + t * t * t * p[3]);
-};
+// Rendered on the server and hydrated: every coordinate goes through
+// r2() / cubic() (src/lib/geometry.ts), never ** or Math.pow.
 const midIn = (s: { x: number; y: number }, e: { x: number; y: number }, t: number) => ({
-  x: bez([s.x, s.x + 130, e.x - 120, e.x], t),
-  y: bez([s.y, s.y, e.y, e.y], t),
+  x: cubic([s.x, s.x + 130, e.x - 120, e.x], t),
+  y: cubic([s.y, s.y, e.y, e.y], t),
 });
 
 export default function HeroStrands() {
@@ -138,7 +134,7 @@ export default function HeroStrands() {
         aria-live="polite"
       >
         {openTerm ? (
-          <div key={openTerm.key} className="hv5-enter">
+          <div key={openTerm.key} className="la-enter">
             <p className="lt-label text-[var(--tiro-accent)]">{openTerm.label}</p>
             <p className="mt-2 text-sm leading-relaxed text-[var(--tiro-text-soft)]">{openTerm.definition}</p>
             <Link href="/community-rights" className="tiro-link mt-3 inline-block text-xs">

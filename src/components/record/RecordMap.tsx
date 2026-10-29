@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import LayerStack from "./LayerStack";
-import { ALL_LAYERS, type LayerKey } from "./layers";
+import LayerStack from "@/components/archive/LayerStack";
+import { ALL_LAYERS, type LayerKey } from "@/components/archive/layers";
+import { useScrollSpy } from "@/components/archive/useScrollSpy";
+import "./record.css";
 
 // The record page's map: the exploded record, coordinated with the
 // structured record beside it. The list of layers is ordinary in-page
@@ -10,37 +11,12 @@ import { ALL_LAYERS, type LayerKey } from "./layers";
 // section lifts its sheet; choosing a sheet or a link moves to that
 // section and its heading. Wide screens: a sticky column. Narrow screens:
 // a sticky bar of the same links, without the drawing.
-export default function RecordMap() {
-  const [active, setActive] = useState<LayerKey>("account");
+const SECTION_IDS = ALL_LAYERS.map((l) => `layer-${l.key}`);
+const keyOf = (id: string | null) => (id ?? "layer-account").slice("layer-".length) as LayerKey;
 
-  useEffect(() => {
-    let frame = 0;
-    const update = () => {
-      frame = 0;
-      const line = window.innerHeight * 0.35;
-      let found: LayerKey = "account";
-      for (const l of ALL_LAYERS) {
-        const el = document.getElementById(`layer-${l.key}`);
-        if (el && el.getBoundingClientRect().top < line) {
-          found = l.key;
-        }
-      }
-      setActive(found);
-    };
-    const onScroll = () => {
-      if (!frame) {
-        frame = requestAnimationFrame(update);
-      }
-    };
-    frame = requestAnimationFrame(update);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
+export default function RecordMap() {
+  const [current, setCurrent] = useScrollSpy(SECTION_IDS, 0.35, "layer-account");
+  const active = keyOf(current);
 
   const go = (key: LayerKey) => {
     const section = document.getElementById(`layer-${key}`);
@@ -51,15 +27,15 @@ export default function RecordMap() {
     section.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
     section.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
     history.replaceState(null, "", `#layer-${key}`);
-    setActive(key);
+    setCurrent(`layer-${key}`);
   };
 
   return (
-    <nav aria-label="Layers of this record" className="mv1-map">
-      <div className="mv1-map-figure">
+    <nav aria-label="Layers of this record" className="la-map">
+      <div className="la-map-figure">
         <LayerStack active={active} onPick={go} labels={false} />
       </div>
-      <ol className="mv1-map-list">
+      <ol className="la-map-list">
         {ALL_LAYERS.map((l, i) => (
           <li key={l.key}>
             <a
@@ -71,7 +47,7 @@ export default function RecordMap() {
                 go(l.key);
               }}
             >
-              <span className="mv1-map-n" aria-hidden="true">
+              <span className="la-map-n" aria-hidden="true">
                 {l.key === "derived" ? "+" : `0${i + 1}`}
               </span>
               {l.label}
