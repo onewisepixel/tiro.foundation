@@ -1,6 +1,6 @@
 # Milestone 3.0, Phase 2: the Living Archive design system
 
-Status: **Prepared for review on `design/phase-2-living-archive-system`; not merged.**
+Status: **G2 approved by the founder on 2026-10-29**, after independent review of PR #15 and its passing Linux CI run (`40913476846`). Merged into `main` through PR #15 with a merge commit.
 Date: 2026-10-29. Base: `main` at `6a6eef5`.
 Owner: TIRO founder / Steward.
 Scope: plan §3 and §8 Phase 2 (`milestone-3.0-consolidation-plan.md`), building on the inventory in `living-archive-consolidation.md`.
@@ -128,7 +128,7 @@ Full-motion captures scroll the page from top to bottom so every reveal runs, th
 
 - **One browser engine:** headless Chrome on Windows. Firefox and Safari were not run. No CSS value changed, so any engine difference would affect the before and after builds alike.
 - **Flight Deck was not captured.** No Flight Deck file changed, and `globals.css` only adds `--la-header`. Its screenshots belong to Phase 4.
-- **Linux CI has not run yet.** It runs on this branch when the PR into `main` is opened.
+- **Linux CI:** run `40913476846` (`build-lint-test`) passed on `a5a9f85`. It covered the full test suite, including the Bash-script suites that cannot run on Windows, PostgreSQL integration, CDK synth, and the production-build disclosure check.
 - **No assistive-technology session was run.** The accessibility tree is unchanged by construction, apart from the redundant `aria-hidden` noted in §4.
 
 ## 6. Files
@@ -170,7 +170,7 @@ No file became unused. The earlier explorations (V2–V4) and every branch are u
 
 ## 7. Gate G2
 
-**Recommendation: G2 is met**, once the PR's Linux CI run passes. G2 asks for visual parity (plan §8). It was measured rather than judged:
+**G2 is met and approved** (founder, 2026-10-29). Linux CI run `40913476846` passed on `a5a9f85`. G2 asks for visual parity (plan §8). It was measured rather than judged:
 
 - zero differing pixels on every Living Archive page, in both themes, at three widths, with and without motion;
 - no change on the production routes beyond the noise of an unchanged build;
