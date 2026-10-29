@@ -1,5 +1,5 @@
 // Disclosure guards: two of the three protections the founder approved on
-// 2026-10-30 (docs/design/decisions.md). The third, build-output scanning,
+// 2026-10-28 (docs/design/decisions.md). The third, build-output scanning,
 // is scripts/test/verify-disclosure.mjs.
 //
 //   1. Explicit public-field allowlists. Each record projection declares

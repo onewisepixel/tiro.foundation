@@ -1,7 +1,7 @@
 # TIRO Citation Standard v0.1
 
 Status: **Provisional draft.** Not adopted. To be revisited when the record and provenance model is finalized.
-Revision date: 2026-10-30.
+Revision date: 2026-10-28.
 Owner: TIRO founder / Steward.
 Authority: Defers to `/community-rights` and `docs/ethos.txt` (§3.2–3.3 capacities and consent; §12 lifecycle). Where they speak, they govern.
 Implementation: `src/lib/livingTrace/citation.ts` (tested in `citation.test.ts`); shown on `/preview/memory-v1/records/[id]`.
@@ -31,7 +31,7 @@ A conventional citation names an author and a publisher. Applied to TIRO, that p
 
 Example (fictional scenario):
 
-> Synthetic contributor P-01, with the authority of Synthetic collective A-01. "An account given by one person, recorded by another, and governed by a third." DEMO-MP-0001, version 1. The Memory Project; held by the Tiro Foundation (custodian). Persistent URL not yet issued. Accessed 2026-10-30. Synthetic demonstration; not archival evidence.
+> Synthetic contributor P-01, with the authority of Synthetic collective A-01. "An account given by one person, recorded by another, and governed by a third." DEMO-MP-0001, version 1. The Memory Project; held by the Tiro Foundation (custodian). Persistent URL not yet issued. Accessed 2026-10-28. Synthetic demonstration; not archival evidence.
 
 **A translation.** It is its own work, credited to its translator, and points back to the record it translates.
 

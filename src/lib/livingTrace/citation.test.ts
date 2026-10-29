@@ -9,7 +9,7 @@ const base = {
   attribution: "Synthetic contributor P-01, with the authority of Synthetic collective A-01",
   version: "1",
   persistentUrl: "https://example.invalid/records/DEMO-MP-0001",
-  accessed: "2026-10-30",
+  accessed: "2026-10-28",
   synthetic: true,
 };
 
@@ -19,7 +19,7 @@ test("the source is credited first; TIRO appears only as custodian", () => {
   assert.ok(!/^(The )?Ti(ro|RO)/i.test(text));
   assert.match(text, /held by the Tiro Foundation \(custodian\)/);
   assert.match(text, /DEMO-MP-0001, version 1\./);
-  assert.match(text, /Accessed 2026-10-30\./);
+  assert.match(text, /Accessed 2026-10-28\./);
   assert.match(text, /Synthetic demonstration; not archival evidence\./);
   assert.deepEqual(warnings, []);
 });
@@ -52,7 +52,7 @@ test("an interpretation is its own work and says it is not a source account", ()
     by: "TIRO curator (illustrative role)",
     recordAttribution: "Synthetic source S-01",
     persistentUrl: null,
-    accessed: "2026-10-30",
+    accessed: "2026-10-28",
     synthetic: true,
   });
   assert.ok(text.startsWith("TIRO curator (illustrative role), interpreter."));
@@ -67,6 +67,6 @@ test("a translation credits its translator and points back to the record", () =>
 });
 
 test("a restricted record is cited by its reference alone", () => {
-  const { text } = cite({ kind: "restricted", reference: "DEMO-LT-0002", accessed: "2026-10-30" });
-  assert.equal(text, "Restricted record DEMO-LT-0002. The Memory Project; held by the Tiro Foundation (custodian). No further details are published. Accessed 2026-10-30.");
+  const { text } = cite({ kind: "restricted", reference: "DEMO-LT-0002", accessed: "2026-10-28" });
+  assert.equal(text, "Restricted record DEMO-LT-0002. The Memory Project; held by the Tiro Foundation (custodian). No further details are published. Accessed 2026-10-28.");
 });

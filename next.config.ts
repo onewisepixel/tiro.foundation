@@ -38,8 +38,8 @@ const nextConfig: NextConfig = {
     // pages use the separate "static" staleTime (5 minutes), untouched.
     // NOTE, per Next's own docs: this governs the client router cache for
     // soft/prefetch navigations only — it is explicitly NOT the browser's
-    // back/forward cache, which src/middleware.ts's Cache-Control header
-    // addresses separately.
+    // back/forward cache, which src/proxy.ts's Cache-Control header and
+    // src/components/BfcacheRevalidator.tsx address separately.
     staleTimes: {
       dynamic: 0,
     },

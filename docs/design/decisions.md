@@ -1,6 +1,6 @@
 # Founder design decisions
 
-Status: **The authoritative record of TIRO's design decisions** (from 2026-10-30; previously the Living Trace decisions alone). Each entry records its date, rationale, and conditions or open questions, so later work need not reconstruct the reasoning. These decisions govern design and prototype work; they are not institutional doctrine and do not amend `/community-rights`, the Manifesto, or `docs/ethos.txt`.
+Status: **The authoritative record of TIRO's design decisions** (from 2026-10-28; previously the Living Trace decisions alone). Each entry records its date, rationale, and conditions or open questions, so later work need not reconstruct the reasoning. These decisions govern design and prototype work; they are not institutional doctrine and do not amend `/community-rights`, the Manifesto, or `docs/ethos.txt`.
 Owner: TIRO founder / Steward.
 
 ## 2026-10-16 — review of Living Trace 0.2
@@ -145,7 +145,7 @@ RI-3 principle: TIRO protects community authority without building a system in w
 The contract's coherence does not establish real-world authority or operational readiness. Those require engagement with people, evidence, institutional decisions, and specialist review.
 
 
-## 2026-10-30 — The Living Archive: homepage, Memory Project, and record model (Milestones 1–2.1)
+## 2026-10-28 — The Living Archive: homepage, Memory Project, and record model (Milestones 1–2.1)
 
 **Verdict.** The Living Archive is approved as the **design direction** for TIRO's public website, and the Memory Project's architecture is approved subject to the refinements below. These are design decisions, not production adoption. The previews remain previews.
 

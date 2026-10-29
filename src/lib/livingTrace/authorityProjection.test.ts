@@ -5,7 +5,7 @@ import { USE_CATEGORIES, type UseCategory } from "./evidence";
 import { discoverableRouteIds, listDiscoverable, resolveRecord } from "./projection";
 import { SCENARIO_RECORDS } from "../../data/livingTrace/authorityScenario";
 
-// The model distinguishes five things (founder clarification, 2026-10-30):
+// The model distinguishes five things (founder clarification, 2026-10-28):
 //   who POSSESSES the authority a use requires   requiredFrom
 //   who MADE or authorized the decision           decision.by
 //   who EXECUTED and who RECORDED it              decision.executedBy, recordedBy

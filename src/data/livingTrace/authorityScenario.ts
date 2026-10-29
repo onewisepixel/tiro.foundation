@@ -3,7 +3,7 @@
 // One deliberately constructed record showing the capacities behind a
 // memory held by DIFFERENT parties (docs/ethos.txt §3.2–3.3), and how a
 // collective exercises its authority. The model keeps five things apart
-// (founder clarification, docs/design/decisions.md, 2026-10-30):
+// (founder clarification, docs/design/decisions.md, 2026-10-28):
 //
 //   1. who POSSESSES the authority a use requires   (authorization.requiredFrom)
 //   2. who MADE or authorized the decision           (decision.by)
@@ -284,8 +284,8 @@ export const SCENARIO_RECORDS: InternalScenarioRecord[] = [
     withdrawal:
       "In this scenario, P-01 may withdraw their participation and A-01 may restrict or withdraw the account, each through a steward. Withdrawal stops publication and future distribution within TIRO-controlled systems.",
     provenance: [
-      { at: "2026-10-30", event: "Scenario created as a design study", actor: "TIRO design (Memory Project v1)", evidence: "recorded" },
-      { at: "2026-10-30", event: "Revised to separate authority, decision, execution, mandate, and validity", actor: "TIRO design (Milestone 2.1)", evidence: "recorded" },
+      { at: "2026-10-28", event: "Scenario created as a design study", actor: "TIRO design (Memory Project v1)", evidence: "recorded" },
+      { at: "2026-10-28", event: "Revised to separate authority, decision, execution, mandate, and validity", actor: "TIRO design (Milestone 2.1)", evidence: "recorded" },
       { at: "—", event: "No recording, consent, or review took place. All parties are fictional.", actor: "—", evidence: "unknown" },
     ],
     media: { kind: "none", note: "No audio attached. In this scenario, publication of the audio is not authorized." },

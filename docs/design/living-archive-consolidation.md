@@ -1,7 +1,7 @@
 # The Living Archive: shared components and tokens (V5 ↔ Memory Project v1)
 
 Status: **Inventory and proposal.** Nothing has been refactored. The approved previews (`/preview/home-v5`, `/preview/memory-v1`) are unchanged by this document.
-Revision date: 2026-10-30.
+Revision date: 2026-10-28.
 Owner: TIRO founder / Steward.
 Purpose: Record what the homepage (V5) and the Memory Project (v1) already share, where they diverge, and how to consolidate them when they are adopted for production.
 

@@ -1,7 +1,7 @@
 # Record-view contract (proposed standard)
 
-Status: **Proposed standard for public Memory Project records.** The two-view pattern is approved by the founder (2026-10-30); this contract is a draft for review.
-Revision date: 2026-10-30.
+Status: **Proposed standard for public Memory Project records.** The two-view pattern is approved by the founder (2026-10-28); this contract is a draft for review.
+Revision date: 2026-10-28.
 Owner: TIRO founder / Steward.
 Authority: Defers to `/community-rights` and `docs/ethos.txt` (§3.2–3.3, §6.1, §12). The disclosure rules restate `src/lib/livingTrace/projection.ts` and `docs/design/decisions.md`; where they differ, the code's tests and the decisions log govern.
 Reference implementation: `/preview/memory-v1/records/[id]` (`src/app/preview/memory-v1/records/[id]/page.tsx`).
@@ -42,7 +42,7 @@ The order puts provenance and permission before consumption (`docs/memory.txt` �
 
 ### Authority, decision, execution, mandate, validity
 
-The record model keeps five things apart (founder clarification, `decisions.md`, 2026-10-30):
+The record model keeps five things apart (founder clarification, `decisions.md`, 2026-10-28):
 
 | | Question | In the model | Public |
 | --- | --- | --- | --- |
@@ -83,7 +83,7 @@ Any future AI-assisted output (summary, translation, transcription, linkage) is 
 
 ## 7. Verification
 
-A record view conforms when three independent protections hold (approved 2026-10-30):
+A record view conforms when three independent protections hold (approved 2026-10-28):
 
 1. **Explicit public-field allowlists.** Each record projection declares exactly which fields may reach a page (`AUTHORITY_PUBLIC_FIELDS`; `SPECIMEN_PUBLIC_FIELDS` and `RESTRICTED_NOTICE_FIELDS` in `disclosureGuards.ts`), and tests report any field outside them, at any depth.
 2. **Forbidden-field assertions.** Tests walk every public projection recursively for private keys and canary values (`disclosureGuards.test.ts`, `projection.test.ts`, `authorityProjection.test.ts`). The guards are themselves tested, so they cannot pass vacuously.
