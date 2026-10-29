@@ -4,24 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import TiroMark from "@/components/TiroMark";
-
-const navItems = [
-  { href: "/manifesto", label: "Manifesto" },
-  { href: "/about", label: "About" },
-  { href: "/memory-project", label: "Memory Project" },
-  { href: "/nodes", label: "Nodes" },
-  { href: "/community-rights", label: "Community Rights" },
-];
+import { isActiveGroup, isActivePath, NAV_GROUPS } from "@/lib/navigation";
 
 const THEME_EVENT = "tiro-theme-change";
-
-function isActivePath(pathname: string, href: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
 
 function subscribeToTheme(callback: () => void) {
   window.addEventListener(THEME_EVENT, callback);
@@ -84,21 +69,21 @@ export default function TopNav() {
         </Link>
 
         <div className="hidden items-center gap-6 lg:flex xl:gap-7">
-          {navItems.map((item) => {
-            const active = isActivePath(pathname, item.href);
+          {NAV_GROUPS.map((group) => {
+            const active = isActiveGroup(pathname, group);
 
             return (
               <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
+                key={group.href}
+                href={group.href}
+                aria-current={active ? (pathname === group.href ? "page" : "true") : undefined}
                 className={`uppercase tracking-[0.08em] transition-colors ${
                   active
                     ? "text-[var(--tiro-accent)]"
                     : "hover:text-[var(--tiro-text)]"
                 }`}
               >
-                {item.label}
+                {group.label}
               </Link>
             );
           })}
@@ -125,35 +110,34 @@ export default function TopNav() {
       </nav>
 
       {menuOpen ? (
-        <div id="tiro-nav-menu" className="border-t border-[var(--tiro-border)] bg-[var(--tiro-bg)] lg:hidden">
+        <div id="tiro-nav-menu" className="max-h-[calc(100dvh-var(--la-header))] overflow-y-auto border-t border-[var(--tiro-border)] bg-[var(--tiro-bg)] lg:hidden">
           <ul className="mx-auto max-w-6xl px-6 py-3 font-[family-name:var(--font-code)] text-sm">
-            {navItems.map((item) => {
-              const active = isActivePath(pathname, item.href);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    aria-current={active ? "page" : undefined}
-                    onClick={() => setMenuOpen(false)}
-                    className={`flex items-center gap-3 border-b border-[var(--tiro-border)] py-3.5 uppercase tracking-[0.08em] ${
-                      active ? "text-[var(--tiro-accent)]" : "text-[var(--tiro-text-soft)]"
-                    }`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`inline-block h-1.5 w-1.5 rounded-full ${active ? "bg-[var(--tiro-accent)]" : "bg-[var(--tiro-border-strong)]"}`}
-                    />
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-            <li>
-              <Link href="/contact" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 border-b border-[var(--tiro-border)] py-3.5 uppercase tracking-[0.08em] text-[var(--tiro-text-soft)]">
-                <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--tiro-border-strong)]" />
-                Contact
-              </Link>
-            </li>
+            {NAV_GROUPS.map((group) => (
+              <li key={group.label} className="border-b border-[var(--tiro-border)] py-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--tiro-text-subtle)]">{group.label}</p>
+                <ul>
+                  {group.links.map((item) => {
+                    const active = isActivePath(pathname, item.href);
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          onClick={() => setMenuOpen(false)}
+                          className={`flex items-center gap-3 py-2.5 uppercase tracking-[0.08em] ${active ? "text-[var(--tiro-accent)]" : "text-[var(--tiro-text-soft)]"}`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`inline-block h-1.5 w-1.5 rounded-full ${active ? "bg-[var(--tiro-accent)]" : "bg-[var(--tiro-border-strong)]"}`}
+                          />
+                          {item.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
             <li className="py-3.5">
               <button
                 type="button"

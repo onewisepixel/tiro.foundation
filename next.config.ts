@@ -9,6 +9,17 @@ const RETIRED_DEMO_SLUGS: Record<string, string> = {
   "market-song-lagos": "demo-video-record",
 };
 
+// The approved previews, adopted in Milestone 3.0 Phase 3a: their old
+// addresses lead to the production pages (temporary, so they can be
+// withdrawn in Phase 5). Records redirect by pattern, never by a list of
+// ids, so a redirect reveals nothing: an id that does not exist, or is
+// undiscoverable, redirects and then answers 404 like any other.
+export const ADOPTED_PREVIEWS = [
+  { source: "/preview/home-v5", destination: "/" },
+  { source: "/preview/memory-v1", destination: "/memory-project" },
+  { source: "/preview/memory-v1/records/:id", destination: "/memory-project/records/:id" },
+];
+
 const nextConfig: NextConfig = {
   // Only scripts/flight-deck/dev.mjs sets this, so the Flight Deck local
   // demo can run beside an ordinary `npm run dev` (Next allows one dev
@@ -21,11 +32,14 @@ const nextConfig: NextConfig = {
     return process.env.FLIGHT_DECK_DEPLOYMENT === "staging" ? [{ source: "/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] }] : [];
   },
   async redirects() {
-    return Object.entries(RETIRED_DEMO_SLUGS).map(([from, to]) => ({
-      source: `/memories/${from}`,
-      destination: `/memories/${to}`,
-      permanent: false,
-    }));
+    return [
+      ...Object.entries(RETIRED_DEMO_SLUGS).map(([from, to]) => ({
+        source: `/memories/${from}`,
+        destination: `/memories/${to}`,
+        permanent: false,
+      })),
+      ...ADOPTED_PREVIEWS.map((r) => ({ ...r, permanent: false })),
+    ];
   },
   experimental: {
     // Explicit, not a fix for a live gap: as of Next 15+ (this project is

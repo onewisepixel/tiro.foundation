@@ -13,10 +13,14 @@
 //  4. The Living Trace routes are statically prerendered (so check 2
 //     actually covers them) and carry noindex. 4b: the authority scenario's
 //     page, at exactly its expected routes, publishes only the safe consent
-//     summary. 4c: every synthetic record page carries noindex.
+//     summary. 4c: every synthetic record page carries noindex. 4d: the
+//     Memory Project serves exactly the expected record pages, prerendered.
+//     4e: its restricted record renders under the generic restricted
+//     title. 4f: demonstration material is labelled synthetic.
 //     A page that should be checked but cannot be found is a failure.
 //  5. No public search structure (sitemap, search index) exists that could
 //     list specimen records.
+//  6. No production page links to a /preview/ page.
 //
 // Server-side JS chunks are expected to contain the archive (the
 // projection runs on the server) and are deliberately not scanned.
@@ -140,7 +144,7 @@ for (const route of ["/living-trace", ...expectedSpecimens]) {
 // else, or an expected one that is missing, fails: moving the records (plan
 // Phase 3) must update this list, so the checks can never be skipped
 // silently by a route change.
-const EXPECTED_SCENARIO_ROUTES = ["/preview/memory-v1/records/DEMO-MP-0001"];
+const EXPECTED_SCENARIO_ROUTES = ["/memory-project/records/DEMO-MP-0001"];
 const scenarioRoutes = routes.filter((r) => /\/DEMO-MP-\d+$/.test(r));
 for (const r of EXPECTED_SCENARIO_ROUTES) {
   if (!scenarioRoutes.includes(r)) {
@@ -184,6 +188,64 @@ for (const route of scenarioRoutes) {
 // every prerendered DEMO-LT / DEMO-MP record route, wherever it lives.
 for (const route of routes.filter((r) => /\/DEMO-(LT|MP)-\d+$/.test(r))) {
   requireNoindex(route);
+}
+
+// 4d. The Memory Project's record view (adopted in Milestone 3.0 Phase 3a)
+// serves exactly the discoverable specimens and the authority scenario,
+// each prerendered. A missing or an extra record route fails.
+const RECORDS_BASE = "/memory-project/records";
+const EXPECTED_RECORD_ROUTES = ["DEMO-LT-0001", "DEMO-LT-0002", "DEMO-LT-0004", "DEMO-LT-0005", "DEMO-MP-0001"].map((id) => `${RECORDS_BASE}/${id}`);
+const recordRoutes = routes.filter((r) => r.startsWith(`${RECORDS_BASE}/`));
+for (const r of EXPECTED_RECORD_ROUTES) {
+  if (!recordRoutes.includes(r)) {
+    fail(`expected Memory Project record route missing: ${r}`);
+  }
+}
+for (const r of recordRoutes) {
+  if (!EXPECTED_RECORD_ROUTES.includes(r)) {
+    fail(`unexpected Memory Project record route: ${r}`);
+  }
+}
+for (const route of ["/memory-project", ...EXPECTED_RECORD_ROUTES]) {
+  if (!routes.includes(route)) {
+    fail(`route is not statically prerendered, so its output is not verified here: ${route}`);
+  }
+}
+
+const htmlOf = (route) => {
+  const file = path.join(serverApp, `${route === "/" ? "index" : route.slice(1)}.html`);
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+};
+
+// 4e. The restricted record renders as a restricted record: under the
+// generic title, with only its notice. (Check 2 already fails if any of
+// its withheld fields, which are canaries, reach the page.)
+const restrictedHtml = htmlOf(`${RECORDS_BASE}/DEMO-LT-0002`);
+if (restrictedHtml === null) {
+  fail(`${RECORDS_BASE}/DEMO-LT-0002 has no prerendered HTML, so its restriction cannot be verified`);
+} else if (!/<title>Restricted record — The Tiro Foundation<\/title>/.test(restrictedHtml)) {
+  fail(`${RECORDS_BASE}/DEMO-LT-0002 does not render under the generic restricted title`);
+}
+
+// 4f. Demonstration material is labelled: every synthetic record page,
+// the homepage and the Memory Project overview say "Synthetic
+// demonstration" (decision 41: never presented as an operating collection).
+for (const route of ["/", "/memory-project", ...routes.filter((r) => /\/DEMO-(LT|MP)-\d+$/.test(r))]) {
+  const html = htmlOf(route);
+  if (html === null) {
+    fail(`${route} has no prerendered HTML, so its synthetic label cannot be verified`);
+  } else if (!/Synthetic demonstration/.test(html)) {
+    fail(`${route} does not label its demonstration material as synthetic`);
+  }
+}
+
+// 6. Production pages link to production pages only: no prerendered page
+// outside /preview links into /preview (plan §2, Phase 3).
+for (const route of routes.filter((r) => !r.startsWith("/preview/"))) {
+  const html = htmlOf(route);
+  if (html !== null && /href="\/preview\//.test(html)) {
+    fail(`${route} links to a /preview/ page`);
+  }
 }
 
 // 5. No public search structures.
