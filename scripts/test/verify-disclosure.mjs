@@ -11,7 +11,10 @@
 //  3. The undiscoverable record has no generated page or manifest route,
 //     so it is served the same 404 as an id that never existed.
 //  4. The Living Trace routes are statically prerendered (so check 2
-//     actually covers them) and carry noindex.
+//     actually covers them) and carry noindex. 4b: the authority scenario's
+//     page, at exactly its expected routes, publishes only the safe consent
+//     summary. 4c: every synthetic record page carries noindex.
+//     A page that should be checked but cannot be found is a failure.
 //  5. No public search structure (sitemap, search index) exists that could
 //     list specimen records.
 //
@@ -114,26 +117,47 @@ for (const route of ["/", "/living-trace", "/living-trace/graph.json", ...expect
     fail(`route is not statically prerendered, so its output is not verified here: ${route}`);
   }
 }
-for (const route of ["/living-trace", ...expectedSpecimens]) {
+const NOINDEX = /<meta name="robots" content="noindex, nofollow"/;
+// A missing file is a failure, not a pass: an unchecked page is unverified.
+function requireNoindex(route) {
   const html = path.join(serverApp, `${route.slice(1)}.html`);
-  if (fs.existsSync(html) && !/<meta name="robots" content="noindex, nofollow"/.test(fs.readFileSync(html, "utf8"))) {
+  if (!fs.existsSync(html)) {
+    fail(`${route} has no prerendered HTML, so its noindex cannot be verified`);
+  } else if (!NOINDEX.test(fs.readFileSync(html, "utf8"))) {
     fail(`${route} is missing noindex`);
   }
 }
+for (const route of ["/living-trace", ...expectedSpecimens]) {
+  requireNoindex(route);
+}
 
 // 4b. The authority scenario's page publishes only the safe consent summary.
-// Checked only when the preview is part of this build. The signer's and the
-// subject's ids, and the mandate's dates, are prohibited on this page alone:
-// "S-01" is also the public label of a Living Trace source elsewhere.
-const SCENARIO_ROUTES = routes.filter((r) => r.startsWith("/preview/memory-v1/records/DEMO-MP-"));
-const SCENARIO_FORBIDDEN = [/\bS-01\b/, /\bP-02\b/, /2026-10-01|2027-09-30/, /validFrom|validUntil/];
-if (SCENARIO_ROUTES.length === 0) {
-  console.log("note: no authority-scenario preview in this build; scenario-page checks skipped");
+// The signer's and the subject's ids, and the mandate's dates, are
+// prohibited on this page alone: "S-01" is also the public label of a
+// Living Trace source elsewhere.
+//
+// The scenario's routes are listed exactly. A scenario page found anywhere
+// else, or an expected one that is missing, fails: moving the records (plan
+// Phase 3) must update this list, so the checks can never be skipped
+// silently by a route change.
+const EXPECTED_SCENARIO_ROUTES = ["/preview/memory-v1/records/DEMO-MP-0001"];
+const scenarioRoutes = routes.filter((r) => /\/DEMO-MP-\d+$/.test(r));
+for (const r of EXPECTED_SCENARIO_ROUTES) {
+  if (!scenarioRoutes.includes(r)) {
+    fail(`expected authority-scenario route missing (moved? update EXPECTED_SCENARIO_ROUTES): ${r}`);
+  }
 }
-for (const route of SCENARIO_ROUTES) {
-  for (const ext of [".html", ".rsc", ".meta"]) {
+for (const r of scenarioRoutes) {
+  if (!EXPECTED_SCENARIO_ROUTES.includes(r)) {
+    fail(`unexpected authority-scenario route, not covered by these checks: ${r}`);
+  }
+}
+const SCENARIO_FORBIDDEN = [/\bS-01\b/, /\bP-02\b/, /2026-10-01|2027-09-30/, /validFrom|validUntil/];
+for (const route of scenarioRoutes) {
+  for (const ext of [".html", ".rsc"]) {
     const file = path.join(serverApp, `${route.slice(1)}${ext}`);
     if (!fs.existsSync(file)) {
+      fail(`${route} has no prerendered ${ext} output, so it cannot be verified`);
       continue;
     }
     const text = fs.readFileSync(file, "utf8");
@@ -142,10 +166,24 @@ for (const route of SCENARIO_ROUTES) {
         fail(`authority scenario output ${rel(file)} matches ${pattern}`);
       }
     }
-    if (ext === ".html" && !/<meta name="robots" content="noindex, nofollow"/.test(text)) {
-      fail(`${route} is missing noindex`);
+  }
+  // .meta is optional output; scan it when present.
+  const meta = path.join(serverApp, `${route.slice(1)}.meta`);
+  if (fs.existsSync(meta)) {
+    const text = fs.readFileSync(meta, "utf8");
+    for (const pattern of SCENARIO_FORBIDDEN) {
+      if (pattern.test(text)) {
+        fail(`authority scenario output ${rel(meta)} matches ${pattern}`);
+      }
     }
   }
+}
+
+// 4c. Every synthetic record page is noindex (decision 45, proposed):
+// fictional records must not be mistaken for historical evidence. Covers
+// every prerendered DEMO-LT / DEMO-MP record route, wherever it lives.
+for (const route of routes.filter((r) => /\/DEMO-(LT|MP)-\d+$/.test(r))) {
+  requireNoindex(route);
 }
 
 // 5. No public search structures.
