@@ -1,7 +1,7 @@
 # Milestone 3.0: Repository reconciliation and integration architecture
 
-Status: **Plan for review.** Nothing has been merged, moved, deleted, deployed, or changed in any authorization path. The only change made to the repository is this document.
-Date: 2026-10-29.
+Status: **Revision 1, after founder review.** Direction approved conditionally; the decisions in §9 are **proposed, pending founder confirmation**. Nothing has been merged into `main`, deleted, or changed in any authorization path or hosting setting. Nothing has been successfully published by this work. Pushes have, however, triggered automatic Vercel deployment attempts: they fail on one of two connected Vercel projects and succeed, as previews, on the other (§7.1).
+Date: 2026-10-29 (revision 1, same day).
 Owner: TIRO founder / Steward.
 Builds on: `living-archive-consolidation.md` (component inventory, V5 ↔ Memory v1), `decisions.md` (decisions 30–39).
 
@@ -12,14 +12,14 @@ Every figure below was checked against GitHub after `git fetch --prune` on 2026-
 | Fact | Evidence |
 | --- | --- |
 | 13 remote branches: `main`, 11 fully merged, 1 with unique work | `git merge-base --is-ancestor` and `git cherry` per branch (§6) |
-| `flight-deck/cognito-managed-login-branding` is 8 ahead, 16 behind `origin/main` | `git rev-list --left-right --count`; merge base `f2ad317` |
+| `flight-deck/cognito-managed-login-branding` was 8 ahead, 16 behind `origin/main` when audited; it is now **9 ahead**, the ninth being this plan (`501e8f7`). The eight implementation commits are unchanged | `git rev-list --left-right --count`; merge base `f2ad317` |
 | The two sides touch **no common file** | Intersection of `git diff --name-only` from the merge base: empty |
 | The merge is clean | `git merge-tree --write-tree`: no conflicts |
 | The merged tree builds, lints, and holds the disclosure boundary | Trial merge in a throwaway worktree (not pushed, since removed): `npm run build` passes; `eslint` 0 errors (2 pre-existing warnings in `backend/`); `npm run verify:disclosure`: "disclosure boundary holds in the production build" |
 | Unit tests | 522 of 540 pass. The 18 failures are all in `stagingScripts.test.ts` and `managedLoginScript.test.ts`, which run Bash scripts; they fail identically on the unmerged branch on this Windows host, and CI (Ubuntu) passes them on `main`. **Must be re-confirmed in CI on the integration PR.** Not run: `test:flight-deck-pg`. |
 | Local `main` is behind `origin/main` | Local branches otherwise match their remotes |
 
-Two record-keeping corrections to make during Phase 1: the 2026-10-30 entry in `decisions.md` and the revision date in `living-archive-consolidation.md` are dated after their commits (2026-10-28) and after today; and the comment in `next.config.ts` still refers to `src/middleware.ts`, which Next 16 renamed `src/proxy.ts`.
+Record-keeping corrections, **made** on the integration branch (`bc3f9b7`): every "2026-10-30" (the `decisions.md` entry and its header, the revision dates and approval references in `citation-standard-v0.1.md`, `living-archive-consolidation.md` and `record-view-contract.md`, the synthetic authority scenario's history, code comments, and the citation examples and tests) now reads 2026-10-28, the date of the commits that introduced them. If a decision was made on another day, that day should replace it. The `next.config.ts` comment now refers to `src/proxy.ts` instead of `src/middleware.ts`.
 
 ### Governance precondition
 
@@ -27,7 +27,7 @@ Two record-keeping corrections to make during Phase 1: the 2026-10-30 entry in `
 
 ## 1. Commits to transplant
 
-All eight, oldest first, from `flight-deck/cognito-managed-login-branding` (tip `627ae58`):
+All eight, oldest first, from `flight-deck/cognito-managed-login-branding` (implementation tip `627ae58`; the branch tip is now the plan, `501e8f7`, which is merged with them):
 
 | # | Commit | Date | Subject |
 | --- | --- | --- | --- |
@@ -160,23 +160,31 @@ What the repository shows:
 - `src/app/flight-deck/internal/worker/route.ts` declares `maxDuration = 120`, introduced in `bb64d48` on 2026-10-19.
 - The duration is coupled: `runtime.ts` sets the worker lock connection's `idle_session_timeout` to 150 s, so that a killed tick releases the single-runner lock *after* any tick could still be running. Changing one without the other risks two workers running at once.
 - Flight Deck staging is a **separate Vercel project on a Pro team** (`tiro-flight-deck-staging`; `staging-checkpoint-2026-10-23.md`), so staging is not affected.
-- The public `tiro-foundation` project builds the same `main`, so it must accept the worker route even though its proxy answers 404 for every `/flight-deck` path there.
-- The repository cannot show the public project's plan or settings (no `vercel.json`, no project link).
+- Every project that builds `main` must accept the worker route, even where the proxy answers 404 for every `/flight-deck` path.
 
-**To verify first (read-only, in the Vercel dashboard):** the public project's plan; whether Fluid compute is enabled on it; and its deployment history since 2026-10-19. A 60-second ceiling is the limit for Hobby *without* Fluid compute; Vercel documents a higher ceiling with Fluid compute enabled (check the current figure). If the limit is real, **production deployments of the public site may have been failing since 2026-10-19**, and tiro.foundation may be serving an older build.
+**Revision 1, verified from Vercel's commit statuses on GitHub** (full record and checklist: `docs/deployment/public-site-hosting-readiness.md`):
+
+- **Two** Vercel projects named `tiro-foundation` build this repository: one in the personal scope (`onewisepixels-projects`) and one in team `tiro-9e61715e`, the team that also hosts staging.
+- The **personal** project succeeded through `118187e` and has **failed on every commit since `bb64d48`**, the commit that added `maxDuration = 120`. That points strongly to the 60-second Hobby ceiling without Fluid compute; the build log would confirm it.
+- The **team** project was first deployed at `bb64d48` and has **succeeded on every `main` tip and on all nine Living Archive and plan commits**. Vercel can therefore build and finalize this code, worker route included.
+- Production (`www.tiro.foundation`) is live and current in its behaviour: Flight Deck answers 404 with private headers, and no `/preview/` route is exposed. Its cache age fits the team project's production deploy of `d7b6b1a`. Which project owns the domain is visible only in Vercel.
+
+So Gate 0 probably means **confirming that the team project serves the domains and retiring the failing duplicate**, not repairing a broken pipeline. If the personal project turns out to own the domains, production has been frozen since 2026-10-19 and the options below apply to it.
 
 | Option | Change | Cost | Risk |
 | --- | --- | --- | --- |
-| A. Enable Fluid compute on the public project | A project setting; no code | $0 | Low, if its Hobby ceiling is ≥ 120 s. Leaves the Hobby terms question open |
-| B. Move the public project to the existing Pro team | Hosting change; no code | Within the team's included credit, per `staging-setup.md`, but **do not** enable the spend hard-limit pause: it pauses every project on the team, including the public site | Low. Also resolves the Hobby non-commercial-use concern already recorded in `staging-setup.md` and `staging-decision-packet.md` |
-| C. Lower to 60 s | Change `maxDuration` **and** `idle_session_timeout`, with timing evidence that a tick finishes well inside 60 s (statements are bounded at 15 s, S3 calls at 5 s; recovery resumes on the next tick) | $0 | A Flight Deck operational change: needs explicit approval and a rehearsal |
+| A. Enable Fluid compute on the Hobby project | A project setting; no code | $0 | Low. Vercel documents up to 300 s on Hobby with Fluid compute; confirm in the project. Leaves the Hobby terms question open |
+| B. Serve the public site from the team project | If it already does (expected): disconnect the personal project after checking its domains and configuration. Otherwise: move the domains | Within the team's included credit, per `staging-setup.md`. **Do not** enable the spend hard-limit pause: it pauses every project on the team, including the public site | Low. Also settles the Hobby non-commercial-use question |
+| C. Lower to 60 s | Change `maxDuration` **and** `idle_session_timeout`, with timing evidence that a tick finishes well inside 60 s | $0 | A Flight Deck operational change: needs explicit approval and a rehearsal. **Not recommended without operational evidence** |
 | D. Split Flight Deck into its own app | Architecture | High | Not proportionate for 3.0 |
 
-**Recommendation:** verify, then B (A as the immediate unblock if B waits on a billing decision). Avoid C unless the evidence supports it.
+**Recommendation:** complete the read-only checklist, then B. A is the immediate fallback only if the personal project owns the domains.
 
 ### 7.2 Other release gates already known
 
 - The 18 Bash-script tests must pass in CI on the integration PR (they cannot be confirmed on this Windows host).
+- `main` has **no branch protection** (verified through the GitHub API). Until a required status check is configured, "CI before merge" is a convention, not an enforced gate.
+- While the personal Vercel project stays connected, every commit and PR carries a failing "Vercel – tiro-foundation" check from it. On the integration PR that failure is expected and is not a regression; the team project's check is the meaningful one.
 - `verify-disclosure.mjs` hard-codes `/preview/memory-v1/records/DEMO-MP-*` and `/living-trace/*`; it must follow the routes in Phase 3, or it will pass vacuously or fail.
 - No production page may link to `/preview/` (decision 30): add an automated check.
 
@@ -186,8 +194,8 @@ Each phase is one or more PRs into `main`, merged with a merge commit so a phase
 
 | Phase | Work | Tests and checks | Rollback point | Release gate |
 | --- | --- | --- | --- | --- |
-| **0. Approve** | Founder review of this plan; record the §2 decisions; verify §7.1 in Vercel | — | — | **G0:** plan approved |
-| **1. Reconcile** | Fast-forward local `main`. Tag `checkpoint/3.0-start` at `d7b6b1a`. Create `integration/living-archive-3.0`, merge the branch (§1), fix the dates and the `next.config.ts` comment. PR to `main` | CI: build, lint, `npm test` (incl. the Bash suites), `test:flight-deck-pg`, CDK synth; `verify:disclosure` | `checkpoint/3.0-start`; revert the merge commit | **G1:** CI green. The site gains only `/preview/*` routes (`noindex`), so this is safe to deploy once §7.1 is resolved |
+| **0. Approve and restore the release path** | Founder review of this plan; confirm the §9 decisions; complete the hosting checklist (`docs/deployment/public-site-hosting-readiness.md`) and act on §7.1 | Checklist answers recorded | — | **G0:** plan approved **and** a verified working release path: the project that owns the domains completes a production deployment of current `main`. **No application code merges into `main` before G0** |
+| **1. Reconcile** | *Prepared in revision 1:* local `main` fast-forwarded; `integration/living-archive-3.0` created from `d7b6b1a`; branch merged with original SHAs (`a32809d`); dates and `next.config.ts` comment corrected (`bc3f9b7`); PR opened, **not merged**. Remaining: tag `checkpoint/3.0-start` at `d7b6b1a` at merge time | CI on the PR: build, lint, `npm test` (incl. the Bash suites), `test:flight-deck-pg`, CDK synth. `verify:disclosure` (not in CI; run locally on the merged tree) | `checkpoint/3.0-start`; revert the merge commit | **G1:** G0 passed; CI green on Linux; the team project's preview deployment succeeds; founder approves the PR. The site gains only `/preview/*` routes (`noindex`) |
 | **2. Design system** | Extract `--la-*` tokens, type roles, motion, `LayerStack`, `r2()`, `--la-header` into `components/archive/` and `components/record/`. V5 and v1 previews consume them; no route moves | Before/after screenshots of `/preview/home-v5`, `/preview/memory-v1` and one record page, light and dark, desktop and mobile: no visible difference. Reduced-motion check. `verify:disclosure` | Revert the phase PR | **G2:** visual parity confirmed |
 | **3. Public experience** | *Requires the decision superseding 37 and 38.* Move V5 to `/`, v1 to `/memory-project`, records to `/memory-project/records/[id]`; temporary redirects from `/preview/*`; update `TopNav`, `Footer` and internal links. **3b:** restyle the inner pages, `/memories` and `/pilot` (presentation only), one PR per page | `verify:disclosure` retargeted to the new routes; a no-`/preview/`-links check; redirect tests; axe-core plus `accessibility-manual-test.md`; Lighthouse LCP and CLS against the current homepage; synthetic labels present on every demonstration; content review that each inner page's substance is unchanged | Revert the phase PR; Vercel instant rollback for production | **G3:** founder sign-off on a preview deployment, then production |
 | **4. Flight Deck** | Apply the shared foundation to the shell, navigation, tables, forms, records and status displays within §4. Add the boundary-check script | Boundary script in CI; `test:flight-deck-pg`; `e2e:flight-deck`; local synthetic demo screenshots; print view; `SyntheticBanner` text unchanged | Revert the phase PR | **G4:** founder review on the local demo, then the approval-gated staging deploy. No auth or workflow change |
@@ -195,9 +203,13 @@ Each phase is one or more PRs into `main`, merged with a merge commit so a phase
 
 ## 9. Decisions needed from the founder
 
-1. Approve this plan (G0), including the merge method in §1.
-2. Record a decision superseding 37 (production adoption) and 38 (navigation) before Phase 3, and decide the navigation structure.
-3. `/living-trace`: retire in Phase 5 with a redirect, or keep as a reference page.
-4. `/memories`: keep separate from `/memory-project/records` in 3.0 (recommended), or plan a merge.
-5. Worker duration: the Vercel facts in §7.1, then option A, B or C.
-6. Whether synthetic record pages under `/memory-project/records/` stay `noindex` in production (recommended while they are demonstrations).
+**Proposed founder positions, pending confirmation.** These are the founder's recommended positions from the review of 2026-10-29. They are **not recorded** in `decisions.md` and authorize nothing until the founder confirms them there.
+
+| # | Question | Proposed position | Consequence for this plan |
+| --- | --- | --- | --- |
+| 1 | Approve Milestone 3.0 | **Yes, conditionally.** No-fast-forward merge into a review branch; CI must pass before anything merges into `main` | Implemented as `integration/living-archive-3.0` and an open PR. Merge waits for G0 and G1 |
+| 2 | Production adoption and navigation (supersedes decisions 37 and 38) | **Authorize planning and implementation; release only after testing and founder sign-off.** Navigation: Purpose / Memory Project / Principles / Get involved, **preserving existing destinations** | Phase 3 may be built and previewed; production release stays behind G3. Every current route keeps a place in the new navigation |
+| 3 | `/living-trace` | **Keep temporarily**, especially for relationship exploration. Retire only once its valuable functionality and its disclosure checks are accounted for elsewhere | Phase 5's retirement becomes conditional on a functionality and disclosure-coverage mapping; the Constellation components stay until then |
+| 4 | `/memories` | **Keep separate during 3.0.** It is backend-connected; the new record pages demonstrate a proposed experience. Combining them would blur that distinction | As planned: restyle only |
+| 5 | Worker duration | **Immediate:** investigate and, if suitable, enable Fluid compute. **Strategic:** evaluate the existing Pro team for the public project. **Do not shorten the worker without operational evidence** | Revision 1 finding: a team-scope project already builds and may already serve the site (§7.1), so the strategic path may already exist. The checklist decides between them |
+| 6 | Synthetic-record indexing | **Keep `noindex`.** The project and its principles may be discoverable; fictional records must not be mistaken for historical evidence | `/memory-project/records/*` keeps `robots: noindex` in production; add a build-output check for it in Phase 3 |
