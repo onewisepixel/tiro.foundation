@@ -1220,3 +1220,16 @@ a.mv1-cite:hover {
 .mv1-grant[data-grant="limited"] {
   color: var(--tiro-text);
 }
+
+.mv1-withheld {
+  display: inline-block;
+  margin-left: 0.4rem;
+  border: 1px dashed var(--tiro-border-strong);
+  padding: 0.05rem 0.4rem;
+  font-family: var(--font-code);
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+  vertical-align: middle;
+}

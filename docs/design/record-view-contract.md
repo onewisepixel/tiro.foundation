@@ -34,11 +34,25 @@ The order puts provenance and permission before consumption (`docs/memory.txt` �
 1. **Header.** The demonstration notice, when synthetic, before any claim-like detail (ethos §6.1). Then record ID, title, summary, publication status, custody status, and version.
 2. **Account.** What was shared: media (never autoplayed; honest absence when there is none), transcript, translations beside the source, context fields with evidence states.
 3. **Source.** Who shared it, identified as they choose.
-4. **Authority.** Each capacity as its own field: collector, contributor, subject, source authority, legal rights holder, signer. The model never assumes two capacities belong to one party. Where they do, that is evidenced. A signer's mandate states whom they represent, for what, and for how long; the mandate document itself is never published.
-5. **Terms of care.** Publication and custody as independent states. Each of the eight uses (ethos §3.3) has its own grant, never a blanket permission. Where the record carries authorization detail, each use states who decided, on what basis, in what scope, and until when. Withdrawal terms.
+4. **Authority.** Each capacity as its own field: collector, contributor, subject, source authority, legal rights holder, signer. The model never assumes two capacities belong to one party. Where they do, that is evidenced. Identities a visitor is not entitled to see (a signer's, a subject's) are replaced by a capacity-level description before the page receives them. A collective's means of exercising authority is described in principle; the mandate itself is never published.
+5. **Terms of care.** Publication and custody as independent states. Each of the eight uses (ethos §3.3) has its own grant, never a blanket permission. Where the record carries authorization detail, each use publishes a **safe consent summary**: whether it is in effect, whose authority it rests on (by capacity), how that authority was exercised ("in their own right" or "through an authorized representative, under a verified mandate"), who recorded it, the basis, the scope, and its review. Withdrawal terms.
 6. **Provenance.** The record's own history, every event attributed, with uncertainty shown as uncertainty.
 7. **Derived (kept apart).** Translations, interpretations, and relationships to other records. Each keeps its own attribution and evidence state. An interpretation is never presented as the account. TIRO's readings are labeled as TIRO's. Accounts held in restricted sources appear only as "acknowledged", and only when the claim's own grant allows it.
 8. **Citation.** In the current TIRO Citation Standard (`docs/design/citation-standard-v0.1.md`).
+
+### Authority, decision, execution, mandate, validity
+
+The record model keeps five things apart (founder clarification, `decisions.md`, 2026-10-30):
+
+| | Question | In the model | Public |
+| --- | --- | --- | --- |
+| 1 | Who **possesses** the authority a use requires? | the interest holders the use requires | yes, by capacity (identity only where public) |
+| 2 | Who **made or authorized** the decision? | the holder whose authority is exercised | yes, by capacity |
+| 3 | Who **executed** and who **recorded** it? | the holder in their own right, or a signer; the recording steward | how it was executed (own right / representative); who recorded it (by role). Never the signer's identity. |
+| 4 | What **mandate** permitted the execution? | a mandate naming signer, represented holder, record, uses, and period | never (restricted, ethos §3.3; contract 0.2 §7.3) |
+| 5 | Was the mandate **valid** for that holder, record, use, and date? | evaluated, not asserted | only its consequence: whether the use is in effect |
+
+A signer possesses no authority of their own by being a signer. An authorized signer may execute a holder's decision within a valid mandate. A signature outside the mandate has no effect and leaves no public trace. A use is in effect only when every required holder has an effective decision; otherwise it **fails closed** and is never shown as permission. This clarifies how collective authority is exercised; it broadens no one's authority.
 
 ## 3. Evidence states
 
@@ -48,7 +62,7 @@ Every field that makes a claim shows its evidence state in words and line patter
 
 | State | What renders | What must not exist |
 | --- | --- | --- |
-| **Public** | The authorized fields | Internal notes, contact records, consent-receipt references, mandate documents, unauthorized fields |
+| **Public** | The allowlisted fields, and the safe consent summary | Internal notes, contact records, consent-receipt references, mandates (identity, terms, documents), signer and subject identities, attempts without effect, unauthorized fields |
 | **Restricted, with notice** | The authorized notice and its reference, a single sealed sheet, a generic page title, and a reference-only citation | Title, summary, people, places, dates, media, relationships, layers, or any count of withheld fields |
 | **Undiscoverable** | Nothing: the same 404 as an ID that never existed | A route, listing entry, count, graph node, relationship, or "hidden item" marker |
 
@@ -69,8 +83,10 @@ Any future AI-assisted output (summary, translation, transcription, linkage) is 
 
 ## 7. Verification
 
-A record view conforms when:
+A record view conforms when three independent protections hold (approved 2026-10-30):
 
-- the projection tests prove no internal-only string or field reaches it (`projection.test.ts`, `authorityProjection.test.ts`);
-- `npm run verify:disclosure` passes on the production build;
-- a browser check confirms the record is readable as text with the visualization hidden, focus moves with the map, and restricted and undiscoverable records behave as in §4.
+1. **Explicit public-field allowlists.** Each record projection declares exactly which fields may reach a page (`AUTHORITY_PUBLIC_FIELDS`; `SPECIMEN_PUBLIC_FIELDS` and `RESTRICTED_NOTICE_FIELDS` in `disclosureGuards.ts`), and tests report any field outside them, at any depth.
+2. **Forbidden-field assertions.** Tests walk every public projection recursively for private keys and canary values (`disclosureGuards.test.ts`, `projection.test.ts`, `authorityProjection.test.ts`). The guards are themselves tested, so they cannot pass vacuously.
+3. **Build-output scanning.** `npm run verify:disclosure` scans client bundles and prerendered HTML and RSC payloads for canaries, serialized private keys, and identifiers prohibited on specific pages.
+
+And when a browser check confirms the record is readable as text with the visualization hidden, focus moves with the map, and restricted and undiscoverable records behave as in §4.

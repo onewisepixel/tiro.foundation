@@ -109,46 +109,38 @@ function Crumbs({ id }: { id: string }) {
   );
 }
 
-// The scenario's parties, each in one capacity, and the signer's mandate.
+// The scenario's parties, each in one capacity. Identities a visitor is not
+// entitled to (the signer's, the subject's) arrive already replaced by a
+// capacity-level description; the mandate itself is never sent.
 function Parties({ record }: { record: AuthorityRecord }) {
   return (
     <>
       <dl className="mv1-fields">
         {record.parties.map((p) => (
-          <div key={p.id}>
+          <div key={p.capacity}>
             <dt className="mv1-dt">{p.capacity}</dt>
             <dd>
-              {p.label} <EvidenceTag evidence={p.evidence} />
+              {p.label} {p.identityWithheld ? <span className="mv1-withheld">Identity withheld</span> : <EvidenceTag evidence={p.evidence} />}
               <span className="mt-1 block text-sm text-[var(--tiro-text-muted)]">{p.role}</span>
             </dd>
           </div>
         ))}
       </dl>
       <div className="mv1-mandate mt-6">
-        <h3 className="mv1-dt">Signer&apos;s mandate</h3>
-        <p className="mt-2 text-[0.9375rem] text-[var(--tiro-text)]">
-          {record.mandate.signer} signs for {record.mandate.represents}, not in their own right.
+        <h3 className="mv1-dt">How the collective exercises its authority</h3>
+        <p className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--tiro-text)]">
+          A representative holds no authority by being a signer. They may carry out the collective&apos;s decisions only within a verified mandate:
+          for named uses, of this record, for a set period. A signature outside the mandate has no effect.
         </p>
-        <dl className="mt-3 grid gap-2 text-sm text-[var(--tiro-text-soft)]">
-          <div>
-            <dt className="inline text-[var(--tiro-text-muted)]">Scope: </dt>
-            <dd className="inline">{record.mandate.scope}</dd>
-          </div>
-          <div>
-            <dt className="inline text-[var(--tiro-text-muted)]">Duration: </dt>
-            <dd className="inline">{record.mandate.until}</dd>
-          </div>
-          <div>
-            <dt className="inline text-[var(--tiro-text-muted)]">Mandate document: </dt>
-            <dd className="inline">Restricted. Never published.</dd>
-          </div>
-        </dl>
+        <p className="mt-2 text-sm text-[var(--tiro-text-muted)]">The representative&apos;s identity and the mandate itself are restricted, and never published.</p>
       </div>
     </>
   );
 }
 
-// Who decided each use, on what basis, within what scope, until when.
+// The safe consent summary, use by use: whether it is in effect, whose
+// authority it rests on, how that authority was exercised and recorded, the
+// basis, the scope, and its review.
 function Authorizations({ record }: { record: AuthorityRecord }) {
   return (
     <ol className="mv1-auths">
@@ -163,13 +155,27 @@ function Authorizations({ record }: { record: AuthorityRecord }) {
               <span className="text-[var(--tiro-text)]">{u.label}</span>
               <span className="mv1-grant" data-grant={a.grant}>
                 {USE_GRANT_LABEL[a.grant]}
+                {a.inEffect ? null : a.grant === "unknown" ? " · not in effect" : ""}
               </span>
             </p>
             <dl className="mt-1.5 grid gap-1 text-sm">
               <div>
-                <dt className="inline text-[var(--tiro-text-muted)]">Decided by: </dt>
-                <dd className="inline text-[var(--tiro-text-soft)]">{a.decidedBy.map((d) => `${d.label} (${d.capacity.toLowerCase()})`).join("; ")}</dd>
+                <dt className="inline text-[var(--tiro-text-muted)]">Rests on the authority of: </dt>
+                <dd className="inline text-[var(--tiro-text-soft)]">{a.requires.map((r) => `${r.label} (${r.capacity.toLowerCase()})`).join("; ")}</dd>
               </div>
+              {a.exercised.length > 0 ? (
+                <div>
+                  <dt className="inline text-[var(--tiro-text-muted)]">Exercised: </dt>
+                  <dd className="inline text-[var(--tiro-text-soft)]">
+                    {a.exercised.map((x) => `${x.label}: ${x.how.charAt(0).toLowerCase()}${x.how.slice(1)}`).join("; ")}. Recorded by {a.exercised[0].recordedBy}.
+                  </dd>
+                </div>
+              ) : (
+                <div>
+                  <dt className="inline text-[var(--tiro-text-muted)]">Exercised: </dt>
+                  <dd className="inline text-[var(--tiro-text-soft)]">No authorization is in effect for this use.</dd>
+                </div>
+              )}
               <div>
                 <dt className="inline text-[var(--tiro-text-muted)]">Scope: </dt>
                 <dd className="inline text-[var(--tiro-text-soft)]">{a.scope}</dd>
@@ -331,7 +337,7 @@ export default async function RecordPreview({ params }: PageProps) {
             </dl>
             {authority ? (
               <>
-                <h3 className="mv1-dt mb-2 mt-6">Each use: who decided, on what basis</h3>
+                <h3 className="mv1-dt mb-2 mt-6">Each use: whether it is in effect, and on whose authority</h3>
                 <Authorizations record={authority} />
               </>
             ) : (
