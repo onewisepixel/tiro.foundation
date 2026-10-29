@@ -41,6 +41,13 @@ jobs:
       - name: Test
         run: npm test
 
+      # Reads the production build written by the Build step (.next): no
+      # private archive material in client bundles or prerendered pages,
+      # the authority scenario at exactly its expected routes, and noindex
+      # on every synthetic record page. No network, no credentials.
+      - name: Verify disclosure boundary in the production build
+        run: npm run verify:disclosure
+
       # Flight Deck operations store against a real PostgreSQL 17, started
       # from the embedded-postgres dev dependency in a temporary directory
       # on the runner. Synthetic data only; nothing outlives the step. No
