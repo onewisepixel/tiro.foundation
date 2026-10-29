@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import Concordance, { type ConcordanceRow } from "@/components/preview/memory-v1/Concordance";
+import Concordance, { type ConcordanceRow } from "@/components/record/Concordance";
 import ConsentLifecycle from "@/components/preview/memory-v1/ConsentLifecycle";
-import { RECORDS_BASE } from "@/components/preview/memory-v1/layers";
-import LocalNav from "@/components/preview/memory-v1/LocalNav";
+import { RECORDS_BASE } from "@/components/preview/memory-v1/routes";
+import LocalNav from "@/components/archive/LocalNav";
 import MethodLayers from "@/components/preview/memory-v1/MethodLayers";
 import Reveal from "@/components/trace/Reveal";
 import { SyntheticPill } from "@/components/trace/SyntheticNotice";
 import { USE_CATEGORIES } from "@/lib/livingTrace/evidence";
 import { listScenario } from "@/lib/livingTrace/authorityProjection";
 import { listDiscoverable, projectGraph, relationsFor, SPECIMEN_ROUTE } from "@/lib/livingTrace/projection";
+import "@/components/archive/archive.css";
 import "./memory-v1.css";
 
 // MEMORY PROJECT v1 — THE FIRST ROOM BEYOND THE ENTRANCE.
@@ -80,11 +81,11 @@ export default function MemoryProjectPreview() {
     .map((r) => ({ ...r, otherHref: toPreview(r.otherHref) }));
 
   return (
-    <main id="top" className="mv1 bg-[var(--tiro-bg)] pt-[63px] text-[var(--tiro-text)]">
-      <LocalNav items={SECTIONS} cta={{ href: `${RECORDS_BASE}/${SPECIMEN}`, label: "Examine a record" }} />
+    <main id="top" className="la mv1 bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <LocalNav title="The Memory Project" items={SECTIONS} cta={{ href: `${RECORDS_BASE}/${SPECIMEN}`, label: "Examine a record" }} />
 
       {/* Arrival: the promise, and the project's own finding aid. */}
-      <header className="mv1-frame mv1-hero">
+      <header className="la-frame mv1-hero">
         <div>
           <p className="mv1-crumbs">
             <Link href="/preview/home-v5">The Living Archive</Link> <span aria-hidden="true">/</span>{" "}
@@ -96,55 +97,55 @@ export default function MemoryProjectPreview() {
             with every record held together with its source, its authority, and its terms of care.
           </p>
           <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-5">
-            <Link href={`${RECORDS_BASE}/${SPECIMEN}`} className="mv1-cta">
+            <Link href={`${RECORDS_BASE}/${SPECIMEN}`} className="la-cta">
               Examine a specimen record <span aria-hidden="true">→</span>
             </Link>
-            <Link href="/community-rights" className="mv1-more">
+            <Link href="/community-rights" className="la-more">
               Read Community Rights
             </Link>
           </div>
         </div>
 
         <aside aria-labelledby="mv1-aid-title" className="mv1-aid tiro-register-paper">
-          <p id="mv1-aid-title" className="mv1-eyebrow">
+          <p id="mv1-aid-title" className="la-eyebrow">
             Finding aid
           </p>
           <dl className="mt-9">
             <div>
-              <dt className="mv1-dt">Title</dt>
+              <dt className="la-term">Title</dt>
               <dd className="font-[family-name:var(--font-display)] !text-lg !text-[var(--tiro-text)]">The Memory Project</dd>
             </div>
             <div>
-              <dt className="mv1-dt">Held by</dt>
+              <dt className="la-term">Held by</dt>
               <dd>The Tiro Foundation · Node Zero</dd>
             </div>
             <div>
-              <dt className="mv1-dt">Status</dt>
+              <dt className="la-term">Status</dt>
               <dd>In development. Not yet an operating collection.</dd>
             </div>
             <div>
-              <dt className="mv1-dt">Extent</dt>
+              <dt className="la-term">Extent</dt>
               <dd>
                 Synthetic demonstration records only.{" "}
-                <a href="#records" className="mv1-more !text-[0.9375rem]">
+                <a href="#records" className="la-more !text-[0.9375rem]">
                   See them
                 </a>
               </dd>
             </div>
             <div>
-              <dt className="mv1-dt">Scope</dt>
+              <dt className="la-term">Scope</dt>
               <dd>Languages, oral histories, stories, songs, practices, testimony, and the context through which people give these meaning.</dd>
             </div>
             <div>
-              <dt className="mv1-dt">Proposed first collection</dt>
+              <dt className="la-term">Proposed first collection</dt>
               <dd>An Igbo oral-memory pilot in Nigeria, to be scoped with participating communities.</dd>
             </div>
             <div>
-              <dt className="mv1-dt">Access</dt>
+              <dt className="la-term">Access</dt>
               <dd>Set record by record, by each record&apos;s source and rights authority, use by use.</dd>
             </div>
             <div>
-              <dt className="mv1-dt">Arrangement</dt>
+              <dt className="la-term">Arrangement</dt>
               <dd>
                 <ol className="mv1-arrangement">
                   {SECTIONS.map((s, i) => (
@@ -165,9 +166,9 @@ export default function MemoryProjectPreview() {
 
       {/* 1 · Why */}
       <section id="why" aria-labelledby="mv1-why" className="mv1-section">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">1 · Why it exists</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">1 · Why it exists</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-why" className="mv1-h2">
               Some of this knowledge is documented. <em>Much of it is not.</em>
             </h2>
@@ -176,13 +177,13 @@ export default function MemoryProjectPreview() {
                 &ldquo;Human knowledge has never existed exclusively in libraries, institutions, databases, or written records. It lives in voices. In
                 rituals. In names. In songs.&rdquo;
               </p>
-              <Link href="/manifesto" className="mv1-cite">
+              <Link href="/manifesto" className="la-cite">
                 Manifesto v0.2 · I. Memory
               </Link>
             </div>
           </div>
-          <div className="mv1-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
-            <p className="mv1-eyebrow !text-[var(--tiro-text-muted)]">What it intends to preserve</p>
+          <div className="la-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+            <p className="la-eyebrow !text-[var(--tiro-text-muted)]">What it intends to preserve</p>
             <ul className="mv1-kinds mt-5">
               {KINDS.map((k) => (
                 <li key={k}>{k}</li>
@@ -191,7 +192,7 @@ export default function MemoryProjectPreview() {
             <p className="mt-6 font-[family-name:var(--font-display)] text-xl italic text-[var(--tiro-text-soft)]">
               It is living knowledge, not merely historical data.
             </p>
-            <Link href="/manifesto" className="mv1-cite">
+            <Link href="/manifesto" className="la-cite">
               Manifesto v0.2 · II. Intelligence
             </Link>
           </div>
@@ -200,9 +201,9 @@ export default function MemoryProjectPreview() {
 
       {/* 2 · Method */}
       <section id="method" aria-labelledby="mv1-method" className="mv1-section mv1-deep">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">2 · The method</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">2 · The method</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-method" className="mv1-h2">
               A record in five layers, <em>and one kept apart.</em>
             </h2>
@@ -211,7 +212,7 @@ export default function MemoryProjectPreview() {
               made from it is kept apart, and attributed.
             </p>
           </div>
-          <div className="mv1-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+          <div className="la-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
             <MethodLayers specimenId={SPECIMEN} authorityId={AUTHORITY_SCENARIO} />
           </div>
         </Reveal>
@@ -219,9 +220,9 @@ export default function MemoryProjectPreview() {
 
       {/* 3 · Records */}
       <section id="records" aria-labelledby="mv1-records" className="mv1-section">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">3 · The demonstration records</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">3 · The demonstration records</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-records" className="mv1-h2">
               Examine a specimen.
             </h2>
@@ -235,7 +236,7 @@ export default function MemoryProjectPreview() {
               </p>
             </div>
           </div>
-          <ul className="mv1-catalogue mv1-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+          <ul className="mv1-catalogue la-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
             {listing.map((entry) =>
               entry.state === "public" ? (
                 <li key={entry.recordId}>
@@ -279,9 +280,9 @@ export default function MemoryProjectPreview() {
 
       {/* 4 · Consent */}
       <section id="consent" aria-labelledby="mv1-consent" className="mv1-section mv1-deep">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">4 · Consent and access</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">4 · Consent and access</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-consent" className="mv1-h2">
               Consent is given <em>use by use.</em>
             </h2>
@@ -289,15 +290,15 @@ export default function MemoryProjectPreview() {
               <p className="mv1-body">
                 &ldquo;Preservation does not require publication.&rdquo; &ldquo;Permission for one use does not imply permission for another.&rdquo;
               </p>
-              <Link href="/community-rights" className="mv1-cite">
+              <Link href="/community-rights" className="la-cite">
                 Community Rights &amp; Cultural Data Stewardship
               </Link>
             </div>
           </div>
-          <div className="mv1-consent mv1-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+          <div className="mv1-consent la-rise mt-14" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
             <ConsentLifecycle />
             <div>
-              <h3 className="mv1-eyebrow !text-[var(--tiro-text-muted)]">Eight uses, each decided on its own</h3>
+              <h3 className="la-eyebrow !text-[var(--tiro-text-muted)]">Eight uses, each decided on its own</h3>
               <ul className="mv1-uses mt-4">
                 {USE_CATEGORIES.map((u) => (
                   <li key={u.key}>
@@ -313,9 +314,9 @@ export default function MemoryProjectPreview() {
 
       {/* 5 · Accounts */}
       <section id="accounts" aria-labelledby="mv1-accounts" className="mv1-section">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">5 · Many accounts</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">5 · Many accounts</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-accounts" className="mv1-h2">
               Accounts can disagree, <em>and each stays whole.</em>
             </h2>
@@ -324,18 +325,18 @@ export default function MemoryProjectPreview() {
                 A record may be disputed, translated, interpreted, and connected to others. Each account keeps its own attribution. &ldquo;TIRO
                 distinguishes the record from TIRO&apos;s interpretation of the record.&rdquo;
               </p>
-              <Link href="/community-rights" className="mv1-cite">
+              <Link href="/community-rights" className="la-cite">
                 Community Rights · Provenance as permanent record
               </Link>
             </div>
           </div>
-          <div className="mv1-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+          <div className="la-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
             <p className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2">
               <SyntheticPill />
               <span className="text-sm text-[var(--tiro-text-muted)]">The relationships of {SPECIMEN}. Open any of them to see who claims it.</span>
             </p>
             <Concordance rows={rows} idPrefix="mv1-overview" />
-            <Link href="/living-trace#discover" className="mv1-more mt-6">
+            <Link href="/living-trace#discover" className="la-more mt-6">
               See every relationship in the full synthetic map<span aria-hidden="true"> →</span>
             </Link>
           </div>
@@ -344,9 +345,9 @@ export default function MemoryProjectPreview() {
 
       {/* 6 · Status */}
       <section id="status" aria-labelledby="mv1-status" className="mv1-section mv1-deep">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">6 · Where it stands</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">6 · Where it stands</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-status" className="mv1-h2">
               In development, <em>not yet a collection.</em>
             </h2>
@@ -355,13 +356,13 @@ export default function MemoryProjectPreview() {
                 Node Zero is TIRO&apos;s founding web portal and institutional prototype. An Igbo oral-memory pilot in Nigeria is the proposed first
                 bounded collection, to be scoped with participating communities. Neither becomes an operational custodian merely by being named.
               </p>
-              <Link href="/manifesto" className="mv1-cite">
+              <Link href="/manifesto" className="la-cite">
                 Manifesto v0.2 · II · IV
               </Link>
             </div>
           </div>
-          <div className="mv1-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
-            <h3 className="mv1-eyebrow !text-[var(--tiro-text-muted)]">Readiness requires</h3>
+          <div className="la-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+            <h3 className="la-eyebrow !text-[var(--tiro-text-muted)]">Readiness requires</h3>
             <ul className="mv1-gates mt-4">
               {GATES.map((g) => (
                 <li key={g}>{g}</li>
@@ -374,15 +375,15 @@ export default function MemoryProjectPreview() {
 
       {/* 7 · Take part */}
       <section id="take-part" aria-labelledby="mv1-take-part" className="mv1-section">
-        <Reveal className="mv1-frame">
-          <p className="mv1-eyebrow">7 · Take part</p>
-          <div className="mv1-section-head mv1-rise mt-6">
+        <Reveal className="la-frame">
+          <p className="la-eyebrow">7 · Take part</p>
+          <div className="mv1-section-head la-rise mt-6">
             <h2 id="mv1-take-part" className="mv1-h2">
               Help shape it <em>before it begins.</em>
             </h2>
             <p className="mv1-body">The project is being designed now. Communities, researchers, and institutions can each find a way in.</p>
           </div>
-          <ul className="mv1-paths mv1-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
+          <ul className="mv1-paths la-rise mt-12" style={{ "--lt-delay": "140ms" } as React.CSSProperties}>
             {PATHS.map((p) => (
               <li key={p.title}>
                 <Link href={p.href} className="mv1-path">
@@ -396,10 +397,10 @@ export default function MemoryProjectPreview() {
             ))}
           </ul>
           <p className="mt-12 flex flex-wrap gap-x-8 gap-y-3 text-sm">
-            <Link href="/preview/home-v5" className="mv1-more">
+            <Link href="/preview/home-v5" className="la-more">
               Return to the Living Archive
             </Link>
-            <Link href="/manifesto" className="mv1-more">
+            <Link href="/manifesto" className="la-more">
               Read the Manifesto
             </Link>
           </p>

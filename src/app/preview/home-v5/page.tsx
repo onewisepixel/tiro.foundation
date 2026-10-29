@@ -7,6 +7,7 @@ import TwoAccounts, { type Account, type Disagreement } from "@/components/previ
 import Reveal from "@/components/trace/Reveal";
 import { SyntheticPill } from "@/components/trace/SyntheticNotice";
 import { projectGraph, resolveRecord, SPECIMEN_ROUTE, type ProjectedGraph } from "@/lib/livingTrace/projection";
+import "@/components/archive/archive.css";
 import "./home-v5.css";
 
 // HOMEPAGE V5 — "THE LIVING ARCHIVE". DESIGN EXPLORATION, NOT THE LIVE HOMEPAGE.
@@ -84,7 +85,7 @@ function disagreement(graph: ProjectedGraph): Disagreement | null {
 // A section on the thread: its node in the gutter, its content beside it.
 function OnThread({ children, end = false }: { children: React.ReactNode; end?: boolean }) {
   return (
-    <div className="hv5-frame hv5-grid">
+    <div className="la-frame hv5-grid">
       <div>
         <span className="hv5-node" data-thread={end ? "end" : "node"} data-end={end || undefined} aria-hidden="true" />
       </div>
@@ -102,24 +103,24 @@ export default function HomeV5() {
   const deep = "var(--tiro-bg-deep)";
 
   return (
-    <main className="hv5 bg-[var(--tiro-bg)] text-[var(--tiro-text)]">
+    <main className="la hv5 bg-[var(--tiro-bg)] text-[var(--tiro-text)]">
       <Thread />
 
       {/* Hero */}
       <section id="encounter" aria-labelledby="hv5-title" className="hv5-hero">
-        <div className="hv5-frame hv5-grid">
+        <div className="la-frame hv5-grid">
           <div aria-hidden="true" />
           <div className="min-w-0">
             <div className="hv5-hero-grid">
               <div className="pb-2 lg:pt-4">
-                <p className="hv5-eyebrow">The Tiro Foundation / Node Zero</p>
+                <p className="la-eyebrow">The Tiro Foundation / Node Zero</p>
                 <h1 id="hv5-title" className="hv5-h1 mt-7">
                   <span>Memory</span> <span>deserves</span> <span>a future.</span>
                 </h1>
                 <p className="hv5-lede mt-8 max-w-[30rem]">We are building ways to preserve cultural memory with the communities who hold it.</p>
                 <p className="hv5-principle mt-4 max-w-[30rem]">Communities remain the principals. TIRO is the custodian.</p>
                 <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-5">
-                  <Link href="/memory-project" className="hv5-cta">
+                  <Link href="/memory-project" className="la-cta">
                     Explore the Memory Project <span aria-hidden="true" className="hv5-arrow">→</span>
                   </Link>
                   <Link href="/community-rights" className="hv5-secondary">
@@ -152,25 +153,25 @@ export default function HomeV5() {
       <section id="why" aria-labelledby="hv5-why" className="hv5-section">
         <OnThread>
           <Reveal>
-            <h2 id="hv5-why" className="hv5-eyebrow">
+            <h2 id="hv5-why" className="la-eyebrow">
               Why TIRO exists
             </h2>
-            <figure className="hv5-rise mt-10">
+            <figure className="la-rise mt-10">
               <blockquote className="hv5-inscription max-w-[18ch]">There is enlightenment in exploration, but empathy is essential.</blockquote>
               <figcaption>
-                <Link href="/manifesto" className="hv5-cite">
+                <Link href="/manifesto" className="la-cite">
                   Founding statement · Manifesto v0.2
                 </Link>
               </figcaption>
             </figure>
-            <div className="hv5-rise mt-16 grid gap-10 md:mt-20 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:gap-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
+            <div className="la-rise mt-16 grid gap-10 md:mt-20 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:gap-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
               <figure>
                 <blockquote className="font-[family-name:var(--font-display)] text-xl leading-snug text-[var(--tiro-text-soft)] md:text-[1.7rem]">
                   &ldquo;Every time a language falls silent, an elder dies unheard, an archive deteriorates, or a community loses control of its own
                   history, humanity&apos;s inheritance becomes smaller.&rdquo;
                 </blockquote>
                 <figcaption>
-                  <Link href="/manifesto" className="hv5-cite">
+                  <Link href="/manifesto" className="la-cite">
                     Manifesto v0.2 · I. Memory
                   </Link>
                 </figcaption>
@@ -190,8 +191,8 @@ export default function HomeV5() {
       <section id="record" aria-labelledby="hv5-record" className="hv5-section bg-[var(--tiro-bg-deep)]" style={{ "--hv5-section-bg": deep } as React.CSSProperties}>
         <OnThread>
           <Reveal>
-            <p className="hv5-eyebrow">What we are building</p>
-            <div className="hv5-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
+            <p className="la-eyebrow">What we are building</p>
+            <div className="la-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
               <h2 id="hv5-record" className="hv5-h2">
                 Every memory <em>has a source.</em>
               </h2>
@@ -201,7 +202,7 @@ export default function HomeV5() {
               </p>
             </div>
             {record ? (
-              <div className="hv5-rise mt-14 md:mt-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
+              <div className="la-rise mt-14 md:mt-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
                 <RecordLayers
                   data={{
                     recordId: record.recordId,
@@ -225,8 +226,8 @@ export default function HomeV5() {
       <section id="discover" aria-labelledby="hv5-discover" className="hv5-section">
         <OnThread>
           <Reveal>
-            <p className="hv5-eyebrow">How it differs</p>
-            <div className="hv5-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
+            <p className="la-eyebrow">How it differs</p>
+            <div className="la-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
               <h2 id="hv5-discover" className="hv5-h2">
                 Connection <em>without collapse.</em>
               </h2>
@@ -235,7 +236,7 @@ export default function HomeV5() {
               </p>
             </div>
             {accounts ? (
-              <div className="hv5-rise mt-14 md:mt-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
+              <div className="la-rise mt-14 md:mt-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
                 <TwoAccounts data={accounts} moreHref="/living-trace#discover" />
               </div>
             ) : null}
@@ -247,8 +248,8 @@ export default function HomeV5() {
       <section id="authority" aria-labelledby="hv5-authority" className="hv5-section bg-[var(--tiro-bg-deep)]" style={{ "--hv5-section-bg": deep } as React.CSSProperties}>
         <OnThread>
           <Reveal>
-            <p className="hv5-eyebrow">Who decides</p>
-            <div className="hv5-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
+            <p className="la-eyebrow">Who decides</p>
+            <div className="la-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
               <h2 id="hv5-authority" className="hv5-h2">
                 Custody is <em>not ownership.</em>
               </h2>
@@ -257,13 +258,13 @@ export default function HomeV5() {
                   &ldquo;Communities and contributors remain the cultural and intellectual principals of what they entrust to us; TIRO&apos;s role is
                   custodian, not owner.&rdquo;
                 </p>
-                <Link href="/community-rights" className="hv5-cite">
+                <Link href="/community-rights" className="la-cite">
                   Community Rights &amp; Cultural Data Stewardship
                 </Link>
               </div>
             </div>
 
-            <div className="hv5-rise mt-14 grid gap-14 md:mt-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
+            <div className="la-rise mt-14 grid gap-14 md:mt-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
               <ul className="border-b border-[var(--tiro-border)]">
                 {PRINCIPLES.map((p) => (
                   <li key={p.title} className="border-t border-[var(--tiro-border)] py-5">
@@ -314,8 +315,8 @@ export default function HomeV5() {
       <section id="participate" aria-labelledby="hv5-participate" className="hv5-section">
         <OnThread>
           <Reveal>
-            <p className="hv5-eyebrow">Take part</p>
-            <div className="hv5-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
+            <p className="la-eyebrow">Take part</p>
+            <div className="la-rise mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:items-end lg:gap-16">
               <h2 id="hv5-participate" className="hv5-h2">
                 An institution, <em>at its beginning.</em>
               </h2>
@@ -324,12 +325,12 @@ export default function HomeV5() {
                 <p className="mt-3">
                   An Igbo oral-memory pilot in Nigeria is the proposed first bounded collection, to be scoped with participating communities.
                 </p>
-                <Link href="/manifesto" className="hv5-cite">
+                <Link href="/manifesto" className="la-cite">
                   Manifesto v0.2 · II. Intelligence · IV. The Principle of the Node
                 </Link>
               </div>
             </div>
-            <ul className="hv5-paths hv5-rise mt-14" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
+            <ul className="hv5-paths la-rise mt-14" style={{ "--lt-delay": "160ms" } as React.CSSProperties}>
               {PATHS.map((p, i) => (
                 <li key={p.href}>
                   <Link href={p.href} className="hv5-path">
@@ -356,7 +357,7 @@ export default function HomeV5() {
           <p className="font-[family-name:var(--font-display)] text-[1.75rem] italic leading-tight text-[var(--tiro-text)] md:text-[2.6rem]">
             TIRO is being built for people we will never meet.
           </p>
-          <Link href="/manifesto" className="hv5-cite">
+          <Link href="/manifesto" className="la-cite">
             Manifesto v0.2 · VI. The Long View
           </Link>
         </OnThread>

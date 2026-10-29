@@ -1,7 +1,7 @@
 # The Living Archive: shared components and tokens (V5 ↔ Memory Project v1)
 
-Status: **Inventory and proposal.** Nothing has been refactored. The approved previews (`/preview/home-v5`, `/preview/memory-v1`) are unchanged by this document.
-Revision date: 2026-10-28.
+Status: **Inventory and proposal; consolidated in Milestone 3.0 Phase 2.** What was built, what differs from this proposal, and the evidence are in `milestone-3.0-phase-2-design-system.md`. In short: the tokens, text roles, actions, motion, `LayerStack` and `layers.ts` are shared under `src/components/archive/`, and the record view under `src/components/record/`. Three rules this inventory calls identical differ slightly on the homepage (CTA width, quotation-source spacing, eyebrow line height); the homepage keeps its values. `--la-header` is a constant, not a measurement (Phase 2 record, §3). `FindingAid` was not extracted: it has one consumer.
+Revision date: 2026-10-28 (status updated 2026-10-29).
 Owner: TIRO founder / Steward.
 Purpose: Record what the homepage (V5) and the Memory Project (v1) already share, where they diverge, and how to consolidate them when they are adopted for production.
 

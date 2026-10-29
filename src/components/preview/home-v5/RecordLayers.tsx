@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
+import LayerStack from "@/components/archive/LayerStack";
+import { RECORD_LAYERS } from "@/components/archive/layers";
+import { useLayerTabs } from "@/components/archive/useLayerTabs";
 import { USE_CATEGORIES, USE_GRANT_LABEL, type EvidenceState, type UseCategory, type UseGrant } from "@/lib/livingTrace/evidence";
 import EvidenceTag from "@/components/trace/EvidenceTag";
 import { SyntheticPill } from "@/components/trace/SyntheticNotice";
@@ -11,10 +14,11 @@ import { SyntheticPill } from "@/components/trace/SyntheticNotice";
 // resting on what makes it trustworthy (source, authority, terms of care,
 // provenance). A gold thread runs through every layer: they are one record.
 //
-// The drawing is decorative; the layer list is a real tablist (arrow keys
-// move between layers) and its panel holds the same information as text.
-// The sheets separate once, when the section is reached; with reduced
-// motion they are simply drawn apart. Every value is the projected fixture's.
+// The drawing is the Living Archive's LayerStack, here without the Derived
+// sheet: the homepage shows the record itself. It is decorative; the layer
+// list is a real tablist (arrow keys move between layers) and its panel
+// holds the same information as text, read from this specimen. Every value
+// is the projected fixture's.
 export type LayerData = {
   recordId: string;
   href: string;
@@ -27,29 +31,14 @@ export type LayerData = {
   provenance: { at: string; event: string; actor: string; evidence: EvidenceState }[];
 };
 
-const LAYERS = [
-  { key: "account", label: "Account", hint: "What it says" },
-  { key: "source", label: "Source", hint: "Who shared it" },
-  { key: "authority", label: "Authority", hint: "Who decides" },
-  { key: "terms", label: "Terms of care", hint: "What is permitted" },
-  { key: "provenance", label: "Provenance", hint: "How it came to be held" },
-] as const;
-
-type LayerKey = (typeof LAYERS)[number]["key"];
-
-// Sheet geometry (viewBox 560 x 500): isometric planes, top to bottom.
-const CX = 200;
-const RX = 170;
-const RY = 58;
-const Y0 = 66;
-const GAP = 86;
-const MID = Y0 + GAP * 2;
-
-const sheetPath = (cy: number) => `M${CX - RX},${cy} L${CX},${cy - RY} L${CX + RX},${cy} L${CX},${cy + RY} Z`;
+// Each layer's name (layers.ts), with the homepage's short gloss.
+const HINTS = { account: "What it says", source: "Who shared it", authority: "Who decides", terms: "What is permitted", provenance: "How it came to be held" } as const;
+type RecordKey = keyof typeof HINTS; // the record's own five: no Derived here
+const LAYERS = RECORD_LAYERS.map((l) => ({ key: l.key as RecordKey, label: l.label, hint: HINTS[l.key as RecordKey] }));
+const KEYS = LAYERS.map((l) => l.key);
 
 export default function RecordLayers({ data }: { data: LayerData }) {
-  const [active, setActive] = useState<LayerKey>("account");
-  const tabs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const { active, setActive, tabProps } = useLayerTabs<RecordKey>(KEYS, "account");
 
   // "#record-source", "#record-terms" … from links elsewhere on the page
   // open the matching layer.
@@ -57,7 +46,7 @@ export default function RecordLayers({ data }: { data: LayerData }) {
     const fromHash = () => {
       const key = window.location.hash.replace("#record-", "");
       if (LAYERS.some((l) => l.key === key)) {
-        setActive(key as LayerKey);
+        setActive(key as RecordKey);
         document.getElementById("record")?.scrollIntoView({ block: "start" });
       }
     };
@@ -67,58 +56,12 @@ export default function RecordLayers({ data }: { data: LayerData }) {
       cancelAnimationFrame(frame);
       window.removeEventListener("hashchange", fromHash);
     };
-  }, []);
-
-  const onKey = (e: React.KeyboardEvent, i: number) => {
-    const delta = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
-    const jump = e.key === "Home" ? 0 : e.key === "End" ? LAYERS.length - 1 : null;
-    if (!delta && jump === null) {
-      return;
-    }
-    e.preventDefault();
-    const next = LAYERS[jump ?? (i + delta + LAYERS.length) % LAYERS.length].key;
-    setActive(next);
-    tabs.current[next]?.focus();
-  };
+  }, [setActive]);
 
   return (
     <div className="hv5-layers">
       <div className="hv5-layers-figure" aria-hidden="true">
-        <svg viewBox="0 0 560 500" focusable="false">
-          {/* The thread through every layer. */}
-          <line x1={CX} x2={CX} y1={Y0 - RY - 18} y2={Y0 + GAP * 4 + RY + 18} stroke="var(--tiro-accent)" strokeWidth="1.25" />
-          {LAYERS.map((l, i) => {
-            const cy = Y0 + GAP * i;
-            const on = active === l.key;
-            return (
-              <g
-                key={l.key}
-                className="hv5-sheet"
-                style={{ "--hv5-collapse": `${(MID - cy) * 0.86}px`, "--lt-delay": `${120 + i * 90}ms` } as React.CSSProperties}
-                onClick={() => setActive(l.key)}
-              >
-                <g className="hv5-sheet-lift" data-on={on}>
-                  <path d={sheetPath(cy)} className="hv5-sheet-plane" />
-                  <line x1={CX - 112} y1={cy - 10} x2={CX - 40} y2={cy + 14.5} className="hv5-sheet-field" />
-                  <line x1={CX - 76} y1={cy - 24} x2={CX + 6} y2={cy + 4} className="hv5-sheet-field" />
-                  <line x1={CX - 30} y1={cy - 40} x2={CX + 42} y2={cy - 15.5} className="hv5-sheet-field" />
-                  {l.key === "source" ? (
-                    <>
-                      <circle cx={CX} cy={cy} r={8} fill="var(--tiro-raised)" stroke="var(--tiro-accent)" strokeWidth="1.6" />
-                      <circle cx={CX} cy={cy} r={2.6} fill="var(--tiro-accent)" />
-                    </>
-                  ) : (
-                    <circle cx={CX} cy={cy} r={3.5} fill="var(--tiro-accent)" />
-                  )}
-                  <line x1={CX + RX + 8} x2={CX + RX + 34} y1={cy} y2={cy} className="hv5-sheet-leader" />
-                  <text x={CX + RX + 42} y={cy + 4} className="hv5-sheet-label">
-                    {l.label.toUpperCase()}
-                  </text>
-                </g>
-              </g>
-            );
-          })}
-        </svg>
+        <LayerStack active={active} onPick={(key) => setActive(key as RecordKey)} derived={false} />
       </div>
 
       <div className="min-w-0">
@@ -129,21 +72,7 @@ export default function RecordLayers({ data }: { data: LayerData }) {
 
         <div role="tablist" aria-label="Layers of the record" aria-orientation="vertical" className="hv5-layer-tabs">
           {LAYERS.map((l, i) => (
-            <button
-              key={l.key}
-              id={`record-${l.key}`}
-              ref={(el) => {
-                tabs.current[l.key] = el;
-              }}
-              type="button"
-              role="tab"
-              aria-selected={active === l.key}
-              aria-controls="hv5-layer-panel"
-              tabIndex={active === l.key ? 0 : -1}
-              className="hv5-layer-tab"
-              onClick={() => setActive(l.key)}
-              onKeyDown={(e) => onKey(e, i)}
-            >
+            <button key={l.key} id={`record-${l.key}`} type="button" aria-controls="hv5-layer-panel" className="hv5-layer-tab" {...tabProps(l.key, i)}>
               <span className="font-[family-name:var(--font-code)] text-[11px] text-[var(--tiro-accent)]">0{i + 1}</span>
               <span className="text-[var(--tiro-text)]">{l.label}</span>
               <span className="hidden text-sm text-[var(--tiro-text-muted)] sm:inline">{l.hint}</span>
@@ -152,7 +81,7 @@ export default function RecordLayers({ data }: { data: LayerData }) {
         </div>
 
         <div id="hv5-layer-panel" role="tabpanel" aria-labelledby={`record-${active}`} className="hv5-layer-panel">
-          <div key={active} className="hv5-enter">
+          <div key={active} className="la-enter">
             {active === "account" ? (
               <>
                 <p className="lt-display text-2xl leading-snug md:text-[1.75rem]">{data.title}</p>

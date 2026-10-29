@@ -1,0 +1,368 @@
+/* ======================================================================
+   The Living Archive: shared design system (Milestone 3.0, Phase 2)
+
+   What the homepage (V5) and the Memory Project (v1) share: layout tokens,
+   text roles, actions, motion, and the exploded record (LayerStack). Built
+   only on the existing TIRO tokens in globals.css (--tiro-* colours,
+   --lt-ease and durations, the site fonts); it adds no colour.
+
+   Use: a page's root element carries "la" (which defines the tokens below
+   from its own palette, so a scoped palette such as .tiro-register-paper
+   is honoured) and imports this file before its own stylesheet. Page
+   stylesheets keep what is deliberately theirs: the homepage's thread and
+   hero, the Memory Project's finding aid, section rhythms, headline scales.
+
+   Motion only moves toward the static final state, runs only under
+   prefers-reduced-motion: no-preference, and is never scroll-linked.
+   ====================================================================== */
+
+.la {
+  --la-max: 78rem;
+  --la-pad: 1.5rem;
+  --la-hair: color-mix(in srgb, var(--tiro-mineral-line) 50%, transparent);
+  --la-faint: color-mix(in srgb, var(--tiro-mineral-line) 30%, transparent);
+}
+
+@media (max-width: 480px) {
+  .la {
+    --la-pad: 1rem;
+  }
+}
+
+.la-frame {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--la-max);
+  padding-inline: var(--la-pad);
+}
+
+/* ---------- Text roles ---------- */
+
+/* A section's or a page's label, above its heading. */
+.la-eyebrow {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+/* The source of a quotation: always named, usually a link to it. */
+.la-cite {
+  display: inline-block;
+  margin-top: 0.75rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+}
+
+a.la-cite:hover {
+  color: var(--tiro-text);
+}
+
+/* A field's name, beside or above its value (dt, small headings). */
+.la-term {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- Actions ---------- */
+
+/* The one primary action of a section. */
+.la-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--tiro-accent);
+  background: var(--tiro-accent);
+  color: var(--tiro-bg);
+  padding: 1rem 1.5rem;
+  font-family: var(--font-code);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: filter var(--lt-dur-quick) ease;
+}
+
+.la-cta:hover {
+  filter: brightness(1.08);
+}
+
+/* A secondary way on: an underlined link that warms to the accent. */
+.la-more {
+  display: inline-block;
+  font-size: 0.95rem;
+  color: var(--tiro-text);
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 5px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.la-more:hover {
+  text-decoration-color: var(--tiro-accent);
+}
+
+/* A plain command (copy, show), outlined rather than filled. */
+.la-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  border: 1px solid var(--tiro-border-strong);
+  padding: 0 1rem;
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tiro-text);
+  transition: border-color var(--lt-dur-quick) ease, background-color var(--lt-dur-quick) ease;
+}
+
+.la-button:hover {
+  border-color: var(--tiro-accent);
+  background: var(--tiro-surface);
+}
+
+/* ---------- Local bar (LocalNav.tsx) ----------
+   Orientation inside an inner page, held under the site header. */
+.la-localnav {
+  position: sticky;
+  top: var(--la-header);
+  z-index: 30;
+  background: var(--tiro-bg);
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+.la-localnav-inner {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 3.25rem;
+}
+
+.la-localnav-title {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--tiro-text);
+}
+
+.la-localnav-list {
+  display: flex;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.la-localnav-list::-webkit-scrollbar {
+  display: none;
+}
+
+.la-localnav-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.6rem;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color var(--lt-dur-quick) ease, border-color var(--lt-dur-quick) ease;
+}
+
+.la-localnav-list a:hover {
+  color: var(--tiro-text);
+}
+
+.la-localnav-list a[aria-current="location"] {
+  color: var(--tiro-text);
+  border-bottom-color: var(--tiro-accent);
+}
+
+.la-localnav-cta {
+  flex-shrink: 0;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .la-localnav-title,
+  .la-localnav-cta {
+    display: none;
+  }
+}
+
+/* ---------- The exploded record (LayerStack.tsx) ---------- */
+.la-stack {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.la-stack-thread {
+  stroke: var(--tiro-accent);
+  stroke-width: 1.25;
+}
+
+.la-stack-branch {
+  stroke: var(--tiro-accent);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 5;
+}
+
+.la-sheet {
+  cursor: pointer;
+}
+
+.la-sheet-lift {
+  transition: transform var(--lt-dur-base) var(--lt-ease);
+}
+
+.la-sheet-lift[data-on="true"] {
+  transform: translateY(-10px);
+}
+
+.la-stack-plane {
+  fill: var(--tiro-raised);
+  stroke: var(--tiro-text-subtle);
+  stroke-width: 1.25;
+  transition: fill var(--lt-dur-base) ease, stroke var(--lt-dur-base) ease;
+}
+
+.la-stack-plane-derived {
+  fill: transparent;
+  stroke-dasharray: 6 5;
+}
+
+.la-sheet-lift[data-on="true"] .la-stack-plane {
+  stroke: var(--tiro-accent);
+  stroke-width: 1.75;
+  fill: color-mix(in srgb, var(--tiro-accent) 7%, var(--tiro-raised));
+}
+
+.la-stack-seal {
+  fill: none;
+  stroke: var(--tiro-text-subtle);
+  stroke-width: 1;
+}
+
+.la-stack-field {
+  stroke: var(--la-hair);
+  stroke-width: 1;
+}
+
+.la-stack-node {
+  fill: var(--tiro-accent);
+}
+
+.la-stack-node-derived {
+  fill: var(--tiro-mineral-line);
+}
+
+.la-stack-origin {
+  fill: var(--tiro-raised);
+  stroke: var(--tiro-accent);
+  stroke-width: 1.6;
+}
+
+.la-stack-label {
+  font-family: var(--font-code);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  fill: var(--tiro-text-muted);
+}
+
+.la-sheet-lift[data-on="true"] .la-stack-label {
+  fill: var(--tiro-accent);
+}
+
+/* ---------- Motion ----------
+   la-rise: content rising into place when its section is first reached
+   (inside trace/Reveal.tsx). la-sheet: the record separating into its
+   layers, once. la-enter: a panel's content replaced on request. */
+@media (prefers-reduced-motion: no-preference) {
+  .la [data-lt-reveal="pending"] .la-rise {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  .la [data-lt-reveal="shown"] .la-rise {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: la-rise 900ms var(--lt-ease) forwards;
+    animation-delay: var(--lt-delay, 0ms);
+  }
+
+  .la [data-lt-reveal="pending"] .la-sheet {
+    transform: translateY(var(--la-collapse));
+  }
+
+  .la [data-lt-reveal="shown"] .la-sheet {
+    transform: translateY(var(--la-collapse));
+    animation: la-separate 1300ms var(--lt-ease) forwards;
+    animation-delay: calc(300ms + var(--lt-delay, 0ms));
+  }
+
+  .la-enter {
+    animation: la-enter 420ms var(--lt-ease) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .la-sheet-lift,
+  .la-stack-plane,
+  .la-localnav-list a {
+    transition: none !important;
+  }
+}
+
+@keyframes la-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes la-separate {
+  to {
+    transform: none;
+  }
+}
+
+@keyframes la-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  .la-localnav {
+    display: none;
+  }
+  .la [data-lt-reveal] * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

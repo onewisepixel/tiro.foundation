@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { cite, type CitationInput } from "@/lib/livingTrace/citation";
+import "./record.css";
 
 // A citation in TIRO Citation Standard v0.1 (provisional;
 // docs/design/citation-standard-v0.1.md), with a way to copy it.
@@ -33,12 +34,12 @@ export default function CopyCitation({ input }: { input: PendingCitation }) {
   const gaps = warnings.filter((w) => !w.startsWith("No access date"));
 
   return (
-    <div className="mv1-cite-block">
-      <p className="mv1-dt">TIRO Citation Standard v0.1 · provisional</p>
-      <p className="mv1-cite-text mt-2">{text}</p>
+    <div className="la-citation">
+      <p className="la-term">TIRO Citation Standard v0.1 · provisional</p>
+      <p className="la-citation-text mt-2">{text}</p>
       {gaps.length > 0 ? (
         <div className="mt-3">
-          <p className="mv1-dt">Not yet available</p>
+          <p className="la-term">Not yet available</p>
           <ul className="mt-1 space-y-0.5 text-sm text-[var(--tiro-text-muted)]">
             {gaps.map((w) => (
               <li key={w}>{w}</li>
@@ -47,7 +48,7 @@ export default function CopyCitation({ input }: { input: PendingCitation }) {
         </div>
       ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={copy} className="mv1-button">
+        <button type="button" onClick={copy} className="la-button">
           Copy citation
         </button>
         <span role="status" className="text-sm text-[var(--tiro-text-muted)]">

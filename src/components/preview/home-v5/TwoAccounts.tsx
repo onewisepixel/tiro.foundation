@@ -105,7 +105,7 @@ export default function TwoAccounts({ data, moreHref }: { data: Disagreement; mo
           <EvidenceStroke evidence="contested" width={22} />
         </span>
         {picked && other ? (
-          <p key={picked.key} className="hv5-enter max-w-[40rem] text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+          <p key={picked.key} className="la-enter max-w-[40rem] text-sm leading-relaxed text-[var(--tiro-text-muted)]">
             <span className="text-[var(--tiro-text)]">{picked.record}</span> traces to <span className="text-[var(--tiro-text)]">{picked.source}</span> alone. It shares an event
             with {other.record}, and a disagreement, but no source.{" "}
             {picked.recordHref ? (
