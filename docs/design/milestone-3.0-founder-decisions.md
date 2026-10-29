@@ -1,6 +1,6 @@
 # Milestone 3.0: founder decisions for approval
 
-Status: **Awaiting founder confirmation. None of these is accepted.** They are the founder's proposed positions from the review of 2026-10-29 (plan §9), prepared in the form `decisions.md` uses. On confirmation, the confirmed rows are copied into `decisions.md` under a dated heading, with any amendments, and this file is marked superseded. Until then they authorize nothing.
+Status: **Superseded: confirmed by the founder on 2026-10-29 (all six; 44 as amended) and recorded in `decisions.md`.** Kept as the approval draft. Original status: awaiting founder confirmation. They are the founder's proposed positions from the review of 2026-10-29 (plan §9), prepared in the form `decisions.md` uses. On confirmation, the confirmed rows are copied into `decisions.md` under a dated heading, with any amendments, and this file is marked superseded. Until then they authorize nothing.
 
 For each: **Confirm**, **Amend** (state the change), or **Decline**.
 

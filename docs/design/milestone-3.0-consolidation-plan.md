@@ -211,7 +211,7 @@ Each phase is one or more PRs into `main`, merged with a merge commit so a phase
 
 ## 9. Decisions needed from the founder
 
-**Proposed founder positions, pending confirmation.** These are the founder's recommended positions from the review of 2026-10-29. They are **not recorded** in `decisions.md` and authorize nothing until the founder confirms them there. Revision 2 prepares them for approval as draft decisions 40–45 in `milestone-3.0-founder-decisions.md`; item 5 becomes an administrative matter after Gate 0.
+**Proposed founder positions, pending confirmation.** These are the founder's recommended positions from the review of 2026-10-29. They are **not recorded** in `decisions.md` and authorize nothing until the founder confirms them there. Revision 2 prepared them as drafts 40–45 (`milestone-3.0-founder-decisions.md`). **Confirmed by the founder on 2026-10-29 and recorded in `decisions.md` as decisions 40–45 (44 amended); the table below is the proposal as it stood.** Item 5 became an administrative matter after Gate 0.
 
 | # | Question | Proposed position | Consequence for this plan |
 | --- | --- | --- | --- |
