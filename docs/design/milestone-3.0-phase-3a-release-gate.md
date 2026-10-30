@@ -177,7 +177,8 @@ Screenshots (`docs/design/phase-3a/`):
 | Typecheck, lint | Pass; 0 lint errors (the 2 warnings already on `main`) |
 | `npm test` (Windows) | 550 of 554 pass. The 4 failures are the `managedLoginScript` tests that need Unix file permissions, unchanged from `main` |
 | New tests | `navigation.test.ts` (6), `redirects.test.ts` (3), and 2 in `publicMemoryApi.test.ts` (not enabled vs unavailable) |
-| Linux CI (`build-lint-test`, with the disclosure check) | Run on this PR; result recorded in the PR |
+| Linux CI (`build-lint-test`, with the disclosure check) | **Pass:** run `41067042502` on `85cfa09` (PR #16). The full suite, including the Bash-script tests, PostgreSQL integration and CDK synth |
+| Team preview deployment (`tiro-9e61715e/tiro-foundation`) | **Ready** on `85cfa09`: https://vercel.com/tiro-9e61715e/tiro-foundation/6SW9rATqtoefLxPZjVj7mQMZrnKK. Its address is visible only in Vercel, so the release checks above ran against a local production build of the same commit. Rerun them against the preview during review: `node scripts/test/public-site-checks.mjs check <preview URL> out.json` |
 
 ## 6. Requirements
 
