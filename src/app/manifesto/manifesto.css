@@ -1,0 +1,290 @@
+/* ======================================================================
+   The Manifesto: the reference for long-form institutional pages
+   (Milestone 3.0 Phase 3b). Scoped to .mf, on top of the Living Archive
+   system (src/components/archive/archive.css).
+
+   One reading measure, set in the archive's serif and centred. On wide
+   screens each part's numeral hangs in the left margin, as marginalia;
+   on narrow screens the numeral sits above its heading. Rules
+   and the accent mark the structure; nothing is decorative imagery.
+   No motion.
+   ====================================================================== */
+
+.mf {
+  --mf-measure: 38rem;
+  --mf-margin: 7rem;
+}
+
+.mf [id] {
+  scroll-margin-top: calc(var(--la-header) + 4.5rem);
+}
+
+/* The page's columns: the measure, centred, with a margin either side;
+   the numerals hang into the left one. */
+.mf-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .mf-grid {
+    grid-template-columns: minmax(var(--mf-margin), 1fr) minmax(0, var(--mf-measure)) minmax(0, 1fr);
+    column-gap: 3rem;
+  }
+  .mf-col {
+    grid-column: 2;
+  }
+}
+
+.mf-col {
+  max-width: var(--mf-measure);
+  min-width: 0;
+}
+
+/* ---------- Opening ---------- */
+.mf-head {
+  padding-top: 4rem;
+  padding-bottom: 3.5rem;
+}
+
+@media (min-width: 768px) {
+  .mf-head {
+    padding-top: 5.5rem;
+    padding-bottom: 4.5rem;
+  }
+}
+
+.mf-h1 {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-size: clamp(2.3rem, 6vw, 3.9rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+/* The contents: the seven parts, as an index. */
+.mf-contents {
+  margin-top: 3rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.mf-contents ol {
+  display: grid;
+}
+
+@media (min-width: 640px) {
+  .mf-contents ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2rem;
+  }
+}
+
+.mf-contents a {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  align-items: baseline;
+  min-height: 2.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--tiro-border);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  color: var(--tiro-text);
+  transition: color var(--lt-dur-quick) ease;
+}
+
+.mf-contents a:hover {
+  color: var(--tiro-accent);
+}
+
+.mf-contents-n {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--tiro-accent);
+}
+
+/* ---------- Parts ---------- */
+.mf-part {
+  position: relative;
+  padding-top: 3.5rem;
+  padding-bottom: 1rem;
+  border-top: 1px solid var(--tiro-border);
+}
+
+@media (min-width: 768px) {
+  .mf-part {
+    padding-top: 4.5rem;
+  }
+}
+
+/* The prelude follows the opening directly. */
+.mf-prelude {
+  border-top: none;
+  padding-top: 0;
+}
+
+.mf-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.mf-h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 1rem;
+}
+
+.mf-num {
+  display: block;
+  flex-basis: 100%;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  color: var(--tiro-accent);
+}
+
+/* Wide screens: the numeral hangs in the margin, set large, as marginalia. */
+@media (min-width: 1024px) {
+  .mf-num {
+    position: absolute;
+    right: calc(100% + 3rem);
+    top: 4.25rem;
+    flex-basis: auto;
+    width: var(--mf-margin);
+    text-align: right;
+    font-family: var(--font-display);
+    font-size: 2.75rem;
+    line-height: 1;
+    letter-spacing: 0;
+  }
+}
+
+.mf-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  font-size: clamp(2rem, 4.2vw, 2.85rem);
+  color: var(--tiro-text);
+  text-wrap: balance;
+}
+
+/* A link to the part, for citing it: quiet until pointed at or focused. */
+.mf-anchor {
+  font-family: var(--font-code);
+  font-size: 1rem;
+  color: var(--tiro-text-muted);
+  opacity: 0;
+  transition: opacity var(--lt-dur-quick) ease, color var(--lt-dur-quick) ease;
+}
+
+.mf-heading:hover .mf-anchor,
+.mf-anchor:focus-visible {
+  opacity: 1;
+}
+
+.mf-anchor:hover {
+  color: var(--tiro-accent);
+}
+
+@media (hover: none) {
+  .mf-anchor {
+    opacity: 1;
+  }
+}
+
+/* ---------- The text ---------- */
+.mf-text p {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  line-height: 1.75;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+  hanging-punctuation: first;
+}
+
+@media (min-width: 768px) {
+  .mf-text p {
+    font-size: 1.1875rem;
+  }
+}
+
+.mf-text p + p {
+  margin-top: 1.15em;
+}
+
+/* Each part's first sentence states its thesis. */
+.mf-text .mf-lede {
+  font-size: 1.45rem;
+  line-height: 1.38;
+  color: var(--tiro-text);
+}
+
+@media (min-width: 768px) {
+  .mf-text .mf-lede {
+    font-size: 1.7rem;
+  }
+}
+
+/* The prelude's quotation, set apart as an inscription. */
+.mf-quote {
+  margin-block: 3rem 3.5rem;
+  border-left: 2px solid var(--tiro-accent);
+  padding-left: 1.5rem;
+}
+
+.mf-quote blockquote {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.6rem;
+  line-height: 1.3;
+  color: var(--tiro-text);
+  text-wrap: balance;
+}
+
+@media (min-width: 768px) {
+  .mf-quote blockquote {
+    font-size: 2.1rem;
+  }
+}
+
+/* ---------- Closing ---------- */
+.mf-close {
+  margin-top: 3.5rem;
+  padding-block: 4rem 7rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.mf-close-statement {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  color: var(--tiro-text);
+  text-wrap: balance;
+}
+
+@media (min-width: 768px) {
+  .mf-close-statement {
+    font-size: 2.4rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mf-contents a,
+  .mf-anchor {
+    transition: none !important;
+  }
+}
+
+@media print {
+  .mf-anchor {
+    display: none;
+  }
+}

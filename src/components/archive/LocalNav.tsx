@@ -6,14 +6,14 @@ import { useScrollSpy } from "./useScrollSpy";
 
 // Orientation inside an inner page: a slim bar that stays under the site
 // header. The current room is marked (aria-current="location"); the way
-// on (`cta`) is always one step away. On narrow screens the list scrolls
-// sideways inside the bar, never the page. Styled by archive.css
-// (la-localnav).
+// on (`cta`, when given) is always one step away. On narrow screens the
+// list scrolls sideways inside the bar, never the page. Styled by
+// archive.css (la-localnav).
 //
 // Local to the page: the shared site navigation is untouched.
 export type LocalItem = { id: string; label: string };
 
-export default function LocalNav({ title, items, cta }: { title: string; items: LocalItem[]; cta: { href: string; label: string } }) {
+export default function LocalNav({ title, items, cta }: { title: string; items: LocalItem[]; cta?: { href: string; label: string } }) {
   const ids = useMemo(() => items.map((item) => item.id), [items]);
   const [current] = useScrollSpy(ids, 0.3);
 
@@ -32,9 +32,11 @@ export default function LocalNav({ title, items, cta }: { title: string; items: 
             </li>
           ))}
         </ol>
-        <Link href={cta.href} className="la-localnav-cta">
-          {cta.label} <span aria-hidden="true">→</span>
-        </Link>
+        {cta ? (
+          <Link href={cta.href} className="la-localnav-cta">
+            {cta.label} <span aria-hidden="true">→</span>
+          </Link>
+        ) : null}
       </div>
     </nav>
   );

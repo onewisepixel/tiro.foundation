@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import LocalNav from "@/components/archive/LocalNav";
 import TiroMark from "@/components/TiroMark";
+import "@/components/archive/archive.css";
+import "./manifesto.css";
 
 export const metadata: Metadata = {
   title: "Manifesto v0.2 — The Tiro Foundation",
@@ -116,68 +119,106 @@ const sections: { numeral: string; title: string; paragraphs: string[] }[] = [
   },
 ];
 
+// The Manifesto as the reference for long-form institutional pages
+// (Milestone 3.0 Phase 3b). The text above is the Manifesto v0.2 exactly as
+// published; the page only sets it. The Living Archive's type, palette and
+// shared components (archive.css, LocalNav) carry over, with an editorial
+// rhythm of its own: one reading measure in the archive's serif; each part
+// opens on its numeral (hanging in the margin on wide screens) and its
+// heading, and its first sentence is set as the part's lede. Every part has
+// an anchor, and the local bar follows the reader. No motion: it is read,
+// not watched. No imagery: nothing on the page stands for evidence.
+const SECTION_IDS: Record<string, string> = {
+  I: "memory",
+  II: "intelligence",
+  III: "stewardship",
+  IV: "node",
+  V: "witness",
+  VI: "long-view",
+  VII: "obligation",
+};
+
+const CONTENTS = sections.map((s) => ({ id: SECTION_IDS[s.numeral], numeral: s.numeral, title: s.title }));
+// The local bar names the parts; their numerals are in the contents and headings.
+const LOCAL_ITEMS = CONTENTS.map((c) => ({ id: c.id, label: c.title }));
+
+function Paragraphs({ paragraphs }: { paragraphs: string[] }) {
+  const [lede, ...rest] = paragraphs;
+  return (
+    <div className="mf-text">
+      <p className="mf-lede">{lede}</p>
+      {rest.map((paragraph, index) => (
+        <p key={index}>{paragraph}</p>
+      ))}
+    </div>
+  );
+}
+
 export default function ManifestoPage() {
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-14 pt-8 text-center md:pb-16 md:pt-12">
-        <TiroMark variant="primary" className="mx-auto mb-8 h-16 w-auto text-[var(--tiro-mark)] md:h-20" />
+    <main id="top" className="la mf bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <LocalNav title="Manifesto v0.2" items={LOCAL_ITEMS} />
 
-        <p className="tiro-eyebrow mb-6">Manifesto v0.2</p>
+      <header className="la-frame mf-grid mf-head">
+        <div className="mf-col">
+          <TiroMark variant="primary" className="h-14 w-auto text-[var(--tiro-mark)] md:h-16" />
+          <p className="la-eyebrow mt-10">Manifesto v0.2</p>
+          <h1 className="mf-h1 mt-6">There is enlightenment in exploration, but empathy is essential.</h1>
 
-        <h1 className="mx-auto mb-10 max-w-2xl font-[family-name:var(--font-display)] text-3xl italic leading-snug tracking-tight md:text-5xl">
-          There is enlightenment in exploration, but empathy is essential.
-        </h1>
-
-        <hr className="tiro-rule mx-auto w-16" />
-      </section>
-
-      <section className="px-6 pb-16 md:pb-20">
-        <div className="mx-auto max-w-2xl space-y-5 text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
-          {preludeParagraphs.map((paragraph, index) => (
-            <p key={index}>{paragraph}</p>
-          ))}
-        </div>
-      </section>
-
-      <section className="px-6 pb-16 md:pb-20">
-        <div className="tiro-card mx-auto max-w-2xl text-center">
-          <p className="font-[family-name:var(--font-display)] text-xl italic leading-relaxed text-[var(--tiro-text-soft)] md:text-2xl">
-            &ldquo;Civilization is not merely what humanity builds. It is what
-            humanity manages not to forget.&rdquo;
-          </p>
-        </div>
-      </section>
-
-      {sections.map((section) => (
-        <section key={section.numeral} className="px-6 pb-16 md:pb-20">
-          <div className="mx-auto max-w-2xl">
-            <p className="tiro-eyebrow mb-4">{section.numeral}</p>
-            <h2 className="mb-6 font-[family-name:var(--font-display)] text-2xl italic tracking-tight text-[var(--tiro-text)] md:text-3xl">
-              {section.title}
-            </h2>
-            <div className="space-y-5 text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
-              {section.paragraphs.map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
+          <nav aria-label="Contents" className="mf-contents">
+            <ol>
+              {CONTENTS.map((c) => (
+                <li key={c.id}>
+                  <a href={`#${c.id}`}>
+                    <span className="mf-contents-n">{c.numeral}</span>
+                    <span>{c.title}</span>
+                  </a>
+                </li>
               ))}
-            </div>
-          </div>
-          <hr className="tiro-rule mx-auto mt-16 max-w-2xl md:mt-20" />
-        </section>
-      ))}
-
-      <section className="px-6 pb-28 text-center md:pb-36">
-        <div className="mx-auto max-w-xl">
-          <p className="mb-10 font-[family-name:var(--font-display)] text-xl italic leading-relaxed text-[var(--tiro-text-soft)] md:text-2xl">
-            There is enlightenment in exploration, but empathy is essential.
-          </p>
-          <p className="font-[family-name:var(--font-logo)] text-sm uppercase tracking-[0.2em] text-[var(--tiro-text)]">
-            TIRO
-          </p>
-          <p className="mt-2 font-[family-name:var(--font-code)] text-xs uppercase tracking-[0.2em] text-[var(--tiro-text-subtle)]">
-            Memory. Intelligence. Stewardship.
-          </p>
+            </ol>
+          </nav>
         </div>
-      </section>
+      </header>
+
+      <div className="la-frame mf-grid">
+        <div className="mf-col">
+          <section id="prelude" aria-label="Prelude" className="mf-part mf-prelude">
+            <Paragraphs paragraphs={preludeParagraphs} />
+            <figure className="mf-quote">
+              <blockquote>
+                &ldquo;Civilization is not merely what humanity builds. It is what
+                humanity manages not to forget.&rdquo;
+              </blockquote>
+            </figure>
+          </section>
+
+          {sections.map((section) => {
+            const id = SECTION_IDS[section.numeral];
+            return (
+              <section key={section.numeral} id={id} aria-labelledby={`${id}-title`} className="mf-part">
+                <div className="mf-heading">
+                  <h2 id={`${id}-title`} className="mf-h2">
+                    <span className="mf-num">{section.numeral}</span>{" "}
+                    <span className="mf-title">{section.title}</span>
+                  </h2>
+                  <a href={`#${id}`} className="mf-anchor" aria-label={`Link to part ${section.numeral}, ${section.title}`}>
+                    #
+                  </a>
+                </div>
+                <Paragraphs paragraphs={section.paragraphs} />
+              </section>
+            );
+          })}
+
+          <section aria-label="Closing" className="mf-close">
+            <p className="mf-close-statement">There is enlightenment in exploration, but empathy is essential.</p>
+            <p className="mt-10 font-[family-name:var(--font-logo)] text-sm uppercase tracking-[0.2em] text-[var(--tiro-text)]">TIRO</p>
+            <p className="mt-2 font-[family-name:var(--font-code)] text-xs uppercase tracking-[0.2em] text-[var(--tiro-text-subtle)]">
+              Memory. Intelligence. Stewardship.
+            </p>
+          </section>
+        </div>
+      </div>
     </main>
   );
 }
