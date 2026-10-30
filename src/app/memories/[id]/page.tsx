@@ -63,6 +63,12 @@ const resolvePublicRecord = cache(async (id: string): Promise<ResolvedPublicReco
   if (result.ok) {
     return { kind: "found", record: result.record };
   }
+  // Live records not enabled on this deployment (decision 44): no backend
+  // record is served here, so the address is simply not a page of this
+  // site. Not an outage, and not reported as one.
+  if (result.disabled) {
+    return { kind: "not-found" };
+  }
   // status 404 is the backend's own explicit "not found or not eligible"
   // answer (api/router.ts's public routes return a flat 404 for both
   // nonexistent and denied records, by design — see backend's publicView.ts).

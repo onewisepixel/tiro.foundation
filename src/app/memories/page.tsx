@@ -162,7 +162,15 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             </p>
           ) : null}
 
-          {!listingResult.ok ? (
+          {!listingResult.ok && listingResult.reason === "disabled" ? (
+            // Decision 44: backend-connected records are not shown publicly
+            // without an explicit decision. Not enabled is a deliberate
+            // state, described as one, never as an outage.
+            <p className="text-sm text-[var(--tiro-text-muted)]">
+              Live records are not enabled on this site. Records from the live Memory service are not shown publicly until their public display is
+              approved.
+            </p>
+          ) : !listingResult.ok ? (
             <p className="text-sm text-[var(--tiro-text-muted)]">
               Live records are temporarily unavailable. Please try again shortly.
             </p>

@@ -8,6 +8,13 @@
 //   node scripts/test/living-archive-parity.mjs capture <baseUrl> <outDir>
 //   node scripts/test/living-archive-parity.mjs compare <beforeDir> <afterDir> <reportDir>
 //
+// PARITY_ADOPTED=1 captures each Living Archive page at its production
+// address (Milestone 3.0 Phase 3a) under the same name, so a capture of
+// the previews on the previous build compares with the adopted pages; the
+// pages they replaced are skipped. PARITY_REGION=main compares only <main>
+// below the fixed site header, for when the header and footer change on
+// purpose. PARITY_ONLY=<regex> limits a run to matching captures.
+//
 // capture, for every page x theme x width x motion setting:
 //   - a full-page screenshot;
 //   - a style fingerprint: every rendered element's box and the computed
@@ -27,19 +34,21 @@ import path from "node:path";
 
 const [mode, ...args] = process.argv.slice(2);
 
-const PAGES = [
-  { name: "home-v5", path: "/preview/home-v5" },
-  { name: "memory-v1", path: "/preview/memory-v1" },
-  { name: "record-public", path: "/preview/memory-v1/records/DEMO-LT-0001" },
-  { name: "record-restricted", path: "/preview/memory-v1/records/DEMO-LT-0002" },
-  { name: "record-authority", path: "/preview/memory-v1/records/DEMO-MP-0001" },
-  // Production routes that must not change.
-  { name: "prod-home", path: "/" },
-  { name: "prod-memory-project", path: "/memory-project" },
+const ALL_PAGES = [
+  { name: "home-v5", path: "/preview/home-v5", adopted: "/" },
+  { name: "memory-v1", path: "/preview/memory-v1", adopted: "/memory-project" },
+  { name: "record-public", path: "/preview/memory-v1/records/DEMO-LT-0001", adopted: "/memory-project/records/DEMO-LT-0001" },
+  { name: "record-restricted", path: "/preview/memory-v1/records/DEMO-LT-0002", adopted: "/memory-project/records/DEMO-LT-0002" },
+  { name: "record-authority", path: "/preview/memory-v1/records/DEMO-MP-0001", adopted: "/memory-project/records/DEMO-MP-0001" },
+  // Production routes that must not change (the first two are replaced
+  // by the adopted pages in Phase 3a).
+  { name: "prod-home", path: "/", adopted: null },
+  { name: "prod-memory-project", path: "/memory-project", adopted: null },
   { name: "prod-manifesto", path: "/manifesto" },
   { name: "prod-living-trace", path: "/living-trace" },
   { name: "prod-pilot", path: "/pilot" },
 ];
+const PAGES = ALL_PAGES.flatMap((p) => (process.env.PARITY_ADOPTED === "1" ? (p.adopted === null ? [] : [{ ...p, path: p.adopted ?? p.path }]) : [p]));
 const WIDTHS = [
   { name: "desktop", width: 1440, height: 900, mobile: false },
   { name: "tablet", width: 820, height: 1180, mobile: true },
@@ -187,6 +196,7 @@ async function capture(base, outDir) {
               scrollWidth: document.documentElement.scrollWidth,
               clientWidth: document.documentElement.clientWidth,
               height: document.documentElement.scrollHeight,
+              main: (() => { const m = document.querySelector("main")?.getBoundingClientRect(); return m ? [m.x, m.y + scrollY, m.width, m.height].map(Math.round) : null; })(),
             };
           })()`);
           const fingerprint = await evaluate(`(() => {
@@ -336,23 +346,34 @@ async function compare(beforeDir, afterDir, reportDir) {
       if (Object.keys(d).length) fpDiffs.push({ i, tag: a.tag, text: a.text, d });
     }
     // Pixels, compared in the browser (no image dependency).
+    // PARITY_REGION=main: <main> only, below the fixed header.
+    const region = (j) => {
+      if (process.env.PARITY_REGION !== "main" || !j.info.main) return null;
+      const [x, y, w, h] = j.info.main;
+      const top = Math.max(y, Math.ceil(j.info.headerHeight ?? 0));
+      return [x, top, w, y + h - top];
+    };
+    const ra = region(A);
+    const rb = region(B);
     const pa = fs.readFileSync(path.join(beforeDir, `${id}.png`)).toString("base64");
     const pb = fs.readFileSync(path.join(afterDir, `${id}.png`)).toString("base64");
     const px = await evaluate(`(async () => {
       const load = (s) => new Promise((r) => { const i = new Image(); i.onload = () => r(i); i.src = "data:image/png;base64," + s; });
       const [a, b] = await Promise.all([load(${JSON.stringify(pa)}), load(${JSON.stringify(pb)})]);
-      if (a.width !== b.width || a.height !== b.height) return { size: [a.width, a.height, b.width, b.height], diff: -1 };
-      const ctx = (img) => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const x = c.getContext("2d"); x.drawImage(img, 0, 0); return [c, x]; };
-      const [ca, xa] = ctx(a);
-      const [, xb] = ctx(b);
-      const da = xa.getImageData(0, 0, a.width, a.height);
-      const db = xb.getImageData(0, 0, a.width, a.height).data;
+      const ra = ${JSON.stringify(ra)}, rb = ${JSON.stringify(rb)};
+      const ctx = (img, r) => { const [sx, sy, w, h] = r ?? [0, 0, img.width, img.height]; const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d"); x.drawImage(img, sx, sy, w, h, 0, 0, w, h); return [c, x, w, h]; };
+      if (!ra && (a.width !== b.width || a.height !== b.height)) return { size: [a.width, a.height, b.width, b.height], diff: -1 };
+      const [ca, xa, wa, ha] = ctx(a, ra);
+      const [, xb, wb, hb] = ctx(b, rb);
+      if (wa !== wb || ha !== hb) return { size: [wa, ha, wb, hb], diff: -1 };
+      const da = xa.getImageData(0, 0, wa, ha);
+      const db = xb.getImageData(0, 0, wa, ha).data;
       let diff = 0;
       let minY = Infinity, maxY = -1;
       for (let i = 0; i < db.length; i += 4) {
         if (da.data[i] !== db[i] || da.data[i + 1] !== db[i + 1] || da.data[i + 2] !== db[i + 2]) {
           diff++;
-          const y = Math.floor(i / 4 / a.width);
+          const y = Math.floor(i / 4 / wa);
           minY = Math.min(minY, y); maxY = Math.max(maxY, y);
           da.data[i] = 255; da.data[i + 1] = 0; da.data[i + 2] = 255; da.data[i + 3] = 255;
         } else {

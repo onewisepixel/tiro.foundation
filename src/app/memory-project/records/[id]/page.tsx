@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import LayerStack from "@/components/archive/LayerStack";
 import { ALL_LAYERS, CAPACITIES, type LayerKey } from "@/components/archive/layers";
-import { RECORDS_BASE } from "@/components/preview/memory-v1/routes";
+import { toRecordRoute } from "@/components/memory-project/recordRoute";
+import { RECORDS_BASE } from "@/components/memory-project/routes";
 import Concordance, { type ConcordanceRow } from "@/components/record/Concordance";
 import CopyCitation from "@/components/record/CopyCitation";
 import RecordMap from "@/components/record/RecordMap";
@@ -16,9 +17,9 @@ import TemporalRail from "@/components/trace/TemporalRail";
 import VoiceSource from "@/components/trace/VoiceSource";
 import { listScenario, resolveScenarioRecord, scenarioRouteIds, type AuthorityRecord } from "@/lib/livingTrace/authorityProjection";
 import { USE_CATEGORIES, USE_GRANT_LABEL, type EvidenceState } from "@/lib/livingTrace/evidence";
-import { discoverableRouteIds, listDiscoverable, projectGraph, relationsFor, resolveRecord, SPECIMEN_ROUTE, type SpecimenRecord } from "@/lib/livingTrace/projection";
+import { discoverableRouteIds, listDiscoverable, projectGraph, relationsFor, resolveRecord, type SpecimenRecord } from "@/lib/livingTrace/projection";
 import "@/components/archive/archive.css";
-import "../../memory-v1.css";
+import "../../memory-project.css";
 
 // A memory record, in two coordinated views.
 //
@@ -56,10 +57,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return { robots };
   }
   if (resolved.state === "restricted-notice") {
-    return { title: "Restricted record (preview) — The Tiro Foundation", robots };
+    return { title: "Restricted record — The Tiro Foundation", robots };
   }
   return {
-    title: `${resolved.record.title} (synthetic demonstration, preview) — The Tiro Foundation`,
+    title: `${resolved.record.title} (synthetic demonstration) — The Tiro Foundation`,
     description: "A synthetic specimen record. Not archival testimony.",
     robots,
   };
@@ -101,9 +102,9 @@ function Field({ term, value, evidence, note }: { term: string; value: string; e
 function Crumbs({ id }: { id: string }) {
   return (
     <nav aria-label="Breadcrumb" className="mv1-crumbs">
-      <Link href="/preview/home-v5">The Living Archive</Link> <span aria-hidden="true">/</span>{" "}
-      <Link href="/preview/memory-v1">The Memory Project</Link> <span aria-hidden="true">/</span>{" "}
-      <Link href="/preview/memory-v1#records">Demonstration records</Link> <span aria-hidden="true">/</span>{" "}
+      <Link href="/">The Living Archive</Link> <span aria-hidden="true">/</span>{" "}
+      <Link href="/memory-project">The Memory Project</Link> <span aria-hidden="true">/</span>{" "}
+      <Link href="/memory-project#records">Demonstration records</Link> <span aria-hidden="true">/</span>{" "}
       <span className="text-[var(--tiro-accent)]" aria-current="page">
         {id}
       </span>
@@ -198,7 +199,7 @@ function Authorizations({ record }: { record: AuthorityRecord }) {
   );
 }
 
-export default async function RecordPreview({ params }: PageProps) {
+export default async function RecordPage({ params }: PageProps) {
   const { id } = await params;
   const resolved = resolveAny(id);
   if (!resolved) {
@@ -225,7 +226,7 @@ export default async function RecordPreview({ params }: PageProps) {
                 <CopyCitation input={{ kind: "restricted", reference: resolved.notice.reference }} />
               </div>
               <p className="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-sm">
-                <Link href="/preview/memory-v1#records" className="la-more">
+                <Link href="/memory-project#records" className="la-more">
                   Back to the demonstration records
                 </Link>
                 <Link href="/community-rights" className="la-more">
@@ -243,9 +244,8 @@ export default async function RecordPreview({ params }: PageProps) {
   const authority = isAuthority(record) ? record : null;
   const graph = projectGraph();
   const relations = relationsFor(graph, record.recordId);
-  const toPreview = (href: string | null) => (href ? href.replace(SPECIMEN_ROUTE, RECORDS_BASE) : null);
   const sourceLink = relations.find((r) => r.edge.provenance && r.edge.relation === "Source of the account");
-  const derived: ConcordanceRow[] = relations.filter((r) => r !== sourceLink).map((r) => ({ ...r, otherHref: toPreview(r.otherHref) }));
+  const derived: ConcordanceRow[] = relations.filter((r) => r !== sourceLink).map((r) => ({ ...r, otherHref: toRecordRoute(r.otherHref) }));
 
   const publicIds = [...listDiscoverable().flatMap((e) => (e.state === "public" ? [e.recordId] : [])), ...listScenario().map((s) => s.recordId)];
   const at = publicIds.indexOf(record.recordId);
@@ -408,7 +408,7 @@ export default async function RecordPreview({ params }: PageProps) {
             ) : (
               <span />
             )}
-            <Link href="/preview/memory-v1" className="la-more">
+            <Link href="/memory-project" className="la-more">
               <span aria-hidden="true">← </span>Back to the Memory Project
             </Link>
           </nav>

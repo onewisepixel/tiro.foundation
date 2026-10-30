@@ -7,7 +7,7 @@
 // let a caller do.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fetchPublicMemoryRecord, fetchPublicMemoryListing, type PublicMemoryRecord } from "./publicMemoryApi";
+import { fetchPublicMemoryRecord, fetchPublicMemoryListing, publicRecordsEnabled, type PublicMemoryRecord } from "./publicMemoryApi";
 
 const ORIGINAL_BASE_URL = process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL;
 const ORIGINAL_FETCH = globalThis.fetch;
@@ -62,6 +62,39 @@ test("fetchPublicMemoryRecord reports status 0 when the backend base URL isn't c
     const result = await fetchPublicMemoryRecord("some-id");
     assert.equal(result.ok, false);
     assert.equal((result as { status: number }).status, 0);
+  } finally {
+    restore();
+  }
+});
+
+// Decision 44: live records not enabled is a deliberate state, never
+// reported as an outage.
+test("with no base URL, live records are reported as disabled, not unavailable, and no request is made", async () => {
+  delete process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    throw new Error("must not be called");
+  }) as typeof fetch;
+  try {
+    assert.equal(publicRecordsEnabled(), false);
+    assert.deepEqual(await fetchPublicMemoryListing({}), { ok: false, reason: "disabled" });
+    assert.deepEqual(await fetchPublicMemoryRecord("some-id"), { ok: false, status: 0, disabled: true });
+    assert.equal(called, false);
+  } finally {
+    restore();
+  }
+});
+
+test("a configured but failing backend is reported as unavailable, never as disabled", async () => {
+  process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL = "https://example.invalid";
+  globalThis.fetch = (async () => new Response("{}", { status: 503 })) as typeof fetch;
+  try {
+    assert.equal(publicRecordsEnabled(), true);
+    assert.deepEqual(await fetchPublicMemoryListing({}), { ok: false, reason: "unavailable" });
+    const record = await fetchPublicMemoryRecord("some-id");
+    assert.equal(record.ok, false);
+    assert.equal((record as { disabled?: true }).disabled, undefined);
   } finally {
     restore();
   }

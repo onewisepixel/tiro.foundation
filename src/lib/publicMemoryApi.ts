@@ -61,20 +61,27 @@ export type PublicMemoryListing = {
 // Distinguishes a fetch that failed/errored (backend unreachable, bad
 // response) from one that succeeded with zero results — the frontend must
 // render these differently ("temporarily unavailable" vs "nothing
-// published yet"), never conflate them.
-export type PublicMemoryListingResult = { ok: true; listing: PublicMemoryListing } | { ok: false };
+// published yet"), never conflate them. And both from a site where live
+// records are not enabled at all (no NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL):
+// a deliberate state, not an outage, and described as one (decision 44).
+export type PublicMemoryListingResult = { ok: true; listing: PublicMemoryListing } | { ok: false; reason: "disabled" | "unavailable" };
 
-export type PublicMemoryRecordResult = { ok: true; record: PublicMemoryRecord } | { ok: false; status: number };
+export type PublicMemoryRecordResult = { ok: true; record: PublicMemoryRecord } | { ok: false; status: number; disabled?: true };
 
 function baseUrl(): string | null {
   const value = process.env.NEXT_PUBLIC_TIRO_PUBLIC_API_BASE_URL;
   return value ? value.replace(/\/+$/, "") : null;
 }
 
+// Whether this deployment shows backend-connected records at all. Enabling
+// them for public display is a founder decision (decision 44), made by
+// configuring the base URL; nothing here enables them.
+export const publicRecordsEnabled = () => baseUrl() !== null;
+
 export async function fetchPublicMemoryListing(params: { limit?: number; cursor?: string | null } = {}): Promise<PublicMemoryListingResult> {
   const base = baseUrl();
   if (!base) {
-    return { ok: false };
+    return { ok: false, reason: "disabled" };
   }
   const url = new URL(`${base}/public/records`);
   if (params.limit) {
@@ -90,19 +97,19 @@ export async function fetchPublicMemoryListing(params: { limit?: number; cursor?
     // self-documenting.
     const response = await fetch(url.toString(), { cache: "no-store" });
     if (!response.ok) {
-      return { ok: false };
+      return { ok: false, reason: "unavailable" };
     }
     const body = (await response.json()) as Omit<PublicMemoryListing, "hadFailures"> & { hadFailures?: unknown };
     return { ok: true, listing: { items: body.items, nextCursor: body.nextCursor, hadFailures: body.hadFailures !== false } };
   } catch {
-    return { ok: false };
+    return { ok: false, reason: "unavailable" };
   }
 }
 
 export async function fetchPublicMemoryRecord(recordId: string): Promise<PublicMemoryRecordResult> {
   const base = baseUrl();
   if (!base) {
-    return { ok: false, status: 0 };
+    return { ok: false, status: 0, disabled: true };
   }
   try {
     const response = await fetch(`${base}/public/records/${encodeURIComponent(recordId)}`, { cache: "no-store" });
