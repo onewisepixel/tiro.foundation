@@ -5,6 +5,23 @@ Date: 2026-10-29 (revisions 1 and 2, same day).
 Owner: TIRO founder / Steward.
 Builds on: `living-archive-consolidation.md` (component inventory, V5 ↔ Memory v1), `decisions.md` (decisions 30–39).
 
+> **Implementation status, 2026-10-30.** Added after the fact. The status line above and everything below it are the plan's baseline as approved on 2026-10-29, and are kept unedited as the historical record.
+>
+> | Phase | State | Record |
+> | --- | --- | --- |
+> | 0. Approve and restore the release path | **Done** (2026-10-29). Decisions 40–45 confirmed; Gate 0 met; branch protection on `main` | `decisions.md`; `docs/deployment/public-site-hosting-readiness.md` |
+> | 1. Reconcile | **Done** (2026-10-29). PR #13 merged (`1f64387`); tag `checkpoint/3.0-start` at `d7b6b1a`; disclosure verifier in CI (PR #14, `6a6eef5`) | PRs #13, #14 |
+> | 2. Design system | **Done** (2026-10-29). G2 approved; PR #15 merged (`5715821`) | `milestone-3.0-phase-2-design-system.md` |
+> | 3a. Public experience | **Released** (2026-10-30). G3 approved (decisions 46–49); PR #16 merged (`6cd0920`) and deployed to production | `milestone-3.0-phase-3a-release-gate.md` |
+> | 3b. Inner pages | **In progress.** The first study, `/manifesto`, is a draft PR awaiting founder visual approval; the other pages are inventoried | `milestone-3.0-phase-3b-inner-pages.md` |
+> | 4. Flight Deck | Not started | — |
+> | 5. Clean house | Not started. No branch, preview or asset deleted; every remaining remote branch is contained in `main` | — |
+>
+> Where the plan and the records differ, the records govern. In particular:
+> - the worker blocker of §7.1 was resolved at Gate 0 without shortening the worker;
+> - navigation followed decisions 42 and 46;
+> - `/memories` follows decision 48.
+
 ## 0. Verified baseline
 
 Every figure below was checked against GitHub after `git fetch --prune` on 2026-10-29, not taken from earlier summaries.
