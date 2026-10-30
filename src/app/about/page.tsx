@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import "@/components/archive/archive.css";
+import "./about.css";
 
 export const metadata: Metadata = {
   title: "About — The Tiro Foundation",
@@ -25,85 +27,81 @@ const governance = [
   },
 ];
 
+// A short page, read in one pass, so no local bar: its two sections are
+// headings with stable anchors (/about#governance), set as a finding aid,
+// the heading beside its text on wide screens.
 export default function AboutPage() {
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
-        <div className="mx-auto max-w-3xl">
-          <p className="tiro-eyebrow mb-6">About</p>
-          <h1 className="mb-6 font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            A permanent, neutral custodian
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            The Tiro Foundation exists to preserve endangered cultural and
-            linguistic memory — not as a platform that owns what it records,
-            but as one node among many possible custodians: a person, a
-            village, a library, or TIRO itself.
-          </p>
-        </div>
-      </section>
+    <main id="top" className="la ab bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header className="la-frame ab-wrap ab-head">
+        <p className="la-eyebrow">About</p>
+        <h1 className="ab-h1 mt-6">A permanent, neutral custodian</h1>
+        <p className="ab-intro mt-8">
+          The Tiro Foundation exists to preserve endangered cultural and
+          linguistic memory — not as a platform that owns what it records,
+          but as one node among many possible custodians: a person, a
+          village, a library, or TIRO itself.
+        </p>
+      </header>
 
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="tiro-card mx-auto max-w-3xl">
-          <p className="tiro-eyebrow mb-5">Custodial Paradigm</p>
-          <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
-            Custody is not ownership. Recording a memory does not grant the
-            right to reinterpret, monetize, or erase it. TIRO&apos;s systems are
-            built to be witnesses before they are interpreters — pointing
-            back to the human source rather than synthesizing themselves into
-            an authority over it.
-          </p>
-        </div>
-      </section>
-
-      <section className="px-6 pb-16 md:pb-24">
-        <div className="mx-auto max-w-3xl">
-          <p className="tiro-eyebrow mb-6">Governance</p>
-          <p className="mb-8 max-w-2xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-            TIRO&apos;s governance is still forming. The following states the
-            standard TIRO intends to meet — it is not a record of appointed
-            roles or completed procedures.
-          </p>
-          <div className="border-t border-[var(--tiro-border)]">
-            {governance.map((item) => (
-              <div
-                key={item.label}
-                className="grid grid-cols-1 gap-2 border-b border-[var(--tiro-border)] py-6 md:grid-cols-[minmax(160px,220px)_1fr] md:gap-8"
-              >
-                <h2 className="font-[family-name:var(--font-display)] text-base italic text-[var(--tiro-text-soft)]">
-                  {item.label}
-                </h2>
-                <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-                  {item.description}
-                </p>
-              </div>
-            ))}
+      <div className="la-frame ab-wrap">
+        <section id="custodial-paradigm" aria-labelledby="custodial-paradigm-title" className="ab-section">
+          <h2 id="custodial-paradigm-title" className="ab-h2">
+            Custodial Paradigm
+          </h2>
+          <div className="ab-body">
+            <p className="ab-statement">
+              Custody is not ownership. Recording a memory does not grant the
+              right to reinterpret, monetize, or erase it. TIRO&apos;s systems are
+              built to be witnesses before they are interpreters — pointing
+              back to the human source rather than synthesizing themselves into
+              an authority over it.
+            </p>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="px-6 pb-28 md:pb-36">
-        <div className="mx-auto max-w-3xl">
-          <p className="mb-6 text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+        <section id="governance" aria-labelledby="governance-title" className="ab-section">
+          <h2 id="governance-title" className="ab-h2">
+            Governance
+          </h2>
+          <div className="ab-body">
+            <p className="ab-note">
+              TIRO&apos;s governance is still forming. The following states the
+              standard TIRO intends to meet — it is not a record of appointed
+              roles or completed procedures.
+            </p>
+            <div className="ab-items">
+              {governance.map((item) => (
+                <div key={item.label} className="ab-item">
+                  <h3 className="ab-h3">{item.label}</h3>
+                  <p className="ab-text">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section aria-label="Further reading" className="ab-onward">
+          <p>
             For the full statement of principles, read the founding manifesto.
             For the archive itself, visit the Memory Project.
           </p>
-          <div className="flex flex-wrap gap-6">
-            <Link href="/manifesto" className="tiro-link text-sm">
+          <div className="mt-6 flex flex-wrap gap-x-8 gap-y-3">
+            <Link href="/manifesto" className="la-more">
               Read Manifesto v0.2
             </Link>
-            <Link href="/memory-project" className="tiro-link text-sm">
+            <Link href="/memory-project" className="la-more">
               Enter the Memory Project
             </Link>
-            <Link href="/community-rights" className="tiro-link text-sm">
+            <Link href="/community-rights" className="la-more">
               Community Rights &amp; Stewardship
             </Link>
-            <Link href="/contact" className="tiro-link text-sm">
+            <Link href="/contact" className="la-more">
               Contact TIRO
             </Link>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
