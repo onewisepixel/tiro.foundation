@@ -1,6 +1,6 @@
 # Milestone 3.0, Phase 3b: inner pages — the Manifesto study and the inventory
 
-Status: **First study for founder visual approval; not merged.** Branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
+Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
 Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. This study changes `/manifesto` only. The other pages are inventoried here and not touched.
@@ -91,14 +91,15 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
-| **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Its own small repair**, separate from the `/pilot` restyle: let the address wrap at its `@` or scale its type down at narrow widths. The release checks list it as a known exception that must be removed when fixed. Presentation only; the form is untouched |
+| **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired in its own PR** (branch `fix/pilot-overflow`): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception |
 | P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled |
 | P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
+| P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 
 ## 4. Proposed order after the Manifesto
 
-1. **P3B-1**, the `/pilot` overflow, as its own small PR.
+1. **P3B-1**, the `/pilot` overflow, as its own small PR (repaired; §3).
 2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors.
 3. `/about`.
 4. `/nodes` and the two node profiles.
