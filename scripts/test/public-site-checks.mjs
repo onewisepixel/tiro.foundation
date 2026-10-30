@@ -150,6 +150,13 @@ async function check(base, outFile) {
     const from = [...linksFrom].filter(([p, hs]) => p !== dest && hs.has(dest)).length;
     ok(`${dest} is linked from the other pages (navigation)`, from >= LIVING_ARCHIVE.length, `${from} pages`);
   }
+  // Community Rights: each principle and the request procedure keep a
+  // stable anchor, for citing them (/community-rights#consent).
+  const rightsHtml = await (await fetch(base + "/community-rights")).text();
+  const RIGHTS_ANCHORS = ["custody", "source-authority", "consent", "access", "provenance", "purpose", "exclusivity", "requests"];
+  const missingAnchors = RIGHTS_ANCHORS.filter((id) => !rightsHtml.includes(`id="${id}"`));
+  ok("/community-rights keeps its clause anchors", missingAnchors.length === 0, missingAnchors.join(", "));
+  ok("/community-rights: the request procedure is a heading", /<h2[^>]*>Requesting a Correction, Restriction, or Withdrawal<\/h2>/.test(rightsHtml));
   // /memories is outside the navigation (decision 44). Its records stay
   // linked from the node pages; who links to its index is reported.
   const memoriesRecords = [...linksFrom].filter(([, hs]) => [...hs].some((h) => h.startsWith("/memories/"))).map(([p]) => p);
@@ -193,7 +200,7 @@ async function check(base, outFile) {
     for (const theme of ["light", "dark"]) {
       await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }, { name: "prefers-reduced-motion", value: "reduce" }] });
       await setTheme(theme);
-      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/pilot", "/nodes"]) {
+      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/community-rights", "/pilot", "/nodes"]) {
         consoleErrors = [];
         await go(base + p);
         await evaluate(`if (!window.axe) { ${AXE} }`);

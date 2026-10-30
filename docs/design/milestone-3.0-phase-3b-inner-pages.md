@@ -1,6 +1,8 @@
 # Milestone 3.0, Phase 3b: inner pages — the Manifesto study and the inventory
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
+P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
+`/community-rights`: **second study, for founder visual approval; not merged** (§1b). Branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
 Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. This study changes `/manifesto` only. The other pages are inventoried here and not touched.
@@ -66,6 +68,53 @@ All checks below compare production builds of `main` (`6cd0920`) and this branch
 
 **Limitations:** tested in Chrome only, with no screen-reader session. The printed page was not reviewed beyond hiding the anchors and the local bar.
 
+## 1b. `/community-rights`: the policy page
+
+Community Rights is the standard every record follows, and other documents cite it. The Manifesto is read straight through; a policy is consulted and cited. The page therefore takes the Manifesto's type, rules, accent and local bar, but not its layout.
+
+| Element | Treatment | Why |
+| --- | --- | --- |
+| Opening | The policy's name as the eyebrow, the founding statement as the headline (display italic), and the introduction set larger as a lede | As before, in the Manifesto's typography |
+| Contents | The seven principles, **numbered 1–7**, then the request procedure, set apart as a bordered link with the accent rule | A policy should show its clauses before they are read. The procedure is listed with them so that someone looking for it finds it from the first screen |
+| Orientation | The shared local bar: "Principles" and "Requests", with **"Contact TIRO"** as its way on (wide screens) | The same device as the Manifesto and the Memory Project. The status note keeps its anchor but is not a stop on the bar: it is short and last, so it never reaches the top of the view to be marked current |
+| Clauses | Each principle is a numbered `section` with an `h2` ("3 Consent: explicit, traceable, revocable") and a stable anchor. On wide screens, number and principle sit beside the text, like a schedule; on narrow ones, above it. Text in the archive's serif at reading size, held to the same measure as the Manifesto | A policy is cited by clause. The schedule distinguishes it from the Manifesto's continuous reading |
+| Anchors | `#custody`, `#source-authority`, `#consent`, `#access`, `#provenance`, `#purpose`, `#exclusivity`, `#requests` (and `#principles`, `#status`). A quiet `#` beside each heading, as on the Manifesto | **Written out in the page, not derived from the wording**, so a later change to a principle's label never breaks a link already made to it. A label with no anchor fails the build |
+| The closing statement of principle 7 | "A community is a node in its own right — not a dependency of TIRO's." as an inscription with an accent rule | As before, set apart |
+| Correction, restriction, withdrawal | **Now a heading** (`h2`, previously a styled `<p>`), in its own panel with a full border, the accent rule above, and a primary action, **"Contact TIRO"** (`la-cta`) | The one procedure a community may need urgently. It is listed in the contents and the local bar and reachable as `#requests`; its link was previously a small text link |
+| Status and onward links | The note that the policy will be formalized, then "Read the Manifesto v0.2" and "The Memory Project" | As before |
+
+**Kept out on purpose:** motion, imagery, and any summary, gloss or plain-language rewording of the policy. The clause numbers are presentation (like the Manifesto's numerals); they do not renumber or amend the policy.
+
+**Content preservation:**
+
+- The `principles` array (each label, description and emphasis) and the page metadata are byte-identical to `main`.
+- In the rendered page, every text block of the previous page appears in the same order, and nothing is added. The one move: "Requesting a Correction, Restriction, or Withdrawal" changes from a paragraph to a heading.
+- Every link of the previous page is kept (`/contact`, `/manifesto`, `/memory-project`), and no new destination is added. The local bar repeats `/contact`; everything else new is an in-page anchor.
+
+### 1b.1 Verification
+
+All checks below compare production builds of `main` (`512bebe`) and this branch, served side by side.
+
+| Check | Result |
+| --- | --- |
+| Text preserved | As above |
+| Headings | One h1 and eight h2s (the seven principles and the procedure), with no gaps. Previously the procedure was not a heading |
+| Anchors | All ten resolve. Each principle and the procedure land below the header and local bar, and the bar marks the right stop |
+| Keyboard | Tab order: skip link, site header, local bar (title, Principles, Requests, Contact TIRO), contents (the seven principles, then the procedure), each clause's `#` link, the procedure's `#` link and "Contact TIRO", the closing links, then the footer. Every stop shows its focus ring |
+| Overflow | None at 320, 390, 820 or 1440 px |
+| axe-core (WCAG 2.0, 2.1 and 2.2, A and AA) | **No violations** of any severity, in light and dark, at 1440 and 390 px |
+| Release suite (`public-site-checks.mjs`) | **171 of 171 pass** on this branch. New checks: the clause anchors exist, and the procedure is a heading. `/community-rights` is now in the axe and console sweep |
+| The approved interfaces unchanged | `/`, `/memory-project`, the public, restricted and authority records, `/living-trace` and `/pilot`: **0 differing pixels and identical keyboard behaviour** (96 captures). The only differences are in `/living-trace` motion captures (8–39 px), which differ by the same amount between two captures of the same build: capture timing |
+| Unit tests, lint, build | 550 of 554 tests pass; the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors. Build passes |
+
+**Screenshots** (`docs/design/phase-3b/`):
+
+- `community-rights.opening.jpg`: the opening, before and after, at desktop, tablet and mobile widths, in both themes.
+- `community-rights.clauses.jpg`: principle 3 (Consent), before and after.
+- `community-rights.desktop.light.png`, `community-rights.desktop.dark.png` and `community-rights.mobile.dark.png`: the schedule, the closing statement and the procedure, at full resolution.
+
+**Limitations:** tested in Chrome only, with no screen-reader session.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -91,7 +140,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
-| **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired in its own PR** (branch `fix/pilot-overflow`): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception |
+| **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
 | P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled |
 | P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
@@ -99,8 +148,8 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 
 ## 4. Proposed order after the Manifesto
 
-1. **P3B-1**, the `/pilot` overflow, as its own small PR (repaired; §3).
-2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors.
+1. **P3B-1**, the `/pilot` overflow, as its own small PR (released; §3).
+2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (study in §1b).
 3. `/about`.
 4. `/nodes` and the two node profiles.
 5. `/contact`.
