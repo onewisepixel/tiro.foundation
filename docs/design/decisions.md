@@ -212,3 +212,11 @@ These statuses reflect the founder's design decisions and the reported implement
 | # | Decision | Status | Rationale | Conditions and open questions |
 | --- | --- | --- | --- | --- |
 | 50 | **`/manifesto` redesigned as the long-form reference page**: an opening with a contents list, the shared local bar, one reading measure, margin numerals, ledes, anchored parts, and no motion or imagery | **Approved and released** | A text meant to be read, studied and returned to. The pattern carries to Community Rights, About and the other institutional pages; their layouts are not meant to be identical. | Text unchanged (proved in §1.1). Observation, not blocking: on mobile, the local bar scrolls sideways without an obvious cue; revisit if touch-device testing shows confusion (P3B-5). Next: the `/pilot` overflow (P3B-1) as its own PR, then `/community-rights`. |
+
+## 2026-10-30 — Milestone 3.0 Phase 3b: Community Rights as the policy page
+
+**Verdict.** The founder approved the visual design of PR #19 (layout, typography, navigation, clause hierarchy and request procedure) and, once the two release-gate items in `milestone-3.0-phase-3b-inner-pages.md` §1b.2 were closed, judged G3 satisfied. PR #19 was merged (`acf6372`) and deployed to production, where it was verified (§1b.3).
+
+| # | Decision | Status | Rationale | Conditions and open questions |
+| --- | --- | --- | --- | --- |
+| 51 | **`/community-rights` redesigned as the policy page**: a contents list of the numbered principles; each principle a numbered, anchored clause (`#custody` … `#exclusivity`); the correction, restriction and withdrawal procedure as a heading (`#requests`) in its own panel, with "Contact TIRO" as its primary action; the Manifesto's type and local bar; no motion or imagery | **Approved and released** | A policy is consulted and cited, so it is laid out by clause, with stable anchors written into the page. The procedure a community may need urgently can be found from the first screen. | Wording unchanged (proved in §1b). The clause numbers are presentation only and do not amend the policy. Next: `/about`. |

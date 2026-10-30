@@ -2,10 +2,11 @@
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
-`/community-rights`: **second study; visual design approved by the founder, 2026-10-30; not merged** (§1b). Branch `design/phase-3b-community-rights`, from `main` at `512bebe` (PR #19).
+`/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
+`/about`: next, on branch `design/phase-3b-about`, from `main` at `acf6372`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Two studies change pages: `/manifesto` (§1, released) and `/community-rights` (§1b, PR #19), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Two studies change pages: `/manifesto` (§1) and `/community-rights` (§1b), both released, with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -134,6 +135,23 @@ The founder approved the visual design on 2026-10-30, with two items to close be
 
 **2. Scope statement.** The header said this study changes `/manifesto` only, which was written before Community Rights. It now names both studies and the `/pilot` fix.
 
+The founder judged G3 satisfied on the final commit, `507d66e` (Linux CI 41134762438 passed, including the disclosure verifier; the team preview deployed).
+
+### 1b.3 Release and production verification
+
+PR #19 was marked ready and merged with a merge commit as **`acf6372`** on 2026-10-30. Linux CI on the merge commit (run 41136641591) passed, including the disclosure verifier, and the team production deployment completed. The page was then checked at `https://www.tiro.foundation/community-rights`:
+
+| Check | Result |
+| --- | --- |
+| Release suite (`public-site-checks.mjs`, against production) | **171 of 171 pass**. Among them: the eight clause anchors exist; the procedure is a heading; axe finds no serious or critical violations and the console no errors, at 1440 and 390 px in light and dark; no overflow at 320, 390 or 820 px; `/flight-deck`, `/flight-deck/sign-in` and `/flight-deck/internal/status` are 404 |
+| Both themes, rendering | At 1440 and 390 px in light and dark: the blocks in order without overlap, each text block once (the procedure's title twice, by design), no uniform gray rows in a single-render capture. Viewport screenshots of the contents, the clauses, the closing statement and the request panel are clean |
+| Clause anchors | `#custody` through `#exclusivity`, `#requests` and `#principles` land below the header and local bar, and the bar marks the right stop. `#status` comes into view |
+| Request panel | Heading, the procedure's text and "Contact TIRO" (to `/contact`) in its panel, in both themes, on desktop and mobile |
+| Mobile layout | No overflow at 320 or 390 px. The contents list, the procedure link and the panel are legible in both themes |
+| Keyboard | The same tab order as in §1b.1. Every stop shows its focus ring |
+| Links | The same destinations as before: `/contact`, `/manifesto`, `/memory-project` |
+| Disclosure boundary | `/flight-deck`, `/flight-deck/cases`, `/flight-deck/outreach`, `/flight-deck/login` and `/api/flight-deck/health` return 404 |
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -168,8 +186,8 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 ## 4. Proposed order after the Manifesto
 
 1. **P3B-1**, the `/pilot` overflow, as its own small PR (released; §3).
-2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (study in §1b).
-3. `/about`.
+2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (released; decision 51, §1b).
+3. `/about` (next).
 4. `/nodes` and the two node profiles.
 5. `/contact`.
 6. `/pilot` (presentation only).
