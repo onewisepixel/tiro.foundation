@@ -168,8 +168,9 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
               <p className="text-base leading-relaxed text-[var(--tiro-text-soft)]">
                 The interest form will open once its privacy notice has been reviewed and its records have a secure home. Until then, you are welcome to write to
               </p>
+              {/* <wbr /> lets the address break before its "@" when it cannot fit on the narrowest phones. */}
               <a href="mailto:custodians@tiro.foundation" className="mt-4 inline-block font-[family-name:var(--font-display)] text-2xl italic text-[var(--tiro-text)] hover:text-[var(--tiro-accent)]">
-                custodians@tiro.foundation
+                custodians<wbr />@tiro.foundation
               </a>
               <p className="mt-4 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
                 A line saying what kind of conversation interests you is enough. Please do not attach or send stories, recordings, or other material; if anything like that reaches us, we delete it and tell you.

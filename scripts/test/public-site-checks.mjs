@@ -213,13 +213,7 @@ async function check(base, outFile) {
     for (const p of [...LIVING_ARCHIVE, ...INNER]) {
       await go(base + p);
       const sw = await evaluate("document.documentElement.scrollWidth");
-      // Known, and identical on main before Phase 3a: a long link in the
-      // body of /pilot at 320 px (Phase 3b restyles /pilot).
-      if (p === "/pilot" && w === 320 && sw === 349) {
-        console.log("KNOWN /pilot at 320px: scrollWidth 349, as on main (Phase 3b)");
-      } else {
-        ok(`no horizontal overflow ${p} at ${w}px`, sw <= w, `scrollWidth ${sw}`);
-      }
+      ok(`no horizontal overflow ${p} at ${w}px`, sw <= w, `scrollWidth ${sw}`);
     }
   }
 
