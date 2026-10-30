@@ -15,10 +15,11 @@ export default function Footer() {
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
               <p className="mb-2 uppercase tracking-[0.16em] text-[var(--tiro-text-muted)]">{group.label}</p>
-              <ul className="grid gap-1.5">
+              <ul className="grid">
                 {group.links.map((link) => (
                   <li key={link.href}>
-                    <Link href={link.href} className="uppercase tracking-[0.08em] transition-colors hover:text-[var(--tiro-text)]">
+                    {/* At least 24px tall: WCAG 2.2 target size (2.5.8). */}
+                    <Link href={link.href} className="inline-flex min-h-6 items-center uppercase tracking-[0.08em] transition-colors hover:text-[var(--tiro-text)]">
                       {link.label}
                     </Link>
                   </li>

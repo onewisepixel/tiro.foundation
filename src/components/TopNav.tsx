@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import TiroMark from "@/components/TiroMark";
-import { isActiveGroup, isActivePath, NAV_GROUPS } from "@/lib/navigation";
+import { isActiveGroup, isActivePath, menuLinks, NAV_GROUPS } from "@/lib/navigation";
 
 const THEME_EVENT = "tiro-theme-change";
 
@@ -116,7 +116,7 @@ export default function TopNav() {
               <li key={group.label} className="border-b border-[var(--tiro-border)] py-3">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--tiro-text-subtle)]">{group.label}</p>
                 <ul>
-                  {group.links.map((item) => {
+                  {menuLinks(group).map((item) => {
                     const active = isActivePath(pathname, item.href);
                     return (
                       <li key={item.href}>

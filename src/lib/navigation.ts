@@ -5,8 +5,11 @@
 //
 // The mapping of existing pages into the groups is a proposal for founder
 // review before release (decision 42; Milestone 3.0 Phase 3a gate report).
-// /living-trace and /memories are not in the navigation, as before.
-export type NavLink = { href: string; label: string };
+// /living-trace is not in the navigation, as before. /memories is listed in
+// the footer only (footerOnly): it keeps a place (decision 42) while staying
+// separate from the Memory Project demonstration in the header and the
+// menu (decision 44).
+export type NavLink = { href: string; label: string; footerOnly?: true };
 export type NavGroup = { label: string; href: string; links: NavLink[] };
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -21,7 +24,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Memory Project",
     href: "/memory-project",
-    links: [{ href: "/memory-project", label: "The Memory Project" }],
+    links: [
+      { href: "/memory-project", label: "The Memory Project" },
+      { href: "/memories", label: "Memory records", footerOnly: true },
+    ],
   },
   {
     label: "Principles",
@@ -46,5 +52,8 @@ export function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-// A group is current when the visitor is on any of its pages.
-export const isActiveGroup = (pathname: string, group: NavGroup) => group.links.some((l) => isActivePath(pathname, l.href));
+// The links shown in the header and the narrow-screen menu.
+export const menuLinks = (group: NavGroup) => group.links.filter((l) => !l.footerOnly);
+
+// A group is current when the visitor is on any of its menu pages.
+export const isActiveGroup = (pathname: string, group: NavGroup) => menuLinks(group).some((l) => isActivePath(pathname, l.href));

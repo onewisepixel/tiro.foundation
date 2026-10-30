@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { isActiveGroup, NAV_GROUPS } from "./navigation";
+import { isActiveGroup, menuLinks, NAV_GROUPS } from "./navigation";
 
 const APP = path.resolve(import.meta.dirname, "../app");
 const allLinks = NAV_GROUPS.flatMap((g) => g.links);
@@ -34,10 +34,17 @@ test("every navigation link is a production page, never a preview", () => {
   }
 });
 
-test("operational pages stay out of the navigation (decisions 43, 44) and Flight Deck is never linked", () => {
-  for (const l of allLinks) {
+test("operational pages stay out of the header and menu (decisions 43, 44) and Flight Deck is never linked", () => {
+  for (const l of NAV_GROUPS.flatMap(menuLinks)) {
     assert.ok(!["/living-trace", "/memories", "/flight-deck"].some((p) => l.href === p || l.href.startsWith(`${p}/`)), l.href);
   }
+  assert.ok(!allLinks.some((l) => l.href.startsWith("/flight-deck") || l.href.startsWith("/living-trace")));
+});
+
+test("/memories keeps a place in the footer only (decisions 42, 44)", () => {
+  const m = allLinks.filter((l) => l.href === "/memories");
+  assert.equal(m.length, 1);
+  assert.equal(m[0].footerOnly, true);
 });
 
 test("the current group follows the visitor into a section", () => {
