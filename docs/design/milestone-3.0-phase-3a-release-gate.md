@@ -1,6 +1,6 @@
 # Milestone 3.0, Phase 3a: public experience adoption — G3 release-gate report
 
-Status: **Draft PR; not merged, not deployed.** Production adoption needs the founder's separate approval under G3 (plan §8; decision 41).
+Status: **G3 approved by the founder on 2026-10-30**, after personal inspection of the final previews: decisions A, B, C and D (§8) are all approved, recorded as decisions 46 to 49 in `decisions.md`. Released to production by merging PR #16 with a merge commit.
 Date: 2026-10-30. Branch: `release/phase-3a-public-experience`, from `main` at `5715821` (Phase 2 merged).
 Owner: TIRO founder / Steward.
 
@@ -217,3 +217,5 @@ Screenshots (`docs/design/phase-3a/`):
 - **C. `/memories`** (§4): footer-only placement, and the "not enabled" wording. Recommendation: approve. Revisit the placement when `/memories` is restyled in Phase 3b, or when public display of its records is decided.
 - **D. Release (G3).** Merging this PR deploys it to production automatically: the team project, through its Git integration. The new `/` and `/memory-project` and the new navigation go live, and the previews' old addresses start redirecting. Approve only after reviewing the PR's preview deployment. Rollback: revert the merge commit, or use Vercel's instant rollback to the previous production deployment.
 - **Carried from Phase 2** (decisions 1 and 2 there): drawing the homepage's restricted sheet with the shared `LayerStack`, and unifying two homepage spacing values. Not done here, so the approved design stays as approved. Recommendation: decide with screenshots after release.
+
+**Founder decision (2026-10-30):** after personally inspecting the final previews, the founder approved A, B, C and D, recorded as decisions 46, 47, 48 and 49 in `decisions.md`.
