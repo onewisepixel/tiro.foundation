@@ -1,11 +1,11 @@
-# Milestone 3.0, Phase 3b: inner pages — the Manifesto study and the inventory
+# Milestone 3.0, Phase 3b: inner pages — the Manifesto and Community Rights studies, and the inventory
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
-`/community-rights`: **second study, for founder visual approval; not merged** (§1b). Branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
+`/community-rights`: **second study; visual design approved by the founder, 2026-10-30; not merged** (§1b). Branch `design/phase-3b-community-rights`, from `main` at `512bebe` (PR #19).
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. This study changes `/manifesto` only. The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Two studies change pages: `/manifesto` (§1, released) and `/community-rights` (§1b, PR #19), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -111,9 +111,28 @@ All checks below compare production builds of `main` (`512bebe`) and this branch
 
 - `community-rights.opening.jpg`: the opening, before and after, at desktop, tablet and mobile widths, in both themes.
 - `community-rights.clauses.jpg`: principle 3 (Consent), before and after.
-- `community-rights.desktop.light.png`, `community-rights.desktop.dark.png` and `community-rights.mobile.dark.png`: the schedule, the closing statement and the procedure, at full resolution.
+- `community-rights.desktop.light.png`, `community-rights.desktop.dark.png`, `community-rights.mobile.light.png` and `community-rights.mobile.dark.png`: the whole page at full resolution, each **captured in one render** (the viewport set to the page's height), so nothing is joined.
+- `community-rights.viewports.desktop.jpg` and `community-rights.viewports.mobile.jpg`: screenshots of the browser viewport, taken as the page is scrolled, at principle 2, the closing statement and the procedure, in both themes. Each tile is one capture; the white gutters and red outlines belong to the sheet, not the page.
 
 **Limitations:** tested in Chrome only, with no screen-reader session.
+
+### 1b.2 Release-gate resolutions
+
+The founder approved the visual design on 2026-10-30, with two items to close before merging.
+
+**1. Gray bands and repeated fragments in the tall screenshots: a screenshot artifact, not a rendering defect.**
+
+- **Cause.** The first versions of the three full-resolution PNGs were three or four separate 900 px captures stacked into one image by a scratch tool. That tool fills the gaps between captures with a 24 px `#888` band. The captures overlapped, so the content where they met appears twice. In the mobile image, for example, the end of the contents list and the opening of the procedure panel are repeated.
+- **Proof.** Scanned row by row, the old images contain only full-width rows of exactly `#888`, in runs of 24: two bands in each desktop image (3 × 900 + 2 × 24 = 2,748 px) and three in the mobile image (4 × 900 + 3 × 24 = 3,672 px). These are the gaps of the stacking tool.
+- **The page itself.** Checked in a production build of this branch's commit (`0278967`, the code the team preview is built from), at 1440 and 390 px in light and dark:
+  - The blocks follow one another without overlapping, in order: the opening, the seven clauses, the procedure, the status note, then the footer.
+  - The procedure's text and the closing statement of principle 7 each appear once. The procedure's title appears twice, by design: in the contents and as the heading.
+  - The new single-render captures contain no full-width row of uniform gray: neither `#888` nor any mid-gray.
+  - The viewport screenshots show no bands, duplication or overlap.
+- **Team preview.** The team preview built successfully (Vercel status: "Deployment has completed"). It is behind Vercel's login, which an automated browser cannot pass without a change to Vercel settings, so it was not opened in this check.
+- **Outcome.** No page change. The stitched images are replaced by the single-render captures and viewport sheets listed above. Because the page did not change, the visual and accessibility results in §1b.1 still apply.
+
+**2. Scope statement.** The header said this study changes `/manifesto` only, which was written before Community Rights. It now names both studies and the `/pilot` fix.
 
 ## 2. Inventory of the other Phase 3b pages
 
