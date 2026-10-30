@@ -3,10 +3,10 @@
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
 `/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
-`/about`: **third study, for founder visual approval; not merged** (§1c). Branch `design/phase-3b-about`, from `main` at `acf6372`.
+`/about`: **approved for release, 2026-10-30** (decision 52; PR #20; §1c.2). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Three studies change pages: `/manifesto` (§1) and `/community-rights` (§1b), both released, and `/about` (§1c, in review), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Three studies change pages: `/manifesto` (§1) and `/community-rights` (§1b), both released, and `/about` (§1c, approved for release), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -197,6 +197,10 @@ All checks compare production builds of `main` (`acf6372`) and this branch, serv
 
 **Limitations:** tested in Chrome only, with no screen-reader session.
 
+### 1c.2 Founder approval
+
+The founder approved the visual design of PR #20 with no revisions (decision 52), having inspected the desktop and mobile comparisons in both themes and reviewed the diff. The founder independently confirmed the head `472e014`, the branch 2 commits ahead of `main` and 0 behind, the 11 changed files, and Linux CI run 41140397240 (the disclosure verifier and the Flight Deck integration tests passing). The protected team preview was not opened; the approval rests on the committed screenshots and CI. The local bar and the suggested summary stay out, as proposed.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -223,8 +227,8 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` (released), `/about` (§1c) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` (released), `/about` (§1c) |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` (released), `/about` (§1c, approved) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` (released), `/about` (§1c, approved) |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 
@@ -232,7 +236,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 
 1. **P3B-1**, the `/pilot` overflow, as its own small PR (released; §3).
 2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (released; decision 51, §1b).
-3. `/about` (study in §1c).
+3. `/about`: the institution explained (approved; decision 52, §1c).
 4. `/nodes` and the two node profiles.
 5. `/contact`.
 6. `/pilot` (presentation only).
