@@ -1,0 +1,313 @@
+/* ======================================================================
+   Community Rights: the stewardship policy (Milestone 3.0 Phase 3b).
+   Scoped to .cr, on top of the Living Archive system
+   (src/components/archive/archive.css).
+
+   A policy, so a functional structure rather than the Manifesto's
+   reading rhythm: numbered clauses, each with a stable anchor, set as a
+   schedule (number and principle beside its text on wide screens), and
+   the procedure for correction, restriction and withdrawal as its own
+   panel, listed with the clauses. The same type, rules and accent as the
+   Manifesto. No motion; no imagery.
+   ====================================================================== */
+
+.cr {
+  --cr-wide: 60rem;
+  --cr-measure: 38rem;
+  --cr-side: 17rem;
+}
+
+.cr [id] {
+  scroll-margin-top: calc(var(--la-header) + 4.5rem);
+}
+
+.cr-wrap {
+  max-width: calc(var(--cr-wide) + 2 * var(--la-pad));
+}
+
+/* ---------- Opening ---------- */
+.cr-head {
+  padding-top: 4rem;
+  padding-bottom: 3.5rem;
+}
+
+@media (min-width: 768px) {
+  .cr-head {
+    padding-top: 5.5rem;
+    padding-bottom: 4.5rem;
+  }
+}
+
+.cr-h1 {
+  max-width: 48rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-size: clamp(2.3rem, 6vw, 3.9rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.cr-intro {
+  max-width: var(--cr-measure);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .cr-intro {
+    font-size: 1.5rem;
+  }
+}
+
+/* The contents: the seven principles as an index, then the procedure,
+   set apart so it can be found at once. */
+.cr-contents {
+  margin-top: 3rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.cr-contents ol {
+  display: grid;
+}
+
+@media (min-width: 640px) {
+  .cr-contents ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2rem;
+  }
+}
+
+.cr-contents ol a {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: baseline;
+  min-height: 2.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--tiro-border);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  color: var(--tiro-text);
+  transition: color var(--lt-dur-quick) ease;
+}
+
+.cr-contents a:hover {
+  color: var(--tiro-accent);
+}
+
+.cr-contents-n {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--tiro-accent);
+}
+
+.cr-contents-requests {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  min-height: 2.75rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--tiro-border-strong);
+  border-left: 2px solid var(--tiro-accent);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  color: var(--tiro-text);
+  transition: color var(--lt-dur-quick) ease, background-color var(--lt-dur-quick) ease;
+}
+
+.cr-contents-requests:hover {
+  background: var(--tiro-surface);
+}
+
+/* ---------- Clauses ---------- */
+.cr-clauses {
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.cr-clause {
+  display: grid;
+  gap: 1rem;
+  padding-block: 2.5rem;
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+/* Wide screens: a schedule, the numbered principle beside its text. */
+@media (min-width: 1024px) {
+  .cr-clause {
+    grid-template-columns: var(--cr-side) minmax(0, var(--cr-measure));
+    column-gap: 4rem;
+    padding-block: 3rem;
+  }
+}
+
+.cr-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.cr-h2 {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.cr-num {
+  font-family: var(--font-code);
+  font-size: 0.875rem;
+  letter-spacing: 0.1em;
+  color: var(--tiro-accent);
+}
+
+.cr-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-size: clamp(1.55rem, 3vw, 1.9rem);
+  color: var(--tiro-text);
+  text-wrap: balance;
+}
+
+/* Beside the text, the title steps down so it holds its column. */
+@media (min-width: 1024px) {
+  .cr-title {
+    font-size: 1.625rem;
+  }
+}
+
+/* A link to the clause, for citing it: quiet until pointed at or focused. */
+.cr-anchor {
+  font-family: var(--font-code);
+  font-size: 1rem;
+  color: var(--tiro-text-muted);
+  opacity: 0;
+  transition: opacity var(--lt-dur-quick) ease, color var(--lt-dur-quick) ease;
+}
+
+.cr-clause:hover .cr-anchor,
+.cr-requests:hover .cr-anchor,
+.cr-anchor:focus-visible {
+  opacity: 1;
+}
+
+.cr-anchor:hover {
+  color: var(--tiro-accent);
+}
+
+@media (hover: none) {
+  .cr-anchor {
+    opacity: 1;
+  }
+}
+
+.cr-text {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .cr-text {
+    font-size: 1.1875rem;
+  }
+}
+
+.cr-body {
+  max-width: var(--cr-measure);
+}
+
+@media (min-width: 1024px) {
+  .cr-body {
+    padding-top: 1.55rem;
+  }
+}
+
+/* A principle's closing statement, set apart as an inscription. */
+.cr-emphasis {
+  margin-top: 1.75rem;
+  border-left: 2px solid var(--tiro-accent);
+  padding-left: 1.25rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.4rem;
+  line-height: 1.35;
+  color: var(--tiro-text);
+  text-wrap: balance;
+}
+
+@media (min-width: 768px) {
+  .cr-emphasis {
+    font-size: 1.65rem;
+  }
+}
+
+/* ---------- Correction, restriction, withdrawal ---------- */
+.cr-requests {
+  margin-top: 4rem;
+  max-width: calc(var(--cr-side) + 4rem + var(--cr-measure));
+  padding: 2rem 1.5rem 2.25rem;
+  border: 1px solid var(--tiro-border-strong);
+  border-top: 2px solid var(--tiro-accent);
+  background: var(--tiro-surface);
+}
+
+@media (min-width: 768px) {
+  .cr-requests {
+    margin-top: 5rem;
+    padding: 2.75rem 3rem 3rem;
+  }
+}
+
+.cr-requests .cr-heading {
+  margin-bottom: 1.25rem;
+}
+
+.cr-requests-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+  color: var(--tiro-text);
+  text-wrap: balance;
+}
+
+.cr-requests .cr-text {
+  max-width: var(--cr-measure);
+}
+
+/* ---------- Status ---------- */
+.cr-status {
+  max-width: var(--cr-measure);
+  padding-block: 3.5rem 7rem;
+}
+
+.cr-status p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cr-contents a,
+  .cr-anchor {
+    transition: none !important;
+  }
+}
+
+@media print {
+  .cr-anchor {
+    display: none;
+  }
+}

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import LocalNav from "@/components/archive/LocalNav";
+import "@/components/archive/archive.css";
+import "./community-rights.css";
 
 export const metadata: Metadata = {
   title: "Community Rights & Cultural Data Stewardship — The Tiro Foundation",
@@ -46,84 +49,126 @@ const principles = [
   },
 ];
 
+// Each principle's anchor, for citing it (/community-rights#consent).
+// Written out rather than derived from the label, so a later change of
+// wording never breaks a link already made to a principle. Order gives
+// the clause numbers.
+const CLAUSE_IDS: Record<string, string> = {
+  "Custody, not ownership": "custody",
+  "Source authority": "source-authority",
+  "Consent: explicit, traceable, revocable": "consent",
+  "Access is not entitlement": "access",
+  "Provenance as permanent record": "provenance",
+  "Purpose does not transfer": "purpose",
+  "No claim of exclusivity": "exclusivity",
+};
+
+const clauses = principles.map((principle, index) => {
+  const id = CLAUSE_IDS[principle.label];
+  if (!id) throw new Error(`Community Rights: no anchor for "${principle.label}"`);
+  return { ...principle, id, n: index + 1 };
+});
+
+const REQUESTS_TITLE = "Requesting a Correction, Restriction, or Withdrawal";
+
+// The status note is short and last, so it never reaches the top of the
+// view; it keeps its anchor but is not a stop on the bar.
+const LOCAL_ITEMS = [
+  { id: "principles", label: "Principles" },
+  { id: "requests", label: "Requests" },
+];
+
 export default function CommunityRightsPage() {
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
-        <div className="mx-auto max-w-3xl">
-          <p className="tiro-eyebrow mb-6">Community Rights &amp; Cultural Data Stewardship</p>
-          <h1 className="mb-6 font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            Communities remain the principals. TIRO is the custodian.
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            This policy states how TIRO handles what communities and
-            contributors entrust to it. It governs every record in the
-            Memory Project and is grounded in TIRO&apos;s founding doctrine,
-            not a separate or lesser standard applied after the fact.
-          </p>
-        </div>
-      </section>
+    <main id="top" className="la cr bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <LocalNav title="Community Rights" items={LOCAL_ITEMS} cta={{ href: "/contact", label: "Contact TIRO" }} />
 
-      <section className="px-6 pb-16 md:pb-24">
-        <div className="mx-auto max-w-3xl">
-          <div className="border-t border-[var(--tiro-border)]">
-            {principles.map((principle) => (
-              <div
-                key={principle.label}
-                className="grid grid-cols-1 gap-2 border-b border-[var(--tiro-border)] py-7 md:grid-cols-[minmax(200px,260px)_1fr] md:gap-8"
-              >
-                <h2 className="font-[family-name:var(--font-display)] text-lg italic text-[var(--tiro-text-soft)]">
-                  {principle.label}
-                </h2>
-                <div>
-                  <p className="text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-                    {principle.description}
-                  </p>
-                  {principle.emphasis ? (
-                    <p className="mt-4 font-[family-name:var(--font-display)] text-base italic text-[var(--tiro-text)] md:text-lg">
-                      {principle.emphasis}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
+      <header className="la-frame cr-wrap cr-head">
+        <p className="la-eyebrow">Community Rights &amp; Cultural Data Stewardship</p>
+        <h1 className="cr-h1 mt-6">Communities remain the principals. TIRO is the custodian.</h1>
+        <p className="cr-intro mt-8">
+          This policy states how TIRO handles what communities and
+          contributors entrust to it. It governs every record in the
+          Memory Project and is grounded in TIRO&apos;s founding doctrine,
+          not a separate or lesser standard applied after the fact.
+        </p>
+
+        <nav aria-label="Contents" className="cr-contents">
+          <ol>
+            {clauses.map((c) => (
+              <li key={c.id}>
+                <a href={`#${c.id}`}>
+                  <span className="cr-contents-n">{c.n}</span>
+                  <span>{c.label}</span>
+                </a>
+              </li>
             ))}
-          </div>
-        </div>
-      </section>
+          </ol>
+          <a href="#requests" className="cr-contents-requests">
+            <span>{REQUESTS_TITLE}</span>
+            <span aria-hidden="true">↓</span>
+          </a>
+        </nav>
+      </header>
 
-      <section className="px-6 pb-16 md:pb-24">
-        <div className="tiro-card mx-auto max-w-3xl">
-          <p className="tiro-eyebrow mb-5">Requesting a Correction, Restriction, or Withdrawal</p>
-          <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
+      <div className="la-frame cr-wrap">
+        <section id="principles" aria-label="Principles" className="cr-clauses">
+          {clauses.map((c) => (
+            <section key={c.id} id={c.id} aria-labelledby={`${c.id}-title`} className="cr-clause">
+              <div className="cr-heading">
+                <h2 id={`${c.id}-title`} className="cr-h2">
+                  <span className="cr-num">{c.n}</span>{" "}
+                  <span className="cr-title">{c.label}</span>
+                </h2>
+                <a href={`#${c.id}`} className="cr-anchor" aria-label={`Link to principle ${c.n}, ${c.label}`}>
+                  #
+                </a>
+              </div>
+              <div className="cr-body">
+                <p className="cr-text">{c.description}</p>
+                {c.emphasis ? <p className="cr-emphasis">{c.emphasis}</p> : null}
+              </div>
+            </section>
+          ))}
+        </section>
+
+        <section id="requests" aria-labelledby="requests-title" className="cr-requests">
+          <div className="cr-heading">
+            <h2 id="requests-title" className="cr-requests-title">
+              {REQUESTS_TITLE}
+            </h2>
+            <a href="#requests" className="cr-anchor" aria-label={`Link to ${REQUESTS_TITLE}`}>
+              #
+            </a>
+          </div>
+          <p className="cr-text">
             Every published memory record states its record ID, Source
             Authority, consent scope, and applicable withdrawal terms under
             Provenance &amp; Consent. To request a correction, dispute a
             detail, change an access restriction, or withdraw consent for a
             record already in the archive, contact TIRO with that record ID.
           </p>
-          <Link href="/contact" className="tiro-link mt-6 inline-block text-sm">
-            Contact TIRO
+          <Link href="/contact" className="la-cta mt-8">
+            Contact TIRO <span aria-hidden="true">→</span>
           </Link>
-        </div>
-      </section>
+        </section>
 
-      <section className="px-6 pb-28 md:pb-36">
-        <div className="mx-auto max-w-3xl">
-          <p className="mb-6 text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+        <section id="status" aria-label="Status of this policy" className="cr-status">
+          <p>
             This policy will be formalized as part of TIRO&apos;s constitutional
             documents. Until then, it states the standard TIRO already holds
             itself to.
           </p>
-          <div className="flex flex-wrap gap-6">
-            <Link href="/manifesto" className="tiro-link text-sm">
+          <div className="mt-6 flex flex-wrap gap-x-8 gap-y-3">
+            <Link href="/manifesto" className="la-more">
               Read the Manifesto v0.2
             </Link>
-            <Link href="/memory-project" className="tiro-link text-sm">
+            <Link href="/memory-project" className="la-more">
               The Memory Project
             </Link>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
