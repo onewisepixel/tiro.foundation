@@ -1,11 +1,12 @@
-# Milestone 3.0, Phase 3b: inner pages — the Manifesto and Community Rights studies, and the inventory
+# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights and About studies, and the inventory
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
-`/community-rights`: **second study; visual design approved by the founder, 2026-10-30; not merged** (§1b). Branch `design/phase-3b-community-rights`, from `main` at `512bebe` (PR #19).
+`/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
+`/about`: **approved for release, 2026-10-30** (decision 52; PR #20; §1c.2). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Two studies change pages: `/manifesto` (§1, released) and `/community-rights` (§1b, PR #19), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Three studies change pages: `/manifesto` (§1) and `/community-rights` (§1b), both released, and `/about` (§1c, approved for release), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -134,6 +135,72 @@ The founder approved the visual design on 2026-10-30, with two items to close be
 
 **2. Scope statement.** The header said this study changes `/manifesto` only, which was written before Community Rights. It now names both studies and the `/pilot` fix.
 
+The founder judged G3 satisfied on the final commit, `507d66e` (Linux CI 41134762438 passed, including the disclosure verifier; the team preview deployed).
+
+### 1b.3 Release and production verification
+
+PR #19 was marked ready and merged with a merge commit as **`acf6372`** on 2026-10-30. Linux CI on the merge commit (run 41136641591) passed, including the disclosure verifier, and the team production deployment completed. The page was then checked at `https://www.tiro.foundation/community-rights`:
+
+| Check | Result |
+| --- | --- |
+| Release suite (`public-site-checks.mjs`, against production) | **171 of 171 pass**. Among them: the eight clause anchors exist; the procedure is a heading; axe finds no serious or critical violations and the console no errors, at 1440 and 390 px in light and dark; no overflow at 320, 390 or 820 px; `/flight-deck`, `/flight-deck/sign-in` and `/flight-deck/internal/status` are 404 |
+| Both themes, rendering | At 1440 and 390 px in light and dark: the blocks in order without overlap, each text block once (the procedure's title twice, by design), no uniform gray rows in a single-render capture. Viewport screenshots of the contents, the clauses, the closing statement and the request panel are clean |
+| Clause anchors | `#custody` through `#exclusivity`, `#requests` and `#principles` land below the header and local bar, and the bar marks the right stop. `#status` comes into view |
+| Request panel | Heading, the procedure's text and "Contact TIRO" (to `/contact`) in its panel, in both themes, on desktop and mobile |
+| Mobile layout | No overflow at 320 or 390 px. The contents list, the procedure link and the panel are legible in both themes |
+| Keyboard | The same tab order as in §1b.1. Every stop shows its focus ring |
+| Links | The same destinations as before: `/contact`, `/manifesto`, `/memory-project` |
+| Disclosure boundary | `/flight-deck`, `/flight-deck/cases`, `/flight-deck/outreach`, `/flight-deck/login` and `/api/flight-deck/health` return 404 |
+
+## 1c. `/about`: who TIRO is
+
+About is short and read once: who TIRO is, the principle it works by, and how it will be governed. It takes the family's type, rules and accent. It does not take the Manifesto's contents and local bar, or Community Rights' numbered clauses: it has two sections, and neither is cited by number.
+
+| Element | Treatment | Why |
+| --- | --- | --- |
+| Opening | "About" as the eyebrow, the headline in display italic, and the introduction set larger as a lede | As the Manifesto and Community Rights. The introduction was small sans text; it is the page's first statement |
+| Sections | **"Custodial Paradigm" and "Governance" are now headings** (`h2`, previously styled `<p>` labels), each a section with a stable anchor: `#custodial-paradigm`, `#governance`. On wide screens they are set as a finding aid, the heading beside its text; on narrow ones, above it | Fixes P3B-2 for this page: the outline now has both sections. The finding aid suits a short page of two labelled entries, and differs from the Community Rights schedule, which is numbered |
+| Custodial Paradigm | The paragraph as a statement in the display serif, with the accent rule; the card is gone | It is the page's one statement of principle. The card held small sans text |
+| Governance | The note that governance "is still forming" first, in muted text; then the three entries ("Ethics oversight", "Regional stewards", "Transparency and appeals") as `h3`s with their text, divided by rules | The entries are intentions, not appointed roles, and the note that says so comes before them, as before. They were `h2`s; under "Governance" they are now `h3`s |
+| Onward | The sentence about the Manifesto and the Memory Project, then the four links ("Read Manifesto v0.2", "Enter the Memory Project", "Community Rights & Stewardship", "Contact TIRO") in the text column | As before, in the family's link style (`la-more`) |
+| No local bar | — | Two short sections fit in about two screens, so a bar would add orientation the page does not need. The anchors make each section citable |
+
+**Kept out on purpose:** motion, imagery, and the inventory's suggested "finding-aid summary (who, what, status)". A summary would add wording that the page does not have, so the structure gives the page a finding aid's shape, with no new text.
+
+**Content preservation:**
+
+- The metadata and the `governance` array are byte-identical to `main`, and every paragraph's text is unchanged.
+- The whole text of `<main>`, compared in the rendered page, is **identical** before and after. The only moves: the two section labels become headings, and the three governance labels move from `h2` to `h3`.
+- The four links are unchanged: `/manifesto`, `/memory-project`, `/community-rights`, `/contact`. Nothing new is linked.
+
+### 1c.1 Verification
+
+All checks compare production builds of `main` (`acf6372`) and this branch, served side by side.
+
+| Check | Result |
+| --- | --- |
+| Text preserved | As above |
+| Headings | One h1, two h2s (Custodial Paradigm, Governance), three h3s. Previously one h1 and three h2s, with the two section labels missing from the outline |
+| Anchors | `#custodial-paradigm` and `#governance` land below the site header at 1440 and 390 px |
+| Overflow | None at 320, 390 or 820 px |
+| axe-core (WCAG 2.0, 2.1 and 2.2, A and AA) | **No violations** of any severity, in light and dark, at 1440 and 390 px |
+| Release suite (`public-site-checks.mjs`) | **181 of 181 pass**. New checks: the two anchors exist, and both sections are headings. `/about` joins the axe and console sweep |
+| The approved interfaces unchanged | `/`, `/memory-project`, the records, `/living-trace` and `/pilot`: **0 differing pixels and identical keyboard behaviour** (96 captures). The only differences are in `/living-trace` motion captures (7–47 px) with identical style fingerprints: capture timing, as before |
+| Disclosure verifier | The boundary holds (37 client files, one more than before for the page's stylesheet; 399 prerendered files; 29 routes) |
+| Unit tests, lint, build | 550 of 554 tests pass; the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors. Build passes |
+
+**Screenshots** (`docs/design/phase-3b/`), each page captured in one render with nothing joined:
+
+- `about.desktop.jpg`: before and after at 1440 px, light and dark.
+- `about.mobile.jpg`: before and after at 390 px, light and dark.
+- `about.desktop.light.png`, `about.desktop.dark.png` and `about.mobile.dark.png`: the new page at full resolution.
+
+**Limitations:** tested in Chrome only, with no screen-reader session.
+
+### 1c.2 Founder approval
+
+The founder approved the visual design of PR #20 with no revisions (decision 52), having inspected the desktop and mobile comparisons in both themes and reviewed the diff. The founder independently confirmed the head `472e014`, the branch 2 commits ahead of `main` and 0 behind, the 11 changed files, and Linux CI run 41140397240 (the disclosure verifier and the Flight Deck integration tests passing). The protected team preview was not opened; the approval rests on the committed screenshots and CI. The local bar and the suggested summary stay out, as proposed.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -160,16 +227,16 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` (released), `/about` (§1c, approved) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` (released), `/about` (§1c, approved) |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 
 ## 4. Proposed order after the Manifesto
 
 1. **P3B-1**, the `/pilot` overflow, as its own small PR (released; §3).
-2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (study in §1b).
-3. `/about`.
+2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (released; decision 51, §1b).
+3. `/about`: the institution explained (approved; decision 52, §1c).
 4. `/nodes` and the two node profiles.
 5. `/contact`.
 6. `/pilot` (presentation only).

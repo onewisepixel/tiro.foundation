@@ -212,3 +212,19 @@ These statuses reflect the founder's design decisions and the reported implement
 | # | Decision | Status | Rationale | Conditions and open questions |
 | --- | --- | --- | --- | --- |
 | 50 | **`/manifesto` redesigned as the long-form reference page**: an opening with a contents list, the shared local bar, one reading measure, margin numerals, ledes, anchored parts, and no motion or imagery | **Approved and released** | A text meant to be read, studied and returned to. The pattern carries to Community Rights, About and the other institutional pages; their layouts are not meant to be identical. | Text unchanged (proved in §1.1). Observation, not blocking: on mobile, the local bar scrolls sideways without an obvious cue; revisit if touch-device testing shows confusion (P3B-5). Next: the `/pilot` overflow (P3B-1) as its own PR, then `/community-rights`. |
+
+## 2026-10-30 — Milestone 3.0 Phase 3b: Community Rights as the policy page
+
+**Verdict.** The founder approved the visual design of PR #19 (layout, typography, navigation, clause hierarchy and request procedure) and, once the two release-gate items in `milestone-3.0-phase-3b-inner-pages.md` §1b.2 were closed, judged G3 satisfied. PR #19 was merged (`acf6372`) and deployed to production, where it was verified (§1b.3).
+
+| # | Decision | Status | Rationale | Conditions and open questions |
+| --- | --- | --- | --- | --- |
+| 51 | **`/community-rights` redesigned as the policy page**: a contents list of the numbered principles; each principle a numbered, anchored clause (`#custody` … `#exclusivity`); the correction, restriction and withdrawal procedure as a heading (`#requests`) in its own panel, with "Contact TIRO" as its primary action; the Manifesto's type and local bar; no motion or imagery | **Approved and released** | A policy is consulted and cited, so it is laid out by clause, with stable anchors written into the page. The procedure a community may need urgently can be found from the first screen. | Wording unchanged (proved in §1b). The clause numbers are presentation only and do not amend the policy. Next: `/about`. |
+
+## 2026-10-30 — Milestone 3.0 Phase 3b: About as a finding aid
+
+**Verdict.** The founder reviewed PR #20 (the desktop and mobile comparisons in both themes, the full-resolution screenshots and the diff) and approved the visual design with no revisions. The founder independently confirmed the head (`472e014`), the branch's currency with `main`, the eleven changed files and the passing Linux CI, including the disclosure verifier and the Flight Deck integration tests. The protected team preview was not opened; the approval rests on the committed screenshots and CI. Release authorized: record this decision, pass CI, merge with a merge commit, and verify in production.
+
+| # | Decision | Status | Rationale | Conditions and open questions |
+| --- | --- | --- | --- | --- |
+| 52 | **`/about` redesigned as a finding aid**: the headline and a lede introduction; "Custodial Paradigm" and "Governance" as headings with stable anchors (`#custodial-paradigm`, `#governance`), each beside its text on wide screens; the custodial paradigm as a statement with the accent rule, without the card; the governance entries as `h3`s under the note that governance is still forming; no local bar, summary, motion or imagery | **Approved for release** | The page explains the institution: short, read once, and given a clear hierarchy without new wording. Two short sections do not need a local bar, and a summary would add text the page does not have. The Manifesto declares, Community Rights establishes commitments, and About explains the institution: distinct functions within one visual identity, a direction to keep for the remaining pages. | Wording unchanged (proved in `milestone-3.0-phase-3b-inner-pages.md` §1c). Production verification recorded after the merge. Next: `/nodes` and the node profiles. |
