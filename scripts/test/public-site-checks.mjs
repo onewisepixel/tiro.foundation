@@ -161,6 +161,19 @@ async function check(base, outFile) {
   const aboutHtml = await (await fetch(base + "/about")).text();
   ok("/about keeps its section anchors", ["custodial-paradigm", "governance"].every((id) => aboutHtml.includes(`id="${id}"`)));
   ok("/about: its sections are headings", /<h2[^>]*>Custodial Paradigm<\/h2>/.test(aboutHtml) && /<h2[^>]*>Governance<\/h2>/.test(aboutHtml));
+  // Nodes: every seed has an anchor in the directory (/nodes#enugu), and a
+  // profile's sections are headings with anchors (/nodes/lagos#themes).
+  const nodesHtml = await (await fetch(base + "/nodes")).text();
+  ok("/nodes: every entry has an anchor", ["lagos", "port-harcourt", "enugu", "nigerian-pidgin", "yoruba", "igbo"].every((id) => nodesHtml.includes(`id="${id}"`)));
+  // The ring turns solid only for a collection record; every node's records
+  // are demonstrations today, so every ring must render dashed.
+  const rings = nodesHtml.match(/data-has-collection="(true|false)"/g) ?? [];
+  ok("/nodes: no ring claims a collection record (all six dashed)", rings.length === 6 && rings.every((r) => r.endsWith('"false"')), rings.join(" "));
+  for (const [route, sections] of [["/nodes/lagos", ["Memory Connections", "Themes", "Languages", "Related Nodes"]], ["/nodes/nigerian-pidgin", ["Memory Connections", "Themes", "Related Nodes"]]]) {
+    const html = await (await fetch(base + route)).text();
+    const ids = sections.map((s) => s.toLowerCase().replace(/\s+/g, "-"));
+    ok(`${route}: its sections are headings with anchors`, sections.every((s) => new RegExp(`<h2[^>]*>${s}</h2>`).test(html)) && ids.every((id) => html.includes(`id="${id}"`)));
+  }
   // /memories is outside the navigation (decision 44). Its records stay
   // linked from the node pages; who links to its index is reported.
   const memoriesRecords = [...linksFrom].filter(([, hs]) => [...hs].some((h) => h.startsWith("/memories/"))).map(([p]) => p);
@@ -204,7 +217,7 @@ async function check(base, outFile) {
     for (const theme of ["light", "dark"]) {
       await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }, { name: "prefers-reduced-motion", value: "reduce" }] });
       await setTheme(theme);
-      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/about", "/community-rights", "/pilot", "/nodes"]) {
+      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/about", "/community-rights", "/pilot", "/nodes", "/nodes/lagos", "/nodes/nigerian-pidgin"]) {
         consoleErrors = [];
         await go(base + p);
         await evaluate(`if (!window.axe) { ${AXE} }`);

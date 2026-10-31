@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countByDemo, formatRecordCountLabel, getConnectionsNotice } from "./recordKind";
+import { countByDemo, formatRecordCountLabel, getConnectionsNotice, hasCollectionRecord } from "./recordKind";
 import { getRecordKindNotice } from "@/data/recordNotices";
 import type { MemoryRecord } from "@/data/memories";
 
@@ -18,6 +18,25 @@ const allDemo: MinimalRecord[] = [demo("a"), demo("b"), demo("c")];
 const mixed: MinimalRecord[] = [demo("a"), demo("b"), collection("c")];
 const noDemo: MinimalRecord[] = [collection("a"), collection("b")];
 const empty: MinimalRecord[] = [];
+
+// The node index's ring: dashed for demonstration and pilot records,
+// solid only once a collection record refers to the node.
+test("hasCollectionRecord", async (t) => {
+  await t.test("demonstration records leave the ring dashed", () => {
+    assert.equal(hasCollectionRecord(allDemo), false);
+  });
+  await t.test("pilot records leave the ring dashed", () => {
+    assert.equal(hasCollectionRecord([{ recordKind: "pilot" }, { recordKind: "pilot" }]), false);
+    assert.equal(hasCollectionRecord([{ recordKind: "demo" }, { recordKind: "pilot" }]), false);
+  });
+  await t.test("a collection record makes it solid", () => {
+    assert.equal(hasCollectionRecord(mixed), true);
+    assert.equal(hasCollectionRecord([{ recordKind: "pilot" }, { recordKind: "collection" }]), true);
+  });
+  await t.test("no records leave it dashed", () => {
+    assert.equal(hasCollectionRecord(empty), false);
+  });
+});
 
 test("countByDemo", async (t) => {
   await t.test("all-demo", () => {

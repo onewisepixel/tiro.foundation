@@ -1,12 +1,13 @@
-# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights and About studies, and the inventory
+# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights, About and Nodes studies, and the inventory
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
 `/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
 `/about`: **approved and released, 2026-10-30** (decision 52; PR #20 merged as `d9cfb00`; verified in production, §1c.3). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
+`/nodes` and the node profiles: **approved for release, 2026-10-30** (decision 53; PR #21; the ring's semantics corrected before release, §1d.2). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Three studies change pages: `/manifesto` (§1) and `/community-rights` (§1b), both released, and `/about` (§1c), all three released, with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Four studies change pages: `/manifesto` (§1), `/community-rights` (§1b) and `/about` (§1c), all released, and `/nodes` with its two profiles (§1d, approved for release), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -212,6 +213,75 @@ The approval was recorded in `28e2b57` (Linux CI 41147112001 passed, every step 
 | Anchors | `#custodial-paradigm` and `#governance` land below the 63 px header (title at 144 px at 1440, 128 px at 390) |
 | Disclosure boundary | `/flight-deck`, `/flight-deck/cases`, `/flight-deck/outreach`, `/flight-deck/login` and `/api/flight-deck/health` return 404 |
 
+## 1d. `/nodes` and the node profiles: a gazetteer
+
+The founder's principle for this study: the Nodes pages should show the difference between **established relationships, proposed initiatives and future ambitions**, and should not invent partnerships, operational activity or community endorsements to look more complete.
+
+On these pages today **nothing is established**: no collected record refers to any node, and every link is to a demonstration record. Nor do the pages name a proposed initiative. So the study shows each node's real standing, from data the page already has, and adds no status words of its own.
+
+The directory and the profiles take the family's type, rules and accent, with an identity of their own: a **gazetteer**, the reference form for places and languages. Places and languages are entries, not cards, and each entry is a destination that can be cited.
+
+| Element | Treatment | Why |
+| --- | --- | --- |
+| Opening (all three) | The eyebrow, the headline in display italic and the introduction as a lede, as in the family; under `--la-header` | Fixes P3B-3 on these pages |
+| The demonstration notice | Set as a notice with the accent rule, before anything it qualifies (the directory's page notice; each profile's connections notice) | What the links refer to is said before it is seen |
+| `/nodes`: the directory | One entry per seed, in the existing order. On wide screens: the kind ("Place", "Language") in the margin, the name, the linked records and "Open node profile", and the record count at the right. On phones: kind and count above the name. Each entry has an anchor (`/nodes#port-harcourt`) | A directory is scanned by name and cited by entry. The four seeds without a profile are still listed and citable, set a shade quieter |
+| Standing | Before every record count, a **ring**: dashed until a **collection** record refers to the node, solid once one does. Demonstration and pilot records leave it dashed. Every ring is dashed today. The count is the page's existing label ("2 Demonstration Records") | The ring is computed from the records (`hasCollectionRecord`), so it cannot claim more than they establish. It marks archival evidence only: a collection record does not by itself establish a community relationship, verification or permission to publish. It is the Memory Project's mark for a readiness gate not yet met, so it means the same thing on both pages. It is computed from the static record dataset (`src/data/memories.ts`), not the live Memory service, which is not enabled (decision 44) |
+| Profiles: sections | "Memory Connections", "Themes", "Languages" (Lagos) and "Related Nodes" are now **headings** (`h2`, previously styled `<p>` labels), each a section with an anchor (`#memory-connections`, `#themes`, `#languages`, `#related-nodes`), the heading beside its text on wide screens | Fixes P3B-2 for these pages: the profiles had no section headings at all |
+| Profiles: connections | Rows in the Memory Project catalogue's style: the title with its "Demo" label, then the summary; each row links to its `/memories` record, as before | The links into `/memories` must stay (decision 48) |
+| Profiles: empty lists | "None recorded…" with the dashed ring, in a shorter section | An empty relationship list is a stated fact about the record, not a gap in the design |
+| Not added | Maps, imagery, motion, partner or community names, status words ("proposed", "planned"), a local bar, and a link back to the directory | A map would picture a presence TIRO does not have, and status words would be new claims. Three short sections do not need a local bar. The directory stays one step away in the footer ("Nodes") |
+
+**Content preservation:**
+
+- The metadata, the seed list, the record helpers and the notices are unchanged. Every list is still computed from the records.
+- On all three pages, the whole text of `<main>`, compared in the rendered page, is **identical** before and after. Only the markup moves: the profiles' section labels become headings, and the directory's kind and count move from `<span>`s to paragraphs.
+- The links are unchanged, in the same order, on all three pages: the `/memories` records and the two profiles.
+
+**For a founder decision, later:** when a real relationship exists, the pages will need words for its standing (for example, *established*, *in discussion*, *intended*). The ring gives that vocabulary a place, but choosing the words is a content decision, not a design one, so the study leaves them out.
+
+### 1d.1 Verification
+
+All checks compare production (`main` at `d9cfb00`) with a production build of this branch.
+
+| Check | Result |
+| --- | --- |
+| Text preserved | As above, on all three pages |
+| Ring semantics | Unit tests: demonstration and pilot records leave the ring dashed, and a collection record makes it solid. The release suite checks that every ring on `/nodes` renders dashed today (six entries, all demonstration records) |
+| Headings | `/nodes`: one h1 and six h2s, as before. `/nodes/lagos`: one h1 and four h2s; `/nodes/nigerian-pidgin`: one h1 and three h2s. Before, each profile had only its h1 |
+| Anchors | Directory entries and profile sections land below the site header at 1440 and 390 px. Sections near the end of a page land as high as the page can scroll |
+| Overflow | None at 320, 390 or 820 px, on all three pages |
+| axe-core (WCAG 2.0, 2.1 and 2.2, A and AA) | **No violations** of any severity on all three pages, in light and dark, at 1440 and 390 px |
+| Release suite (`public-site-checks.mjs`) | **201 of 201 pass**. New checks: every directory entry has an anchor, every ring renders dashed, and each profile's sections are headings with anchors. Both profiles join the axe and console sweep |
+| The approved interfaces unchanged | `/`, `/memory-project`, the records, `/living-trace` and `/pilot`: **0 differing pixels and identical keyboard behaviour** (120 captures). The only differences are in four `/living-trace` motion captures (11–42 px) with identical style fingerprints: capture timing, as before |
+| Disclosure verifier | The boundary holds (38 client files, one more than before for the Nodes stylesheet; 399 prerendered files; 29 routes) |
+| Unit tests, lint, build | 555 of 559 tests pass (five are new, for the ring); the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors (2 warnings in unchanged backend files). Build passes |
+
+**Screenshots** (`docs/design/phase-3b/`), each page captured in one render with nothing joined:
+
+- `nodes.desktop.jpg` and `nodes.mobile.jpg`: the directory before and after, at 1440 and 390 px, light and dark.
+- `nodes-profiles.desktop.jpg` and `nodes-profiles.mobile.jpg`: both profiles before and after, at 1440 and 390 px, light and dark.
+- `nodes.desktop.light.png`, `nodes.mobile.dark.png` and `nodes-lagos.desktop.dark.png`: the new pages at full resolution.
+
+**Limitations:** tested in Chrome only, with no screen-reader session.
+
+### 1d.2 Founder approval and the ring correction
+
+The founder approved the visual design of PR #21 (the directory and both profiles, desktop and mobile, light and dark), with content preservation, accessibility, the disclosure boundary and Linux CI 41153059436 passing. The founder held the merge for one correction to the relationship-status semantics.
+
+**The defect:** at `4e622af`, the ring turned solid for any record that was not a demonstration (`recordKind !== "demo"`). The record model has three categories (`"demo" | "pilot" | "collection"`), so a future pilot record would also have turned it solid. A record's category alone does not establish verification or permission to publish (`src/data/memories.ts`).
+
+**The correction:**
+
+- The rule is now `hasCollectionRecord` in `src/lib/recordKind.ts`: solid only for a `collection` record. Demonstration and pilot records leave the ring dashed.
+- The variable and attribute are renamed from `established` / `data-established` to `hasCollection` / `data-has-collection`. The ring marks archival evidence, not an established community relationship.
+- Regression checks: unit tests for demonstration, pilot, mixed and empty sets, and a release check that every ring on `/nodes` renders dashed today.
+- The ring is computed from the static record dataset (`src/data/memories.ts`), not the live Memory service, which is not enabled (decision 44). This is noted in the code and in §1d.
+
+No visible change today: every node's records are demonstrations, so every ring was dashed before and after the correction. All twelve full-page captures of the three pages (1440 and 390 px, light and dark) are byte-identical to those approved. No further visual review was requested.
+
+The founder independently confirmed the correction at `afbd413` (Linux CI 41155122288, the disclosure verifier and the Flight Deck integration tests passing) and approved the release (decision 53). Collecting a record does not by itself establish a partnership with the community it concerns: an established community relationship remains a separate question, requiring its own evidence and a future governance decision.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -238,8 +308,8 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` (released), `/about` (released) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` (released), `/about` (released) |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` and `/about` (released), `/nodes` and its profiles (§1d, approved) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` and `/about` (released), `/nodes` and its profiles (§1d, approved) |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 
@@ -248,7 +318,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 1. **P3B-1**, the `/pilot` overflow, as its own small PR (released; §3).
 2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (released; decision 51, §1b).
 3. `/about`: the institution explained (released; decision 52, §1c).
-4. `/nodes` and the two node profiles.
+4. `/nodes` and the two node profiles: the gazetteer (approved; decision 53, §1d).
 5. `/contact`.
 6. `/pilot` (presentation only).
 7. `/memories` (restyle only).

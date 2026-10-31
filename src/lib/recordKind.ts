@@ -21,6 +21,15 @@ export function formatRecordCountLabel(records: MemoryRecord[]): string {
   return `${total} Record${total === 1 ? "" : "s"} · ${demo} Demonstration Record${demo === 1 ? "" : "s"}`;
 }
 
+// Whether any of these records is a collection record: the node index's
+// ring is solid only then. Neither a demonstration nor a pilot record
+// counts, and a collection record is archival evidence only. It does not
+// establish a community relationship, verification, or permission to
+// publish.
+export function hasCollectionRecord(records: Pick<MemoryRecord, "recordKind">[]): boolean {
+  return records.some((record) => record.recordKind === "collection");
+}
+
 // Shared across any surface that lists linked memory records (node index,
 // node detail pages). Keep this the single source of that notice text.
 export function getConnectionsNotice(records: MemoryRecord[]): string | null {
