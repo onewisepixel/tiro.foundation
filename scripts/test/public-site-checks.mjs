@@ -161,6 +161,12 @@ async function check(base, outFile) {
   const aboutHtml = await (await fetch(base + "/about")).text();
   ok("/about keeps its section anchors", ["custodial-paradigm", "governance"].every((id) => aboutHtml.includes(`id="${id}"`)));
   ok("/about: its sections are headings", /<h2[^>]*>Custodial Paradigm<\/h2>/.test(aboutHtml) && /<h2[^>]*>Governance<\/h2>/.test(aboutHtml));
+  // Contact: the address works as written (the <wbr> before its "@" adds no
+  // text), and the page offers nothing it cannot do: no form.
+  const contactHtml = await (await fetch(base + "/contact")).text();
+  const mailto = [...contactHtml.matchAll(/<a[^>]*href="(mailto:[^"]*)"[^>]*>([\s\S]*?)<\/a>/g)];
+  ok("/contact: one address, the exact mailto: link, its text the address", mailto.length === 1 && mailto[0][1] === "mailto:custodians@tiro.foundation" && mailto[0][2].replace(/<[^>]*>/g, "").trim() === "custodians@tiro.foundation", mailto.map((m) => m[1]).join(", "));
+  ok("/contact: no form", !/<form[\s>]/.test(contactHtml));
   // Nodes: every seed has an anchor in the directory (/nodes#enugu), and a
   // profile's sections are headings with anchors (/nodes/lagos#themes).
   const nodesHtml = await (await fetch(base + "/nodes")).text();
@@ -217,7 +223,7 @@ async function check(base, outFile) {
     for (const theme of ["light", "dark"]) {
       await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }, { name: "prefers-reduced-motion", value: "reduce" }] });
       await setTheme(theme);
-      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/about", "/community-rights", "/pilot", "/nodes", "/nodes/lagos", "/nodes/nigerian-pidgin"]) {
+      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/about", "/community-rights", "/pilot", "/contact", "/nodes", "/nodes/lagos", "/nodes/nigerian-pidgin"]) {
         consoleErrors = [];
         await go(base + p);
         await evaluate(`if (!window.axe) { ${AXE} }`);
