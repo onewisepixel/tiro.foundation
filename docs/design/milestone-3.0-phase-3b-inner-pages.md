@@ -4,7 +4,7 @@ Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
 `/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
 `/about`: **approved and released, 2026-10-30** (decision 52; PR #20 merged as `d9cfb00`; verified in production, §1c.3). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
-`/nodes` and the node profiles: **fourth study, for founder visual approval; not merged** (§1d). Branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
+`/nodes` and the node profiles: **visual design approved, 2026-10-30; the ring's semantics corrected before release; not merged** (§1d.2). Branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
 Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Four studies change pages: `/manifesto` (§1), `/community-rights` (§1b) and `/about` (§1c), all released, and `/nodes` with its two profiles (§1d, in review), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
@@ -226,7 +226,7 @@ The directory and the profiles take the family's type, rules and accent, with an
 | Opening (all three) | The eyebrow, the headline in display italic and the introduction as a lede, as in the family; under `--la-header` | Fixes P3B-3 on these pages |
 | The demonstration notice | Set as a notice with the accent rule, before anything it qualifies (the directory's page notice; each profile's connections notice) | What the links refer to is said before it is seen |
 | `/nodes`: the directory | One entry per seed, in the existing order. On wide screens: the kind ("Place", "Language") in the margin, the name, the linked records and "Open node profile", and the record count at the right. On phones: kind and count above the name. Each entry has an anchor (`/nodes#port-harcourt`) | A directory is scanned by name and cited by entry. The four seeds without a profile are still listed and citable, set a shade quieter |
-| Standing | Before every record count, a **ring**: dashed while no collected record refers to the node, solid once one does. Every ring is dashed today. The count is the page's existing label ("2 Demonstration Records") | The ring is computed from the records, so it cannot claim more than they establish. It is the Memory Project's mark for a readiness gate not yet met, so it means the same thing on both pages |
+| Standing | Before every record count, a **ring**: dashed until a **collection** record refers to the node, solid once one does. Demonstration and pilot records leave it dashed. Every ring is dashed today. The count is the page's existing label ("2 Demonstration Records") | The ring is computed from the records (`hasCollectionRecord`), so it cannot claim more than they establish. It marks archival evidence only: a collection record does not by itself establish a community relationship, verification or permission to publish. It is the Memory Project's mark for a readiness gate not yet met, so it means the same thing on both pages. It is computed from the static record dataset (`src/data/memories.ts`), not the live Memory service, which is not enabled (decision 44) |
 | Profiles: sections | "Memory Connections", "Themes", "Languages" (Lagos) and "Related Nodes" are now **headings** (`h2`, previously styled `<p>` labels), each a section with an anchor (`#memory-connections`, `#themes`, `#languages`, `#related-nodes`), the heading beside its text on wide screens | Fixes P3B-2 for these pages: the profiles had no section headings at all |
 | Profiles: connections | Rows in the Memory Project catalogue's style: the title with its "Demo" label, then the summary; each row links to its `/memories` record, as before | The links into `/memories` must stay (decision 48) |
 | Profiles: empty lists | "None recorded…" with the dashed ring, in a shorter section | An empty relationship list is a stated fact about the record, not a gap in the design |
@@ -247,14 +247,15 @@ All checks compare production (`main` at `d9cfb00`) with a production build of t
 | Check | Result |
 | --- | --- |
 | Text preserved | As above, on all three pages |
+| Ring semantics | Unit tests: demonstration and pilot records leave the ring dashed, and a collection record makes it solid. The release suite checks that every ring on `/nodes` renders dashed today (six entries, all demonstration records) |
 | Headings | `/nodes`: one h1 and six h2s, as before. `/nodes/lagos`: one h1 and four h2s; `/nodes/nigerian-pidgin`: one h1 and three h2s. Before, each profile had only its h1 |
 | Anchors | Directory entries and profile sections land below the site header at 1440 and 390 px. Sections near the end of a page land as high as the page can scroll |
 | Overflow | None at 320, 390 or 820 px, on all three pages |
 | axe-core (WCAG 2.0, 2.1 and 2.2, A and AA) | **No violations** of any severity on all three pages, in light and dark, at 1440 and 390 px |
-| Release suite (`public-site-checks.mjs`) | **200 of 200 pass**. New checks: every directory entry has an anchor, and each profile's sections are headings with anchors. Both profiles join the axe and console sweep |
+| Release suite (`public-site-checks.mjs`) | **201 of 201 pass**. New checks: every directory entry has an anchor, every ring renders dashed, and each profile's sections are headings with anchors. Both profiles join the axe and console sweep |
 | The approved interfaces unchanged | `/`, `/memory-project`, the records, `/living-trace` and `/pilot`: **0 differing pixels and identical keyboard behaviour** (120 captures). The only differences are in four `/living-trace` motion captures (11–42 px) with identical style fingerprints: capture timing, as before |
 | Disclosure verifier | The boundary holds (38 client files, one more than before for the Nodes stylesheet; 399 prerendered files; 29 routes) |
-| Unit tests, lint, build | 550 of 554 tests pass; the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors (2 warnings in unchanged backend files). Build passes |
+| Unit tests, lint, build | 555 of 559 tests pass (five are new, for the ring); the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors (2 warnings in unchanged backend files). Build passes |
 
 **Screenshots** (`docs/design/phase-3b/`), each page captured in one render with nothing joined:
 
@@ -263,6 +264,21 @@ All checks compare production (`main` at `d9cfb00`) with a production build of t
 - `nodes.desktop.light.png`, `nodes.mobile.dark.png` and `nodes-lagos.desktop.dark.png`: the new pages at full resolution.
 
 **Limitations:** tested in Chrome only, with no screen-reader session.
+
+### 1d.2 Founder approval and the ring correction
+
+The founder approved the visual design of PR #21 (the directory and both profiles, desktop and mobile, light and dark), with content preservation, accessibility, the disclosure boundary and Linux CI 41153059436 passing. The founder held the merge for one correction to the relationship-status semantics.
+
+**The defect:** at `4e622af`, the ring turned solid for any record that was not a demonstration (`recordKind !== "demo"`). The record model has three categories (`"demo" | "pilot" | "collection"`), so a future pilot record would also have turned it solid. A record's category alone does not establish verification or permission to publish (`src/data/memories.ts`).
+
+**The correction:**
+
+- The rule is now `hasCollectionRecord` in `src/lib/recordKind.ts`: solid only for a `collection` record. Demonstration and pilot records leave the ring dashed.
+- The variable and attribute are renamed from `established` / `data-established` to `hasCollection` / `data-has-collection`. The ring marks archival evidence, not an established community relationship.
+- Regression checks: unit tests for demonstration, pilot, mixed and empty sets, and a release check that every ring on `/nodes` renders dashed today.
+- The ring is computed from the static record dataset (`src/data/memories.ts`), not the live Memory service, which is not enabled (decision 44). This is noted in the code and in §1d.
+
+No visible change today: every node's records are demonstrations, so every ring was dashed before and after the correction. All twelve full-page captures of the three pages (1440 and 390 px, light and dark) are byte-identical to those approved. No further visual review was requested.
 
 ## 2. Inventory of the other Phase 3b pages
 

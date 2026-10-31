@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { memories } from "@/data/memories";
-import { countByDemo, formatRecordCountLabel } from "@/lib/recordKind";
+import { countByDemo, formatRecordCountLabel, hasCollectionRecord } from "@/lib/recordKind";
 import "@/components/archive/archive.css";
 import "./nodes.css";
 
@@ -58,7 +58,9 @@ function slug(label: string) {
 
 // The directory, set as a gazetteer: one entry per seed, its kind in the
 // margin and its record count at the right. The ring before the count is
-// dashed until a collected (not demonstration) record refers to the node.
+// dashed until a collection record (not a demonstration or pilot record)
+// refers to the node. It is computed from the static records in
+// src/data/memories.ts, not the live Memory service, which is not enabled.
 export default function NodesIndexPage() {
   const pageNotice = getPageNotice();
 
@@ -80,7 +82,7 @@ export default function NodesIndexPage() {
         <ul className="nd-index">
           {nodeSeeds.map((seed) => {
             const linkedMemories = getLinkedMemories(seed.label);
-            const established = linkedMemories.some((memory) => memory.recordKind !== "demo");
+            const hasCollection = hasCollectionRecord(linkedMemories);
 
             return (
               <li
@@ -91,7 +93,7 @@ export default function NodesIndexPage() {
               >
                 <p className="la-term">{seed.type}</p>
                 <p className="nd-standing">
-                  <span className="nd-ring" data-established={established} aria-hidden="true" />
+                  <span className="nd-ring" data-has-collection={hasCollection} aria-hidden="true" />
                   {formatRecordCountLabel(linkedMemories)}
                 </p>
 

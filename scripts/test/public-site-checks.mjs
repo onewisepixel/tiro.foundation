@@ -165,6 +165,10 @@ async function check(base, outFile) {
   // profile's sections are headings with anchors (/nodes/lagos#themes).
   const nodesHtml = await (await fetch(base + "/nodes")).text();
   ok("/nodes: every entry has an anchor", ["lagos", "port-harcourt", "enugu", "nigerian-pidgin", "yoruba", "igbo"].every((id) => nodesHtml.includes(`id="${id}"`)));
+  // The ring turns solid only for a collection record; every node's records
+  // are demonstrations today, so every ring must render dashed.
+  const rings = nodesHtml.match(/data-has-collection="(true|false)"/g) ?? [];
+  ok("/nodes: no ring claims a collection record (all six dashed)", rings.length === 6 && rings.every((r) => r.endsWith('"false"')), rings.join(" "));
   for (const [route, sections] of [["/nodes/lagos", ["Memory Connections", "Themes", "Languages", "Related Nodes"]], ["/nodes/nigerian-pidgin", ["Memory Connections", "Themes", "Related Nodes"]]]) {
     const html = await (await fetch(base + route)).text();
     const ids = sections.map((s) => s.toLowerCase().replace(/\s+/g, "-"));

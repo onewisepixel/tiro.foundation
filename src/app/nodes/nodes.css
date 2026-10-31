@@ -7,8 +7,8 @@
    entry (its kind in the margin, its name, its record count), and each
    profile is an entry of its own, its sections headed beside their text
    on wide screens. A node's standing is shown, never implied: a dashed
-   ring marks what collected records have not yet established (as the
-   Memory Project's readiness gates), and nothing is drawn as a
+   ring marks a node no collection record yet refers to (as the Memory
+   Project's readiness gates), and nothing is drawn as a
    relationship that the records do not state. No maps, imagery or
    motion: a map would picture a presence TIRO does not have.
    ====================================================================== */
@@ -81,8 +81,10 @@
 }
 
 /* ---------- Standing ----------
-   The ring before a count or an empty list: dashed while collected
-   records have established nothing, solid once they have. */
+   The ring before a count or an empty list: dashed until a collection
+   record refers to the node (demonstration and pilot records do not
+   count), solid once one does. It marks archival evidence, not an
+   established relationship. */
 .nd-ring {
   display: inline-block;
   flex: none;
@@ -92,7 +94,7 @@
   border-radius: 9999px;
 }
 
-.nd-ring[data-established="true"] {
+.nd-ring[data-has-collection="true"] {
   border-style: solid;
   background: var(--tiro-accent);
 }
@@ -291,7 +293,7 @@
   color: var(--tiro-text-muted);
 }
 
-/* None recorded: the ring says it is not yet established. */
+/* None recorded: the dashed ring, as for a node with no collection record. */
 .nd-none {
   display: flex;
   align-items: baseline;
