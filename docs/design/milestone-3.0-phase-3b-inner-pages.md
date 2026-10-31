@@ -4,10 +4,10 @@ Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
 `/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
 `/about`: **approved and released, 2026-10-30** (decision 52; PR #20 merged as `d9cfb00`; verified in production, §1c.3). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
-`/nodes` and the node profiles: **visual design approved, 2026-10-30; the ring's semantics corrected before release; not merged** (§1d.2). Branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
+`/nodes` and the node profiles: **approved for release, 2026-10-30** (decision 53; PR #21; the ring's semantics corrected before release, §1d.2). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 Date: 2026-10-30.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Four studies change pages: `/manifesto` (§1), `/community-rights` (§1b) and `/about` (§1c), all released, and `/nodes` with its two profiles (§1d, in review), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Four studies change pages: `/manifesto` (§1), `/community-rights` (§1b) and `/about` (§1c), all released, and `/nodes` with its two profiles (§1d, approved for release), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -280,6 +280,8 @@ The founder approved the visual design of PR #21 (the directory and both profile
 
 No visible change today: every node's records are demonstrations, so every ring was dashed before and after the correction. All twelve full-page captures of the three pages (1440 and 390 px, light and dark) are byte-identical to those approved. No further visual review was requested.
 
+The founder independently confirmed the correction at `afbd413` (Linux CI 41155122288, the disclosure verifier and the Flight Deck integration tests passing) and approved the release (decision 53). Collecting a record does not by itself establish a partnership with the community it concerns: an established community relationship remains a separate question, requiring its own evidence and a future governance decision.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -306,8 +308,8 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` and `/about` (released), `/nodes` and its profiles (§1d) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` and `/about` (released), `/nodes` and its profiles (§1d) |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights` and `/about` (released), `/nodes` and its profiles (§1d, approved) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights` and `/about` (released), `/nodes` and its profiles (§1d, approved) |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 
@@ -316,7 +318,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 1. **P3B-1**, the `/pilot` overflow, as its own small PR (released; §3).
 2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (released; decision 51, §1b).
 3. `/about`: the institution explained (released; decision 52, §1c).
-4. `/nodes` and the two node profiles (study in §1d).
+4. `/nodes` and the two node profiles: the gazetteer (approved; decision 53, §1d).
 5. `/contact`.
 6. `/pilot` (presentation only).
 7. `/memories` (restyle only).
