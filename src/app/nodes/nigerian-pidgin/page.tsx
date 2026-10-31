@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { memories } from "@/data/memories";
 import { getConnectionsNotice } from "@/lib/recordKind";
+import "@/components/archive/archive.css";
+import "../nodes.css";
 
 export const metadata: Metadata = {
   title: "Nigerian Pidgin — Node — The Tiro Foundation",
@@ -28,84 +30,88 @@ export default function NigerianPidginNodePage() {
   const connectionsNotice = getConnectionsNotice(memoryConnections);
 
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Node Profile — Language</p>
-          <h1 className="mb-6 font-[family-name:var(--font-display)] text-4xl italic tracking-tight md:text-6xl">
-            Nigerian Pidgin
-          </h1>
-          <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            A language node. TIRO holds no collected records in Nigerian
-            Pidgin. The connections below are demonstration records that use
-            it as example metadata, to show how a language node will gather
-            records. A real language node describes the language only as its
-            speakers and records establish.
-          </p>
-        </div>
-      </section>
+    <main id="top" className="la nd bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header className="la-frame nd-wrap nd-head">
+        <p className="la-eyebrow">Node Profile — Language</p>
+        <h1 className="nd-h1 mt-6">Nigerian Pidgin</h1>
+        <p className="nd-intro mt-8">
+          A language node. TIRO holds no collected records in Nigerian
+          Pidgin. The connections below are demonstration records that use
+          it as example metadata, to show how a language node will gather
+          records. A real language node describes the language only as its
+          speakers and records establish.
+        </p>
+      </header>
 
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Memory Connections</p>
-          {connectionsNotice ? (
-            <p className="mb-5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.08em] text-[var(--tiro-accent)]">
-              {connectionsNotice}
-            </p>
-          ) : null}
-          <div className="space-y-4">
-            {memoryConnections.map((memory) => (
-              <Link key={memory.id} href={`/memories/${memory.id}`} className="tiro-card-link border border-[var(--tiro-border)] p-4">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <p className="text-sm font-medium text-[var(--tiro-text-soft)] md:text-base">
-                    {memory.title}
-                  </p>
-                  {memory.recordKind === "demo" ? (
-                    <span className="tiro-chip">Demo</span>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-                  {memory.summary}
-                </p>
-              </Link>
+      <div className="la-frame nd-wrap nd-sections">
+        <section id="memory-connections" aria-labelledby="memory-connections-title" className="nd-section">
+          <h2 id="memory-connections-title" className="nd-h2">
+            Memory Connections
+          </h2>
+          <div className="nd-body">
+            {connectionsNotice ? <p className="nd-notice mb-6">{connectionsNotice}</p> : null}
+            <ul className="nd-records">
+              {memoryConnections.map((memory) => (
+                <li key={memory.id}>
+                  <Link href={`/memories/${memory.id}`}>
+                    <span className="nd-record-title">
+                      {memory.title}
+                      {memory.recordKind === "demo" ? (
+                        <span className="tiro-chip">Demo</span>
+                      ) : null}
+                    </span>
+                    <span className="nd-record-summary block">{memory.summary}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section id="themes" aria-labelledby="themes-title" className="nd-section" data-empty={themes.length === 0 ? "" : undefined}>
+          <h2 id="themes-title" className="nd-h2">
+            Themes
+          </h2>
+          <div className="nd-body flex flex-wrap gap-2.5">
+            {themes.length === 0 ? (
+              <p className="nd-none">
+                <span className="nd-ring" aria-hidden="true" />
+                {NONE_RECORDED}
+              </p>
+            ) : null}
+            {themes.map((theme) => (
+              <span key={theme} className="tiro-chip">
+                {theme}
+              </span>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="px-6 pb-28 md:pb-36">
-        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-5 md:grid-cols-2">
-          <div className="tiro-card">
-            <p className="tiro-eyebrow mb-5">Themes</p>
-            <div className="flex flex-wrap gap-2.5">
-              {themes.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
-              {themes.map((theme) => (
-                <span key={theme} className="tiro-chip">
-                  {theme}
+        <section id="related-nodes" aria-labelledby="related-nodes-title" className="nd-section" data-empty={relatedNodes.length === 0 ? "" : undefined}>
+          <h2 id="related-nodes-title" className="nd-h2">
+            Related Nodes
+          </h2>
+          <div className="nd-body flex flex-wrap gap-2.5">
+            {relatedNodes.length === 0 ? (
+              <p className="nd-none">
+                <span className="nd-ring" aria-hidden="true" />
+                {NONE_RECORDED}
+              </p>
+            ) : null}
+            {relatedNodes.map((node) =>
+              node.href ? (
+                <Link key={node.label} href={node.href} className="tiro-chip">
+                  {node.label}
+                </Link>
+              ) : (
+                <span key={node.label} className="tiro-chip">
+                  {node.label}
                 </span>
-              ))}
-            </div>
+              ),
+            )}
           </div>
-
-          <div className="tiro-card">
-            <p className="tiro-eyebrow mb-5">Related Nodes</p>
-            <div className="flex flex-wrap gap-2.5">
-              {relatedNodes.length === 0 ? <p className="text-sm text-[var(--tiro-text-muted)]">{NONE_RECORDED}</p> : null}
-              {relatedNodes.map((node) =>
-                node.href ? (
-                  <Link key={node.label} href={node.href} className="tiro-chip">
-                    {node.label}
-                  </Link>
-                ) : (
-                  <span key={node.label} className="tiro-chip">
-                    {node.label}
-                  </span>
-                ),
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

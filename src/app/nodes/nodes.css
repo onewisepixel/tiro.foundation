@@ -1,0 +1,306 @@
+/* ======================================================================
+   Nodes: the directory and the node profiles (Milestone 3.0 Phase 3b).
+   Scoped to .nd, on top of the Living Archive system
+   (src/components/archive/archive.css).
+
+   Set as a gazetteer: the directory lists each place and language as an
+   entry (its kind in the margin, its name, its record count), and each
+   profile is an entry of its own, its sections headed beside their text
+   on wide screens. A node's standing is shown, never implied: a dashed
+   ring marks what collected records have not yet established (as the
+   Memory Project's readiness gates), and nothing is drawn as a
+   relationship that the records do not state. No maps, imagery or
+   motion: a map would picture a presence TIRO does not have.
+   ====================================================================== */
+
+.nd {
+  --nd-wide: 60rem;
+  --nd-measure: 38rem;
+  --nd-side: 13rem;
+}
+
+.nd [id] {
+  scroll-margin-top: calc(var(--la-header) + 1.5rem);
+}
+
+.nd-wrap {
+  max-width: calc(var(--nd-wide) + 2 * var(--la-pad));
+}
+
+/* ---------- Opening ---------- */
+.nd-head {
+  padding-top: 4rem;
+  padding-bottom: 3.5rem;
+}
+
+@media (min-width: 768px) {
+  .nd-head {
+    padding-top: 5.5rem;
+    padding-bottom: 4.5rem;
+  }
+}
+
+.nd-h1 {
+  max-width: 48rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-size: clamp(2.3rem, 6vw, 3.9rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.nd-intro {
+  max-width: var(--nd-measure);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .nd-intro {
+    font-size: 1.5rem;
+  }
+}
+
+/* What the links refer to: demonstration content, said before it is seen. */
+.nd-notice {
+  max-width: var(--nd-measure);
+  border-left: 2px solid var(--tiro-accent);
+  padding-left: 1rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.7;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+/* ---------- Standing ----------
+   The ring before a count or an empty list: dashed while collected
+   records have established nothing, solid once they have. */
+.nd-ring {
+  display: inline-block;
+  flex: none;
+  width: 0.65rem;
+  height: 0.65rem;
+  border: 1.5px dashed var(--tiro-accent);
+  border-radius: 9999px;
+}
+
+.nd-ring[data-established="true"] {
+  border-style: solid;
+  background: var(--tiro-accent);
+}
+
+.nd-standing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+  white-space: nowrap;
+}
+
+/* ---------- The directory ---------- */
+.nd-index {
+  border-top: 1px solid var(--tiro-border-strong);
+  padding-bottom: 7rem;
+}
+
+.nd-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem 1.25rem;
+  padding-block: 1.75rem;
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+.nd-entry > .la-term {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.nd-entry > .nd-standing {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.nd-entry-body {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+/* Wide screens: kind in the margin, name and links, count at the right. */
+@media (min-width: 1024px) {
+  .nd-entry {
+    grid-template-columns: var(--nd-side) minmax(0, 1fr) auto;
+    column-gap: 4rem;
+    align-items: baseline;
+    padding-block: 2rem;
+  }
+
+  .nd-entry > .nd-standing {
+    grid-column: 3;
+  }
+
+  .nd-entry-body {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+.nd-name {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-size: clamp(1.55rem, 3vw, 1.9rem);
+  color: var(--tiro-text);
+}
+
+/* A seed without a profile: listed, so it can be cited, but quieter. */
+.nd-entry:not([data-profile]) .nd-name {
+  color: var(--tiro-text-soft);
+}
+
+.nd-links {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  color: var(--tiro-text-muted);
+}
+
+.nd-links li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+
+/* The label rides on the title's line, smaller than a chip elsewhere. */
+.nd-links .tiro-chip,
+.nd-record-title .tiro-chip {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.nd-links a {
+  color: var(--tiro-text-soft);
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border);
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.nd-links a:hover {
+  text-decoration-color: var(--tiro-accent);
+}
+
+/* ---------- A profile ---------- */
+.nd-section {
+  display: grid;
+  gap: 1.25rem;
+  padding-block: 2.5rem 3rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+/* An empty list takes less room than a full one. */
+.nd-section[data-empty] {
+  padding-block: 2rem 2.25rem;
+}
+
+.nd-sections {
+  padding-bottom: 5rem;
+}
+
+@media (min-width: 1024px) {
+  .nd-section {
+    grid-template-columns: var(--nd-side) minmax(0, 1fr);
+    column-gap: 4rem;
+    padding-block: 3.5rem 4rem;
+  }
+
+  .nd-section[data-empty] {
+    padding-block: 2.25rem 2.5rem;
+  }
+}
+
+.nd-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-size: clamp(1.4rem, 3vw, 1.7rem);
+  color: var(--tiro-text);
+}
+
+@media (min-width: 1024px) {
+  .nd-h2 {
+    font-size: 1.5rem;
+  }
+}
+
+.nd-body {
+  min-width: 0;
+  max-width: var(--nd-measure);
+}
+
+/* The records a node gathers: rows, as in the Memory Project catalogue. */
+.nd-records {
+  border-top: 1px solid var(--tiro-border);
+}
+
+.nd-records a {
+  display: block;
+  padding: 1.1rem 0.25rem;
+  border-bottom: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.nd-records a:hover {
+  background: var(--tiro-surface);
+}
+
+.nd-record-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  line-height: 1.35;
+  color: var(--tiro-text);
+}
+
+.nd-record-summary {
+  margin-top: 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--tiro-text-muted);
+}
+
+/* None recorded: the ring says it is not yet established. */
+.nd-none {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--tiro-text-muted);
+}
+
+.nd-none .nd-ring {
+  transform: translateY(0.05rem);
+}

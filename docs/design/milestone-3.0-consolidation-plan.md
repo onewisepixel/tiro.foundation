@@ -13,7 +13,7 @@ Builds on: `living-archive-consolidation.md` (component inventory, V5 ↔ Memory
 > | 1. Reconcile | **Done** (2026-10-29). PR #13 merged (`1f64387`); tag `checkpoint/3.0-start` at `d7b6b1a`; disclosure verifier in CI (PR #14, `6a6eef5`) | PRs #13, #14 |
 > | 2. Design system | **Done** (2026-10-29). G2 approved; PR #15 merged (`5715821`) | `milestone-3.0-phase-2-design-system.md` |
 > | 3a. Public experience | **Released** (2026-10-30). G3 approved (decisions 46–49); PR #16 merged (`6cd0920`) and deployed to production | `milestone-3.0-phase-3a-release-gate.md` |
-> | 3b. Inner pages | **In progress.** `/manifesto` approved and released (decision 50; PR #17 merged, `3c997d4`). The `/pilot` overflow (P3B-1) repaired and released (PR #18, `512bebe`). `/community-rights` released as the policy page (decision 51; PR #19, `acf6372`); `/about` released as a finding aid (decision 52; PR #20, `d9cfb00`); the other pages are inventoried | `milestone-3.0-phase-3b-inner-pages.md` |
+> | 3b. Inner pages | **In progress.** `/manifesto` approved and released (decision 50; PR #17 merged, `3c997d4`). The `/pilot` overflow (P3B-1) repaired and released (PR #18, `512bebe`). `/community-rights` released as the policy page (decision 51; PR #19, `acf6372`); `/about` released as a finding aid (decision 52; PR #20, `d9cfb00`); `/nodes` and its profiles are a draft study awaiting founder visual approval; the other pages are inventoried | `milestone-3.0-phase-3b-inner-pages.md` |
 > | 4. Flight Deck | Not started | — |
 > | 5. Clean house | Not started. No branch, preview or asset deleted; every remaining remote branch is contained in `main` | — |
 >
