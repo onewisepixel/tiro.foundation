@@ -6,6 +6,8 @@ import PublicMemoryDetail from "@/components/PublicMemoryDetail";
 import { getMemoryById, memories } from "@/data/memories";
 import { getRecordKindNotice } from "@/data/recordNotices";
 import { fetchPublicMemoryRecord, type PublicMemoryRecord } from "@/lib/publicMemoryApi";
+import "@/components/archive/archive.css";
+import "../memories.css";
 
 type Params = {
   id: string;
@@ -125,15 +127,15 @@ export default async function MemoryDetailRoute({ params }: PageProps) {
   }
   if (resolved.kind === "unavailable") {
     return (
-      <main className="relative flex min-h-screen flex-col items-center justify-center bg-[var(--tiro-bg)] px-6 text-center text-[var(--tiro-text)]">
-        <p className="tiro-eyebrow mb-5">Temporarily Unavailable</p>
-        <h1 className="mb-4 font-[family-name:var(--font-display)] text-3xl italic tracking-tight md:text-5xl">
-          This record could not be checked right now
-        </h1>
-        <p className="max-w-xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-          The live Memory service did not respond. This is not a statement that the record does not
-          exist — please try again shortly.
-        </p>
+      <main id="top" className="la mm bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+        <header className="la-frame mm-wrap mm-head">
+          <p className="la-eyebrow">Temporarily Unavailable</p>
+          <h1 className="mm-h1 mt-8">This record could not be checked right now</h1>
+          <p className="mm-intro mt-8">
+            The live Memory service did not respond. This is not a statement that the record does not
+            exist — please try again shortly.
+          </p>
+        </header>
       </main>
     );
   }

@@ -1,0 +1,459 @@
+/* ======================================================================
+   Memory records: the archive index and the record pages (Milestone 3.0
+   Phase 3b). Scoped to .mm, on top of the Living Archive system
+   (src/components/archive/archive.css). Restyle only: the records, their
+   notices, the live Memory service (not enabled, decision 44) and what
+   each page shows or withholds are unchanged.
+
+   Set as a register. The index lists each record as an entry: its
+   accession (ID and status) in the margin, its facts, title and summary
+   beside it, with the demonstration notice above everything else. A
+   record page is an entry of its own: the notice first, the record's
+   identification as a ledger, then its parts as headed sections. Live
+   records keep their own section and say what they are; the state when
+   they are not enabled is a dashed panel, the mark this site uses for
+   what is not yet in place, never presented as an outage. No motion; no
+   imagery beyond a record's own media.
+   ====================================================================== */
+
+.mm {
+  --mm-wide: 60rem;
+  --mm-measure: 40rem;
+  --mm-side: 13rem;
+}
+
+.mm [id] {
+  scroll-margin-top: calc(var(--la-header) + 1.5rem);
+}
+
+.mm-wrap {
+  max-width: calc(var(--mm-wide) + 2 * var(--la-pad));
+}
+
+/* ---------- Opening ---------- */
+.mm-head {
+  padding-top: 4rem;
+  padding-bottom: 3.5rem;
+}
+
+@media (min-width: 768px) {
+  .mm-head {
+    padding-top: 5.5rem;
+    padding-bottom: 4.5rem;
+  }
+}
+
+/* A page that is only its opening (a live record without media, or the
+   unavailable notice) still ends with the page's closing space. */
+.mm-head:last-child {
+  padding-bottom: 7rem;
+}
+
+.mm-h1 {
+  max-width: 48rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-size: clamp(2.3rem, 6vw, 3.9rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.mm-intro {
+  max-width: var(--mm-measure);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .mm-intro {
+    font-size: 1.5rem;
+  }
+}
+
+/* The record-kind notice: said before what it qualifies. */
+.mm-notice {
+  max-width: var(--mm-measure);
+  border-left: 2px solid var(--tiro-accent);
+  padding-left: 1rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.7;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+.mm-id {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--tiro-accent);
+}
+
+.mm-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-size: clamp(1.4rem, 3vw, 1.7rem);
+  color: var(--tiro-text);
+}
+
+@media (min-width: 1024px) {
+  .mm-section .mm-h2 {
+    font-size: 1.5rem;
+  }
+}
+
+.mm-text {
+  max-width: var(--mm-measure);
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--tiro-text-muted);
+  text-wrap: pretty;
+}
+
+.mm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* ---------- The index ---------- */
+.mm-index {
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.mm-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  padding-block: 2rem 2.25rem;
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+/* The accession: the record's ID, then its status. */
+.mm-accession {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mm-status {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--tiro-text-muted);
+}
+
+.mm-entry-body {
+  min-width: 0;
+}
+
+/* Wide screens: the accession in the margin, the entry beside it; the
+   notice above both. */
+@media (min-width: 1024px) {
+  .mm-entry {
+    grid-template-columns: var(--mm-side) minmax(0, 1fr);
+    column-gap: 4rem;
+    row-gap: 1.5rem;
+    padding-block: 2.5rem 2.75rem;
+  }
+
+  .mm-entry > .mm-notice {
+    grid-column: 1 / -1;
+  }
+
+  .mm-accession {
+    padding-top: 0.2rem;
+  }
+}
+
+.mm-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2.25rem;
+}
+
+.mm-facts dd {
+  margin-top: 0.2rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+}
+
+.mm-title {
+  margin-top: 1.5rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  font-size: clamp(1.45rem, 2.6vw, 1.75rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.mm-summary {
+  max-width: var(--mm-measure);
+  margin-top: 0.75rem;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+  text-wrap: pretty;
+}
+
+.mm-entry .mm-tags {
+  margin-top: 1.25rem;
+}
+
+/* The index's own small labels, smaller than a chip elsewhere. */
+.mm-entry .tiro-chip,
+.mm-record-title .tiro-chip {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+/* ---------- Live records ---------- */
+.mm-live {
+  padding-top: 4rem;
+  padding-bottom: 7rem;
+}
+
+@media (min-width: 768px) {
+  .mm-live {
+    padding-top: 5rem;
+  }
+}
+
+.mm-state {
+  max-width: var(--mm-measure);
+  margin-top: 2rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+}
+
+/* Not enabled: a deliberate state, not yet in place (decision 44). */
+.mm-state[data-state="disabled"] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+  border: 1.5px dashed var(--tiro-border-strong);
+  padding: 1.25rem 1.5rem;
+  color: var(--tiro-text-soft);
+}
+
+/* An outage, or a page that may be incomplete: stated plainly, in a rule
+   of its own, not dashed. */
+.mm-state[data-state="unavailable"],
+.mm-state[data-state="incomplete"] {
+  border-left: 2px solid var(--tiro-border-strong);
+  padding-left: 1rem;
+  color: var(--tiro-text-soft);
+}
+
+.mm-ring {
+  display: inline-block;
+  flex: none;
+  width: 0.65rem;
+  height: 0.65rem;
+  border: 1.5px dashed var(--tiro-accent);
+  border-radius: 9999px;
+  transform: translateY(0.05rem);
+}
+
+.mm-index-live {
+  margin-top: 2.5rem;
+}
+
+/* ---------- A record ---------- */
+.mm-ledger {
+  max-width: 48rem;
+  margin-top: 3rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.mm-ledger > div {
+  display: grid;
+  gap: 0.2rem;
+  padding-block: 0.8rem;
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+@media (min-width: 640px) {
+  .mm-ledger > div {
+    grid-template-columns: 11rem minmax(0, 1fr);
+    column-gap: 2rem;
+    align-items: baseline;
+  }
+}
+
+.mm-ledger dd {
+  min-width: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--tiro-text-soft);
+}
+
+.mm-sections {
+  padding-bottom: 7rem;
+}
+
+.mm-section {
+  display: grid;
+  gap: 1.25rem;
+  padding-block: 2.5rem 3rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+@media (min-width: 1024px) {
+  .mm-section {
+    grid-template-columns: var(--mm-side) minmax(0, 1fr);
+    column-gap: 4rem;
+    padding-block: 3.5rem 4rem;
+  }
+}
+
+.mm-body {
+  min-width: 0;
+  max-width: var(--mm-measure);
+}
+
+/* Named fields (provenance, consent, integrity notes): each name above
+   its text, under a hairline. */
+.mm-fields {
+  border-top: 1px solid var(--tiro-border);
+}
+
+.mm-field {
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--tiro-border);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+.mm-field-name {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tiro-text-muted);
+}
+
+/* Integrity notes stay folded until asked for, as before. */
+.mm-section-details {
+  display: block;
+}
+
+.mm-details > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mm-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mm-toggle {
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  color: var(--tiro-text-muted);
+  transition: transform var(--lt-dur-quick) ease;
+}
+
+.mm-details[open] .mm-toggle {
+  transform: rotate(180deg);
+}
+
+.mm-details > summary:hover .mm-toggle {
+  color: var(--tiro-accent);
+}
+
+.mm-details > .mm-body {
+  margin-top: 1.75rem;
+}
+
+@media (min-width: 1024px) {
+  .mm-details > .mm-body {
+    margin-left: calc(var(--mm-side) + 4rem);
+  }
+}
+
+/* The media viewer's frame gives way to the section's. */
+.mm-media .tiro-card {
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+.mm-transcript {
+  white-space: pre-line;
+  border-left: 1px solid var(--tiro-border-strong);
+  padding-left: 1.25rem;
+  font-family: var(--font-code);
+  font-size: 0.9rem;
+  line-height: 1.85;
+  color: var(--tiro-text-muted);
+}
+
+/* Related records: rows, as in the Memory Project catalogue. */
+.mm-records {
+  border-top: 1px solid var(--tiro-border);
+}
+
+.mm-records a {
+  display: block;
+  padding: 1.1rem 0.25rem;
+  border-bottom: 1px solid var(--tiro-border);
+  transition: background-color var(--lt-dur-quick) ease;
+}
+
+.mm-records a:hover {
+  background: var(--tiro-surface);
+}
+
+.mm-record-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  line-height: 1.35;
+  color: var(--tiro-text);
+}
+
+.mm-record-summary {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--tiro-text-muted);
+}
+
+/* A live record's media: the file as served, framed by a hairline. */
+.mm-live-media-list {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.mm-live-media {
+  max-width: 100%;
+  border: 1px solid var(--tiro-border);
+}

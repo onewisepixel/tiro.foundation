@@ -7,48 +7,50 @@ type PublicMemoryCardProps = {
 };
 
 // Deliberately narrow — renders only the fields a backend-sourced record
-// actually has. Visually distinct from the static tiro-card entries on
-// purpose: blending the two would mean fabricating fields (location/era/
-// tags/etc.) this record simply doesn't carry.
+// actually has. Set in the same index entry as the static records (styled
+// by src/app/memories/memories.css), but marked as live, under its own
+// heading, and never given fields (location/era/tags/etc.) this record
+// simply doesn't carry.
 export default function PublicMemoryCard({ record }: PublicMemoryCardProps) {
   const notice = getRecordKindNotice(record.recordKind);
 
   return (
-    <article className="tiro-card">
-      {notice ? (
-        <p className="mb-5 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
-          {notice.full}
-        </p>
-      ) : null}
+    <article className="mm-entry" data-live="">
+      {notice ? <p className="mm-notice">{notice.full}</p> : null}
 
-      <div className="tiro-kv border-t-0">
-        <span className="k">{record.recordId}</span>
-        <span className="v">Live record</span>
-      </div>
-      {record.reviewedAt ? (
-        <div className="tiro-kv">
-          <span className="k">Reviewed</span>
-          <span className="v">{record.reviewedAt}</span>
-        </div>
-      ) : null}
-      <div className="tiro-kv">
-        <span className="k">Media</span>
-        <span className="v">{record.media.length > 0 ? `${record.media.length}${record.mediaTruncated ? "+" : ""} file(s)` : record.mediaTruncated ? "See record" : "None"}</span>
-      </div>
-
-      <h2 className="mt-6 font-[family-name:var(--font-display)] text-2xl italic tracking-tight text-[var(--tiro-text-soft)]">
-        {record.title}
-        {record.titleTruncated ? "…" : null}
-      </h2>
-
-      <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-        {record.summaryExcerpt}
-        {record.summaryTruncated ? "…" : null}
+      <p className="mm-accession">
+        <span className="mm-id">{record.recordId}</span>
+        <span className="mm-status">Live record</span>
       </p>
 
-      <Link href={`/memories/${record.recordId}`} className="tiro-link mt-6 inline-block text-sm">
-        View record
-      </Link>
+      <div className="mm-entry-body">
+        <dl className="mm-facts">
+          {record.reviewedAt ? (
+            <div>
+              <dt className="la-term">Reviewed</dt>
+              <dd>{record.reviewedAt}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt className="la-term">Media</dt>
+            <dd>{record.media.length > 0 ? `${record.media.length}${record.mediaTruncated ? "+" : ""} file(s)` : record.mediaTruncated ? "See record" : "None"}</dd>
+          </div>
+        </dl>
+
+        <h2 className="mm-title">
+          {record.title}
+          {record.titleTruncated ? "…" : null}
+        </h2>
+
+        <p className="mm-summary">
+          {record.summaryExcerpt}
+          {record.summaryTruncated ? "…" : null}
+        </p>
+
+        <Link href={`/memories/${record.recordId}`} className="la-more mt-6">
+          View record
+        </Link>
+      </div>
     </article>
   );
 }

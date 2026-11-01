@@ -1,4 +1,4 @@
-# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights, About, Nodes, Contact and Pilot studies, and the inventory
+# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights, About, Nodes, Contact, Pilot and Memories studies, and the inventory
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
@@ -7,9 +7,10 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 `/nodes` and the node profiles: **approved and released, 2026-10-30** (decision 53; PR #21 merged as `02e61b0`; the ring's semantics corrected before release, §1d.2; verified in production, §1d.3). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 `/contact`: **approved and released, 2026-11-01** (decision 54; PR #22 merged as `e3e07e4`; verified in production, §1e.3). The study was built on branch `design/phase-3b-contact`, from `main` at `02e61b0`.
 `/pilot`: **approved and released, 2026-11-01** (decision 55; PR #23 merged as `37c2b11`; verified in production, §1f.3). The study was built on branch `design/phase-3b-pilot`, from `main` at `e3e07e4`.
+`/memories` and its record pages: **seventh study, restyle only, for founder visual approval; not merged** (§1g). Branch `design/phase-3b-memories`, from `main` at `37c2b11`.
 Date: 2026-11-01.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Six studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) and `/pilot` (§1f; presentation only), all released, after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) and `/pilot` (§1f; presentation only), all released, and `/memories` with its record pages (§1g, in review; restyle only), after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -434,6 +435,64 @@ The approval was recorded in `6f935d3` (Linux CI 41354810806 passed, every step 
 
 Mailbox operational readiness remains open as P3B-6.
 
+## 1g. `/memories` and its record pages: a register (restyle only)
+
+The founder's direction: a restyle study, presentation only, preserving the demonstration labels, the record visibility boundaries, the restricted-record behaviour and the disabled live Memory service (decisions 44 and 48).
+
+`/memories` was the last public page in the earlier visual language: cards (`tiro-card`), key-value rows (`tiro-kv`), section labels styled as `<p>`s and the `pt-28` offset. It stays separate from the Memory Project demonstration, as decision 44 requires; the study gives it the archive's type and rules and a form of its own, a **register**: each record entered with its accession number, never presented as the Memory Project's two-view record.
+
+| Element | Treatment | Why |
+| --- | --- | --- |
+| Opening (index and record pages) | The eyebrow ("Archive Index", "Memory Record", "Live Record"), the title in display italic and the introduction as a lede, under `--la-header` | The family's opening; fixes P3B-3 here |
+| The notice | Each record-kind notice in the accent with a rule at its left, as on the Nodes pages, and **still before everything it qualifies**: above the accession and title of each index entry, and above the title of a record page | ethos §6.1: the notice precedes every archival-looking detail. Its wording is unchanged |
+| Index entries | Under rules, without cards. The accession (record ID, then status) in the margin; beside it the facts (Location, Era, Media) as a compact line, then the title (`h2`), summary, tags and "View record" | A register entry reads by its number first, as an archive's accession register does |
+| Live records | "Live Records" is now a **heading** with an anchor (`#live-records`). When not enabled, its state is a **dashed** panel with a dashed ring: the site's mark for what is not yet in place, so it cannot read as an outage (decision 44). "Temporarily unavailable" and "this list may be incomplete" are stated with a solid rule instead, because they are operational, not deliberate. Live entries, when enabled, take the static entry's form with "Live record" as their status and only the fields they carry | The three states are told apart by form as well as by words |
+| Record page: identification | Record ID, Archive Status, Last Reviewed, Access Level, Location, Language and Era as a ledger (`dl`) under a rule, no card | The record's identity, read once |
+| Record page: parts | "Provenance & Consent", "Record Integrity Notes", "Media", "Transcript", "Cultural Context / Notes", "Tags", "Related Nodes" and "Related Memories" are now **headings** (`h2`, previously styled `<p>` labels), each a section with an anchor, beside its text on wide screens, as on the node profiles. Provenance and consent fields: each name above its text, under hairlines. The transcript keeps its monospace, set off by a rule. Related records are rows as in the Memory Project catalogue | Fixes P3B-2 here. A reader, or a request for correction, can cite a part (`/memories/demo-audio-record#provenance-consent`) |
+| Integrity notes | Still folded (`<details>`, closed by default), its heading in the summary with the same "v" marker, which turns when opened | Unchanged behaviour |
+| Media | `MemoryMediaViewer` unchanged; its card frame gives way to the section's (scoped CSS). The dashed "No audio recording attached" frame stays | A missing file is still stated, never drawn as a player |
+| Not added | Motion, imagery, new links, new fields, a combined view with the Memory Project | Restyle only |
+
+**Content and behaviour preserved:**
+
+- Every sentence, label and link is unchanged. The whole text of `<main>`, compared in the rendered page, is **identical** before and after on the index, the three static records, and every live state rendered against the local mock (below). The only structural change: the eight section labels and "Live Records" became headings (one `h2` more on the index, eight more on each record page), and the related-record titles moved from `<p>`s into `<span>`s inside the same links.
+- Untouched: `src/data/memories.ts`, `src/data/recordNotices.ts`, `src/lib/publicMemoryApi.ts`, `src/proxy.ts` (retired-slug redirects and the `no-store` headers), `src/app/memories/layout.tsx` (bfcache revalidation), `src/app/memories/demo/page.tsx`, `MemoryMediaViewer`, `globals.css`, and the archive components. Every branch of the index and record route (disabled, unavailable, incomplete, empty, sparse, exhausted, found, not found) is the same code with new class names. `generateStaticParams`, `dynamic` and metadata are unchanged.
+- **Visibility and restriction:** which records are shown is decided by the backend's public routes, which answer a flat 404 for a restricted or nonexistent record. The site still turns a 404, and every record request on a deployment without live records, into **Not Found**, and a backend failure into "temporarily unavailable", never "not found". Verified: `/memories/not-a-record` is 404 with live records disabled and with the mock (a 404 from the backend).
+- **The live Memory service stays disabled:** no base URL is configured in production; the release suite checks that `/memories` says live records are not enabled, shows no outage, and draws the dashed panel.
+
+### 1g.1 Verification
+
+All checks compare production (`main` at `37c2b11`) with a production build of this branch. The live states, which production cannot show, were rendered from production builds of `main` and of this branch pointed at a **local mock** of the public Memory API on loopback (`127.0.0.1`, synthetic records only): a listing with two records and a further page, an incomplete page, a sparse page, the end of the listing, a service error on the listing, a record with an image, a record without media, a record whose backend answers 500, and a record the backend answers 404. The mock is not committed; nothing in the site was configured to use it.
+
+| Check | Result |
+| --- | --- |
+| Text, links, headings | Identical text of `<main>` and identical links on all 12 pages and states compared; headings as above |
+| The notice | Before the accession and title of every index entry, and before the title of every record page (new release checks) |
+| Not enabled | The dashed panel, with the exact sentence; no outage wording (release checks, kept and extended) |
+| Status codes | Unchanged before and after: an unknown record 404; a record whose backend answers 500 renders "This record could not be checked right now" |
+| Narrow screens | Swept at 280, 300, 320, 340, 360, 375, 390, 414, 480, 600, 768, 820, 1024 and 1440 px: no horizontal overflow on the index and the three records, nor on the live listing, an incomplete page, both live records and the service-error page |
+| Keyboard | Index: the three "View record" links. Record page: the integrity-notes toggle, the related nodes, then the related records; each with a visible focus outline |
+| axe-core (WCAG 2.0, 2.1 and 2.2, A and AA) | **No violations** of any severity on `/memories` and `/memories/demo-audio-record`, in light and dark, at 1440 and 390 px (now in the release suite) |
+| Release suite (`public-site-checks.mjs`) | **241 of 241 pass**. New: the notice order on the index and the three record pages, their headings and anchors, folded integrity notes, the dashed not-enabled state, the "Live Records" heading, and axe and console checks on two more pages |
+| The approved interfaces | `/`, `/memory-project`, the records (public, restricted, authority), `/manifesto`, `/living-trace` and `/pilot`: **0 differing pixels and identical keyboard behaviour** in 116 of 120 captures. The other four are `/living-trace` motion captures (12–64 px) with identical style fingerprints, the capture-timing noise seen in earlier studies. No shared file (`globals.css`, `archive.css`, `MemoryMediaViewer`) changed |
+| Tests, lint, build | 555 of 559 tests pass; the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors (2 warnings in unchanged backend files). Build passes |
+| Disclosure verifier | The boundary holds (41 client files, one more for the Memories stylesheet; 399 prerendered files; 29 routes) |
+
+**Screenshots** (`docs/design/phase-3b/`), each page captured in one render with nothing joined:
+
+- `memories.desktop.jpg` and `memories.mobile.jpg`: the index, before and after, light and dark.
+- `memories-record.desktop.jpg` and `memories-record.mobile.jpg`: a record page (`demo-audio-record`), before and after, light and dark.
+- `memories.live-states.jpg`: the live listing, a live record and the service-error page, before and after, rendered against the local mock (synthetic fixtures; production shows none of these).
+- `memories.desktop.light.png`, `memories-record.desktop.dark.png` and `memories-record.mobile.dark.png`: the new pages at full resolution.
+
+**Limitations:** tested in Chrome only, with no screen-reader session. The live states were rendered against a mock, not the backend; the mock returns the documented response shapes.
+
+**Observations, not changed here (restyle only):**
+
+- On a **live** record page the notice comes after the title and summary, as before; on a static record page it comes first (ethos §6.1). The order is content, so it is kept; if live records are ever enabled, moving the notice first should be part of that decision.
+- A record whose backend fails is served with **HTTP 200** (the "temporarily unavailable" page), as before. A 503 would describe it more accurately to crawlers and monitors; that is a behaviour change, outside this study.
+- The field names in Provenance & Consent keep their colons ("Contributor:"), now set as small labels above their text, because the text is unchanged.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -460,9 +519,9 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, `/nodes` and its profiles, and `/contact` (released) |
-| P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*`, `/memories/[id]` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released); `/memories` and its record pages (in review, §1g) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, `/nodes` and its profiles, and `/contact` (released); `/memories` and its record pages (in review, §1g) |
+| P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48. **In review** (§1g, PR pending approval) |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 | **P3B-6** | **Mailbox operational readiness.** A working `mailto:` link does not establish that anyone receives or monitors the messages, and Community Rights directs correction, restriction and withdrawal requests to `/contact` | `custodians@tiro.foundation` (`/contact`, `/pilot`) | Founder review of PR #22, 2026-11-01 (decision 54) | Operational, not a design task; not a blocker for the presentation-only Contact release. **Before TIRO accepts real records:** verify the mailbox's delivery and ownership, who monitors it, and a procedure for handling rights-related requests, and confirm that `/pilot`'s existing statement holds: "every inquiry is read by a person" (decision 55). No email infrastructure or intake is added in Phase 3b |
 
@@ -474,6 +533,6 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 4. `/nodes` and the two node profiles: the gazetteer (released; decision 53, §1d).
 5. `/contact`: the entrance (released; decision 54, §1e).
 6. `/pilot` (presentation only; released; decision 55, §1f).
-7. `/memories` (restyle only).
+7. `/memories` (restyle only; study in §1g).
 
 Each is one PR, with the Manifesto's evidence: content preserved, screenshots, accessibility, and the release checks.

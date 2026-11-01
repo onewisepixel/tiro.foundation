@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { getMemoryById, type MemoryRecord } from "@/data/memories";
 import { getRecordKindNotice } from "@/data/recordNotices";
@@ -6,6 +7,27 @@ import MemoryMediaViewer from "@/components/MemoryMediaViewer";
 type MemoryDetailProps = {
   memory: MemoryRecord;
 };
+
+// One part of the record: its heading beside its text on wide screens,
+// with an anchor (styled by src/app/memories/memories.css).
+function RecordSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section id={id} aria-labelledby={`${id}-title`} className="mm-section">
+      <h2 id={`${id}-title`} className="mm-h2">
+        {title}
+      </h2>
+      <div className="mm-body">{children}</div>
+    </section>
+  );
+}
+
+function Field({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <p className="mm-field">
+      <span className="mm-field-name">{name}:</span> {children}
+    </p>
+  );
+}
 
 export default function MemoryDetail({ memory }: MemoryDetailProps) {
   const notice = getRecordKindNotice(memory.recordKind);
@@ -19,186 +41,108 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
     Boolean(memory.communityAnnotations);
 
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-14 pt-8 md:pb-16 md:pt-12">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-6">Memory Record</p>
-          {/* The notice precedes every archival-looking detail, the title
-              included (docs/ethos.txt §6.1). */}
-          {notice ? (
-            <p className="mb-8 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
-              {notice.full}
-            </p>
-          ) : null}
-          <h1 className="mb-6 max-w-3xl font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            {memory.title}
-          </h1>
-          <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            {memory.summary}
-          </p>
+    <main id="top" className="la mm bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header className="la-frame mm-wrap mm-head">
+        <p className="la-eyebrow">Memory Record</p>
+        {/* The notice precedes every archival-looking detail, the title
+            included (docs/ethos.txt §6.1). */}
+        {notice ? <p className="mm-notice mt-8">{notice.full}</p> : null}
+        <h1 className="mm-h1 mt-8">{memory.title}</h1>
+        <p className="mm-intro mt-8">{memory.summary}</p>
 
-
-          <div className="tiro-card mt-10">
-            <div className="tiro-kv">
-              <span className="k">Record ID</span>
-              <span className="v">{memory.recordId}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Archive Status</span>
-              <span className="v">{memory.archiveStatus}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Last Reviewed</span>
-              <span className="v">{memory.lastReviewed}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Access Level</span>
-              <span className="v">{memory.accessLevel}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Location</span>
-              <span className="v">{memory.location}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Language</span>
-              <span className="v">{memory.language}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Era</span>
-              <span className="v">{memory.era}</span>
-            </div>
+        <dl className="mm-ledger">
+          <div>
+            <dt className="la-term">Record ID</dt>
+            <dd className="mm-id">{memory.recordId}</dd>
           </div>
-        </div>
-      </section>
-
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Provenance &amp; Consent</p>
-          <div className="space-y-5 text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-            <p>
-              <span className="text-[var(--tiro-text-soft)]">Contributor:</span> {memory.contributor}
-            </p>
-            <p>
-              <span className="text-[var(--tiro-text-soft)]">Source Authority:</span> {memory.sourceAuthority}
-            </p>
-            {memory.legalRights ? (
-              <p>
-                <span className="text-[var(--tiro-text-soft)]">Legal Rights:</span> {memory.legalRights}
-              </p>
-            ) : null}
-            <p>
-              <span className="text-[var(--tiro-text-soft)]">Consent Status:</span> {memory.consentStatus}
-            </p>
-            <p>
-              <span className="text-[var(--tiro-text-soft)]">Consent Withdrawal:</span> {memory.consentWithdrawal}
-            </p>
-            <p>
-              <span className="text-[var(--tiro-text-soft)]">Provenance Note:</span> {memory.provenance}
-            </p>
-            <p>
-              <span className="text-[var(--tiro-text-soft)]">Rights and Usage:</span> {memory.rightsUsage}
-            </p>
-            {memory.sensitivity ? (
-              <p>
-                <span className="text-[var(--tiro-text-soft)]">Sensitivity:</span> {memory.sensitivity}
-              </p>
-            ) : null}
+          <div>
+            <dt className="la-term">Archive Status</dt>
+            <dd>{memory.archiveStatus}</dd>
           </div>
-        </div>
-      </section>
+          <div>
+            <dt className="la-term">Last Reviewed</dt>
+            <dd>{memory.lastReviewed}</dd>
+          </div>
+          <div>
+            <dt className="la-term">Access Level</dt>
+            <dd>{memory.accessLevel}</dd>
+          </div>
+          <div>
+            <dt className="la-term">Location</dt>
+            <dd>{memory.location}</dd>
+          </div>
+          <div>
+            <dt className="la-term">Language</dt>
+            <dd>{memory.language}</dd>
+          </div>
+          <div>
+            <dt className="la-term">Era</dt>
+            <dd>{memory.era}</dd>
+          </div>
+        </dl>
+      </header>
 
-      {hasIntegrityNotes ? (
-        <section className="px-6 pb-12 md:pb-16">
-          <div className="tiro-card mx-auto max-w-5xl !p-0">
-            <details className="group">
-              <summary className="cursor-pointer list-none px-6 py-5 md:px-9">
-                <div className="flex items-center justify-between gap-4">
-                  <p className="tiro-eyebrow">Record Integrity Notes</p>
-                  <span className="text-xs text-[var(--tiro-text-muted)] transition-transform duration-200 group-open:rotate-180">
-                    v
-                  </span>
-                </div>
+      <div className="la-frame mm-wrap mm-sections">
+        <RecordSection id="provenance-consent" title="Provenance & Consent">
+          <div className="mm-fields">
+            <Field name="Contributor">{memory.contributor}</Field>
+            <Field name="Source Authority">{memory.sourceAuthority}</Field>
+            {memory.legalRights ? <Field name="Legal Rights">{memory.legalRights}</Field> : null}
+            <Field name="Consent Status">{memory.consentStatus}</Field>
+            <Field name="Consent Withdrawal">{memory.consentWithdrawal}</Field>
+            <Field name="Provenance Note">{memory.provenance}</Field>
+            <Field name="Rights and Usage">{memory.rightsUsage}</Field>
+            {memory.sensitivity ? <Field name="Sensitivity">{memory.sensitivity}</Field> : null}
+          </div>
+        </RecordSection>
+
+        {hasIntegrityNotes ? (
+          <section id="integrity-notes" className="mm-section mm-section-details">
+            <details className="mm-details">
+              <summary>
+                <h2 className="mm-h2">Record Integrity Notes</h2>
+                <span className="mm-toggle">v</span>
               </summary>
 
-              <div className="space-y-4 border-t border-[var(--tiro-border)] px-6 pb-6 pt-4 text-sm leading-relaxed text-[var(--tiro-text-muted)] md:px-9 md:text-base">
-                {memory.confidenceLevel ? (
-                  <p>
-                    <span className="text-[var(--tiro-text-soft)]">Confidence Level:</span>{" "}
-                    {memory.confidenceLevel}
-                  </p>
-                ) : null}
-                {memory.multipleVersions ? (
-                  <p>
-                    <span className="text-[var(--tiro-text-soft)]">Multiple Versions:</span>{" "}
-                    {memory.multipleVersions}
-                  </p>
-                ) : null}
-                {memory.translatorNotes ? (
-                  <p>
-                    <span className="text-[var(--tiro-text-soft)]">Translator Notes:</span>{" "}
-                    {memory.translatorNotes}
-                  </p>
-                ) : null}
-                {memory.disputedDetails ? (
-                  <p>
-                    <span className="text-[var(--tiro-text-soft)]">Disputed Details:</span>{" "}
-                    {memory.disputedDetails}
-                  </p>
-                ) : null}
+              <div className="mm-body mm-fields">
+                {memory.confidenceLevel ? <Field name="Confidence Level">{memory.confidenceLevel}</Field> : null}
+                {memory.multipleVersions ? <Field name="Multiple Versions">{memory.multipleVersions}</Field> : null}
+                {memory.translatorNotes ? <Field name="Translator Notes">{memory.translatorNotes}</Field> : null}
+                {memory.disputedDetails ? <Field name="Disputed Details">{memory.disputedDetails}</Field> : null}
                 {memory.communityAnnotations ? (
-                  <p>
-                    <span className="text-[var(--tiro-text-soft)]">Community Annotations:</span>{" "}
-                    {memory.communityAnnotations}
-                  </p>
+                  <Field name="Community Annotations">{memory.communityAnnotations}</Field>
                 ) : null}
               </div>
             </details>
+          </section>
+        ) : null}
+
+        <RecordSection id="media" title={isDemo ? "Media" : "Media Evidence"}>
+          <div className="mm-media">
+            <MemoryMediaViewer media={memory.media} />
           </div>
-        </section>
-      ) : null}
+        </RecordSection>
 
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">{isDemo ? "Media" : "Media Evidence"}</p>
-          <MemoryMediaViewer media={memory.media} />
-        </div>
-      </section>
+        <RecordSection id="transcript" title="Transcript">
+          <p className="mm-transcript">{memory.transcript}</p>
+        </RecordSection>
 
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Transcript</p>
-          <p className="whitespace-pre-line font-[family-name:var(--font-code)] text-[15px] leading-[1.85] text-[var(--tiro-text-muted)]">
-            {memory.transcript}
-          </p>
-        </div>
-      </section>
+        <RecordSection id="cultural-context" title="Cultural Context / Notes">
+          <p className="mm-text">{memory.culturalContext}</p>
+        </RecordSection>
 
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Cultural Context / Notes</p>
-          <p className="text-sm leading-[1.9] text-[var(--tiro-text-muted)] md:text-base">
-            {memory.culturalContext}
-          </p>
-        </div>
-      </section>
-
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Tags</p>
-          <div className="flex flex-wrap gap-3">
+        <RecordSection id="tags" title="Tags">
+          <div className="mm-tags">
             {memory.tags.map((tag) => (
               <span key={tag} className="tiro-chip">
                 {tag}
               </span>
             ))}
           </div>
-        </div>
-      </section>
+        </RecordSection>
 
-      <section className="px-6 pb-12 md:pb-16">
-        <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Related Nodes</p>
-          <div className="flex flex-wrap gap-2.5">
+        <RecordSection id="related-nodes" title="Related Nodes">
+          <div className="mm-tags">
             {memory.relatedNodes.map((node) =>
               node.href ? (
                 <Link key={`${node.type}-${node.label}`} href={node.href} className="tiro-chip">
@@ -213,34 +157,27 @@ export default function MemoryDetail({ memory }: MemoryDetailProps) {
               ),
             )}
           </div>
-        </div>
-      </section>
+        </RecordSection>
 
-      <section className="px-6 pb-28 md:pb-36">
-        <div className="tiro-card mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Related Memories</p>
-          <div className="space-y-4">
+        <RecordSection id="related-memories" title="Related Memories">
+          <div className="mm-records">
             {memory.relatedMemories.map((related) => {
               const targetRecord = getMemoryById(related.id);
               const isDemo = targetRecord?.recordKind === "demo";
 
               return (
-                <Link key={related.href} href={related.href} className="tiro-card-link border border-[var(--tiro-border)] p-4">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <p className="text-sm font-medium text-[var(--tiro-text-soft)] md:text-base">
-                      {related.title}
-                    </p>
+                <Link key={related.href} href={related.href}>
+                  <span className="mm-record-title">
+                    <span>{related.title}</span>
                     {isDemo ? <span className="tiro-chip">Demo</span> : null}
-                  </div>
-                  <p className="mt-1 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-                    {related.summary}
-                  </p>
+                  </span>
+                  <span className="mm-record-summary">{related.summary}</span>
                 </Link>
               );
             })}
           </div>
-        </div>
-      </section>
+        </RecordSection>
+      </div>
     </main>
   );
 }
