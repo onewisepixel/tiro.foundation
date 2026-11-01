@@ -6,10 +6,10 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 `/about`: **approved and released, 2026-10-30** (decision 52; PR #20 merged as `d9cfb00`; verified in production, §1c.3). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
 `/nodes` and the node profiles: **approved and released, 2026-10-30** (decision 53; PR #21 merged as `02e61b0`; the ring's semantics corrected before release, §1d.2; verified in production, §1d.3). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 `/contact`: **approved and released, 2026-11-01** (decision 54; PR #22 merged as `e3e07e4`; verified in production, §1e.3). The study was built on branch `design/phase-3b-contact`, from `main` at `02e61b0`.
-`/pilot`: **sixth study, presentation only; approved (decision 55), release pending** (§1f). Branch `design/phase-3b-pilot`, from `main` at `e3e07e4`.
+`/pilot`: **approved and released, 2026-11-01** (decision 55; PR #23 merged as `37c2b11`; verified in production, §1f.3). The study was built on branch `design/phase-3b-pilot`, from `main` at `e3e07e4`.
 Date: 2026-11-01.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Six studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d) and `/contact` (§1e), all released, and `/pilot` (§1f, approved; presentation only), after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Six studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) and `/pilot` (§1f; presentation only), all released, after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -417,6 +417,23 @@ The founder approved the visual design of PR #23 at `8266ba2` with no revisions 
 
 P3B-6 stays open, and its operational verification must include the page's existing statement that "every inquiry is read by a person" (§3).
 
+### 1f.3 Release and production verification
+
+The approval was recorded in `6f935d3` (Linux CI 41354810806 passed, every step including the disclosure verifier and the Flight Deck integration tests; the branch 0 commits behind `main`). PR #23 was then marked ready and merged with a merge commit as **`37c2b11`**. Linux CI 41355086774 passed on the merge commit, and the team production deployment completed. Checked at `https://www.tiro.foundation/pilot`:
+
+| Check | Result |
+| --- | --- |
+| Release suite against production | **213 of 213 pass**, including the five anchors, "Form not yet open" with no form, axe (no serious or critical violations) and console checks in both themes at 1440 and 390 px, and no overflow at 320, 390 or 820 px |
+| Both themes, desktop and mobile | Full-page captures at 1440 and 390 px in light and dark are **byte-identical** to those approved |
+| The five anchors | `#invitation`, `#status`, `#ways`, `#process` and `#interest` each land below the header, at 1440 and 390 px |
+| Horizontal overflow | None at 14 widths from 280 to 1440 px; the address stays on one line within the panel |
+| The closed panel | Shows "Form not yet open" |
+| No form or submission interface | The served page has no `<form>`, `<input>`, `<textarea>`, `<select>` or submit button |
+| The existing links | Keyboard order inside the page: the Community Rights link, then the address (`mailto:custodians@tiro.foundation`), each with a visible focus outline; `/community-rights` returns 200 |
+| Disclosure boundary | `/flight-deck`, `/flight-deck/cases`, `/flight-deck/outreach`, `/flight-deck/login` and `/api/flight-deck/health` return 404 |
+
+Mailbox operational readiness remains open as P3B-6.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -456,7 +473,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 3. `/about`: the institution explained (released; decision 52, §1c).
 4. `/nodes` and the two node profiles: the gazetteer (released; decision 53, §1d).
 5. `/contact`: the entrance (released; decision 54, §1e).
-6. `/pilot` (presentation only; approved, decision 55, §1f).
+6. `/pilot` (presentation only; released; decision 55, §1f).
 7. `/memories` (restyle only).
 
 Each is one PR, with the Manifesto's evidence: content preserved, screenshots, accessibility, and the release checks.
