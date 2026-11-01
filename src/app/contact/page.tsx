@@ -1,50 +1,48 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import "@/components/archive/archive.css";
+import "./contact.css";
 
 export const metadata: Metadata = {
   title: "Contact — The Tiro Foundation",
   description: "Reach The Tiro Foundation for partnership and contribution inquiries.",
 };
 
+// A quiet, one-column page: the address as its single destination, then
+// the two notes on writing. Presentation only: the address is the same
+// mailto: link, and there is no form.
 export default function ContactPage() {
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-28 pt-8 md:pb-36 md:pt-12">
-        <div className="mx-auto max-w-3xl">
-          <p className="tiro-eyebrow mb-6">Contact</p>
-          <h1 className="mb-8 font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            Reach a steward
-          </h1>
-          <p className="mb-10 max-w-xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            Partnership inquiries, contribution proposals, and questions about
-            custody and consent are welcome. TIRO is a small, deliberate
-            operation — expect a considered reply, not an instant one.
-          </p>
+    <main id="top" className="la ct bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <div className="la-frame ct-wrap ct-page">
+        <p className="la-eyebrow">Contact</p>
+        <h1 className="ct-h1 mt-6">Reach a steward</h1>
+        <p className="ct-intro mt-8">
+          Partnership inquiries, contribution proposals, and questions about
+          custody and consent are welcome. TIRO is a small, deliberate
+          operation — expect a considered reply, not an instant one.
+        </p>
 
-          <a
-            href="mailto:custodians@tiro.foundation"
-            className="font-[family-name:var(--font-display)] text-2xl italic text-[var(--tiro-text)] transition-colors hover:text-[var(--tiro-accent)]"
-          >
-            custodians@tiro.foundation
+        <p className="ct-address">
+          <a href="mailto:custodians@tiro.foundation">
+            custodians<wbr />@tiro.foundation
           </a>
+        </p>
 
-          <p className="mt-6 max-w-xl text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+        <div className="ct-notes">
+          <p>
             Interested in TIRO&apos;s pilot?{" "}
-            <Link href="/pilot" className="tiro-link">
-              Read what it is and is not
-            </Link>{" "}
-            before writing. We are not collecting recordings, stories, or other material yet.
+            <Link href="/pilot">Read what it is and is not</Link> before
+            writing. We are not collecting recordings, stories, or other
+            material yet.
           </p>
-
-          <hr className="tiro-rule my-10 w-16" />
-
-          <p className="max-w-xl text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+          <p>
             If you are writing about a memory record already in the archive —
             a correction, a consent withdrawal, or a dispute — please
             reference the record ID shown on that page.
           </p>
         </div>
-      </section>
+      </div>
     </main>
   );
 }

@@ -1,0 +1,117 @@
+/* ======================================================================
+   Contact: how to reach TIRO (Milestone 3.0 Phase 3b).
+   Scoped to .ct, on top of the Living Archive system
+   (src/components/archive/archive.css).
+
+   The entrance to an institution, not a conversion page: one column, the
+   address as the page's single destination, set between two rules like
+   an entry in a register, and the two notes on writing below it, quieter.
+   No form, no buttons, no motion; nothing the page cannot do.
+   ====================================================================== */
+
+.ct {
+  --ct-measure: 38rem;
+}
+
+.ct-wrap {
+  max-width: calc(44rem + 2 * var(--la-pad));
+}
+
+.ct-page {
+  padding-top: 4rem;
+  padding-bottom: 7rem;
+}
+
+@media (min-width: 768px) {
+  .ct-page {
+    padding-top: 5.5rem;
+    padding-bottom: 8rem;
+  }
+}
+
+.ct-h1 {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-size: clamp(2.3rem, 6vw, 3.9rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.ct-intro {
+  max-width: var(--ct-measure);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .ct-intro {
+    font-size: 1.5rem;
+  }
+}
+
+/* ---------- The address ----------
+   Between two rules, at a size that reads as the page's one way in. The
+   <wbr> before the "@" lets it break there, and only there, when the
+   screen is too narrow to hold it (as on /pilot, P3B-1). */
+.ct-address {
+  margin-top: 3rem;
+  padding-block: 1.75rem;
+  border-top: 1px solid var(--tiro-border-strong);
+  border-bottom: 1px solid var(--tiro-border-strong);
+}
+
+.ct-address a {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(1.6rem, 5.4vw, 2.4rem);
+  line-height: 1.25;
+  color: var(--tiro-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 0.2em;
+  transition: color var(--lt-dur-quick) ease, text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.ct-address a:hover {
+  color: var(--tiro-accent);
+  text-decoration-color: var(--tiro-accent);
+}
+
+/* ---------- Before writing ---------- */
+.ct-notes {
+  display: grid;
+  gap: 1.25rem;
+  max-width: var(--ct-measure);
+  margin-top: 2.5rem;
+}
+
+.ct-notes p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+  text-wrap: pretty;
+}
+
+.ct-notes p + p {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--tiro-border);
+}
+
+.ct-notes a {
+  color: var(--tiro-text);
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.ct-notes a:hover {
+  text-decoration-color: var(--tiro-accent);
+}
