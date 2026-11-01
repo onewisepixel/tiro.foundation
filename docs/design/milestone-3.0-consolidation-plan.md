@@ -13,7 +13,7 @@ Builds on: `living-archive-consolidation.md` (component inventory, V5 ↔ Memory
 > | 1. Reconcile | **Done** (2026-10-29). PR #13 merged (`1f64387`); tag `checkpoint/3.0-start` at `d7b6b1a`; disclosure verifier in CI (PR #14, `6a6eef5`) | PRs #13, #14 |
 > | 2. Design system | **Done** (2026-10-29). G2 approved; PR #15 merged (`5715821`) | `milestone-3.0-phase-2-design-system.md` |
 > | 3a. Public experience | **Released** (2026-10-30). G3 approved (decisions 46–49); PR #16 merged (`6cd0920`) and deployed to production | `milestone-3.0-phase-3a-release-gate.md` |
-> | 3b. Inner pages | **In progress.** `/manifesto` approved and released (decision 50; PR #17 merged, `3c997d4`). The `/pilot` overflow (P3B-1) repaired and released (PR #18, `512bebe`). `/community-rights` released as the policy page (decision 51; PR #19, `acf6372`); `/about` released as a finding aid (decision 52; PR #20, `d9cfb00`); `/nodes` and its profiles released as a gazetteer (decision 53; PR #21, `02e61b0`); `/contact` approved for release as the entrance (decision 54; PR #22); the other pages are inventoried | `milestone-3.0-phase-3b-inner-pages.md` |
+> | 3b. Inner pages | **In progress.** `/manifesto` approved and released (decision 50; PR #17 merged, `3c997d4`). The `/pilot` overflow (P3B-1) repaired and released (PR #18, `512bebe`). `/community-rights` released as the policy page (decision 51; PR #19, `acf6372`); `/about` released as a finding aid (decision 52; PR #20, `d9cfb00`); `/nodes` and its profiles released as a gazetteer (decision 53; PR #21, `02e61b0`); `/contact` released as the entrance (decision 54; PR #22, `e3e07e4`); mailbox readiness tracked as P3B-6; `/pilot` approved as an invitation with its limits first (decision 55; PR #23), release pending; the other pages are inventoried | `milestone-3.0-phase-3b-inner-pages.md` |
 > | 4. Flight Deck | Not started | — |
 > | 5. Clean house | Not started. No branch, preview or asset deleted; every remaining remote branch is contained in `main` | — |
 >
@@ -137,6 +137,7 @@ Dependency evidence: every module under `src/components`, `src/lib`, `src/data` 
 | --- | --- | --- | --- |
 | `components/preview/home-v2/*` (5), `home-v3/*` (4), `home-v3-1/*` (4), `home-v4/*` (6) and their four `app/preview/home-v*/` pages and CSS | Only their own preview page | Superseded design experiment | Write the history record (below), tag, then remove (Phase 5) |
 | `components/preview/home-v5/*`, `memory-v1/*` and their pages | Only their preview pages | Becomes production | Moved, not duplicated (Phase 3). `RecordLayers.tsx` is replaced by `LayerStack` (Phase 2) |
+| `trace/Movement` | None since `/pilot` moved to the archive sections (decision 55); `OriginHero` imports only its `SPINE_COLUMNS` constant | Superseded Living Trace 0.2 grammar | Remove in Phase 5, with `OriginHero` |
 | `trace/OriginHero` | `app/page.tsx` only | Obsolete once `/` is V5 | Remove in Phase 5 |
 | `trace/ConstellationIsland`, `ConstellationPreview`, `Constellation`, `RecordSpecimen`, `lib/livingTrace/layout` (+ test) | `app/page.tsx` and `/living-trace` only | Obsolete if `/living-trace` retires | Remove in Phase 5, conditional on the §2 decision |
 | `trace/PaletteScope` | `/living-trace` only | Same | Same |
@@ -144,7 +145,7 @@ Dependency evidence: every module under `src/components`, `src/lib`, `src/data` 
 | `public/tiro-mark-micro.svg` | None in code | Unknown | **Keep** until checked for absolute-URL use (email, Cognito, external pages) |
 | `hv5-*` / `mv1-*` CSS duplicates | Each preview | Duplicate implementation | Consolidated in Phase 2 |
 
-**Not redundant, despite appearances:** `trace/Movement` (also used by `/pilot`); `trace/Boundary`, `EvidenceTag`, `OriginPoint`, `TemporalRail`, `PermissionGrid`, `VoiceSource`, `Reveal`, `SyntheticNotice` (all used by V5 or Memory v1); `lib/livingTrace/disclosureGuards` (a test helper by design); `lib/flightDeck/postgres/pool` (imported by `runtime.ts`); `design-explorations/archive/` (already the archived history of pre-Manifesto studies, unserved); `staff-ui/` (the backend fixture staff tool, documented in `docs/backend/runbook.md`).
+**Not redundant, despite appearances:** `trace/Boundary`, `EvidenceTag`, `OriginPoint`, `TemporalRail`, `PermissionGrid`, `VoiceSource`, `Reveal`, `SyntheticNotice` (all used by V5 or Memory v1); `lib/livingTrace/disclosureGuards` (a test helper by design); `lib/flightDeck/postgres/pool` (imported by `runtime.ts`); `design-explorations/archive/` (already the archived history of pre-Manifesto studies, unserved); `staff-ui/` (the backend fixture staff tool, documented in `docs/backend/runbook.md`).
 
 **Design history V2 → V5.** Preserved in three forms before any preview code is removed: (1) an annotated tag, `archive/living-archive-previews`, on the last commit containing every preview, so each remains buildable; (2) `docs/design/history/` with one page per version: date, commit, thesis, light and dark screenshots, and what was carried forward or rejected; (3) the decision log, which already records the approvals.
 

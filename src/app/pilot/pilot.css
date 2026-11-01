@@ -1,0 +1,244 @@
+/* ======================================================================
+   Pilot: a pilot is forming (Milestone 3.0 Phase 3b).
+   Scoped to .pl, on top of the Living Archive system
+   (src/components/archive/archive.css). Presentation only: the interest
+   form, its token, its privacy notice and the gate that keeps it closed
+   are unchanged (plan §4).
+
+   An invitation with its limits stated first. The page leaves the Living
+   Trace spine for the archive's sections: each of the five numbered
+   sections under a rule, its number and name as the eyebrow. What TIRO is
+   inviting and what it is not collecting are set side by side as a
+   ledger. The steps keep their origin points, the last one open: it has
+   not happened. The closed form is a dashed panel, the mark this site
+   uses for what is not yet in place, so it cannot read as a form. No
+   motion; no imagery.
+   ====================================================================== */
+
+.pl {
+  --pl-wide: 60rem;
+  --pl-measure: 40rem;
+}
+
+.pl [id] {
+  scroll-margin-top: calc(var(--la-header) + 1.5rem);
+}
+
+.pl-wrap {
+  max-width: calc(var(--pl-wide) + 2 * var(--la-pad));
+}
+
+/* ---------- Opening ---------- */
+.pl-head {
+  padding-top: 4rem;
+  padding-bottom: 4rem;
+}
+
+@media (min-width: 768px) {
+  .pl-head {
+    padding-top: 5.5rem;
+    padding-bottom: 5rem;
+  }
+}
+
+.pl-h1 {
+  max-width: 48rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-size: clamp(2.3rem, 6vw, 3.9rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.pl-intro {
+  max-width: var(--pl-measure);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+  text-wrap: pretty;
+}
+
+@media (min-width: 768px) {
+  .pl-intro {
+    font-size: 1.5rem;
+  }
+}
+
+.pl-reason {
+  max-width: var(--pl-measure);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+  text-wrap: pretty;
+}
+
+/* ---------- Sections ---------- */
+.pl-section {
+  padding-block: 3rem 3.5rem;
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+@media (min-width: 768px) {
+  .pl-section {
+    padding-block: 4rem 4.5rem;
+  }
+}
+
+.pl-section:last-child {
+  padding-bottom: 7rem;
+}
+
+.pl-h2 {
+  max-width: 44rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  text-wrap: balance;
+  color: var(--tiro-text);
+}
+
+.pl-h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.25;
+  font-size: clamp(1.3rem, 2.4vw, 1.6rem);
+  color: var(--tiro-text);
+}
+
+.pl-text {
+  max-width: var(--pl-measure);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+  text-wrap: pretty;
+}
+
+/* A closing qualification under a section. */
+.pl-aside {
+  max-width: var(--pl-measure);
+  margin-top: 2rem;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: var(--tiro-text-muted);
+  text-wrap: pretty;
+}
+
+.pl-aside a {
+  color: var(--tiro-text);
+  text-decoration: underline;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.pl-aside a:hover {
+  text-decoration-color: var(--tiro-accent);
+}
+
+/* ---------- Status: a ledger of two columns ---------- */
+.pl-ledger {
+  display: grid;
+  margin-top: 2.5rem;
+  border-top: 1px solid var(--tiro-border);
+}
+
+@media (min-width: 768px) {
+  .pl-ledger {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 3rem;
+  }
+}
+
+.pl-ledger > div {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+@media (max-width: 767px) {
+  .pl-ledger > div + div {
+    border-top: 1px solid var(--tiro-border);
+  }
+}
+
+.pl-term {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.pl-ledger p:not(.pl-term),
+.pl-ledger li {
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--tiro-text-soft);
+}
+
+.pl-ledger li {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.pl-ledger li + li {
+  margin-top: 0.5rem;
+}
+
+/* ---------- Ways and steps: entries under rules ---------- */
+.pl-entries {
+  max-width: 48rem;
+  margin-top: 2.5rem;
+  border-top: 1px solid var(--tiro-border);
+}
+
+.pl-entries > li {
+  padding-block: 1.5rem;
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+.pl-steps > li {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+.pl-steps .pl-mark {
+  padding-top: 0.45rem;
+}
+
+/* ---------- The form, while it is not open ---------- */
+.pl-closed {
+  border: 1.5px dashed var(--tiro-border-strong);
+  padding: 1.75rem 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .pl-closed {
+    padding: 2.25rem 2.5rem;
+  }
+}
+
+.pl-closed-address {
+  display: inline-block;
+  margin-top: 1rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(1.45rem, 4.6vw, 1.9rem);
+  line-height: 1.25;
+  color: var(--tiro-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--tiro-border-strong);
+  text-underline-offset: 0.2em;
+  transition: color var(--lt-dur-quick) ease, text-decoration-color var(--lt-dur-quick) ease;
+}
+
+.pl-closed-address:hover {
+  color: var(--tiro-accent);
+  text-decoration-color: var(--tiro-accent);
+}
