@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import Movement, { MovementTitle } from "@/components/trace/Movement";
 import OriginPoint from "@/components/trace/OriginPoint";
 import PilotInterestForm from "@/components/pilot/PilotInterestForm";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/flightDeck/config";
 import { PRIVACY_NOTICE_DRAFT } from "@/lib/flightDeck/pilotCopy";
 import { getRuntime, isPublicFormOpen, issueFormToken } from "@/lib/flightDeck/runtime";
+import "@/components/archive/archive.css";
+import "./pilot.css";
 
 export const metadata: Metadata = {
   title: "A pilot is forming — The Tiro Foundation",
@@ -48,111 +49,102 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
   const referral = cleanReferral(params.ref ?? params.utm_source);
 
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-16 text-[var(--tiro-text)]">
-      <Movement
-        id="invitation"
-        index="01"
-        name="Invitation"
-        register="witness"
-        header={
-          <>
-            <h1 id="invitation-title" className="lt-display max-w-4xl text-[2.6rem] sm:text-6xl md:text-7xl">
-              A pilot is forming.
-            </h1>
-            <p className="mt-8 max-w-[var(--lt-measure)] text-lg leading-relaxed text-[var(--tiro-text-soft)] md:text-xl">
-              TIRO is exploring a first, bounded pilot for preserving cultural and linguistic memory with its context, its provenance, and the authority of the people it
-              comes from intact. It begins with conversations.
-            </p>
-            <p className="mt-6 max-w-[var(--lt-measure)] text-base leading-relaxed text-[var(--tiro-text-muted)]">
-              To record something does not make it ours. Before anything is recorded, the people and communities a memory belongs to need to shape what a pilot is,
-              who decides, and what it must never do. That is why relationships, and the authority they carry, come first.
-            </p>
-          </>
-        }
-      />
+    <main id="top" className="la pl bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header id="invitation" aria-labelledby="invitation-title" className="la-frame pl-wrap pl-head">
+        <SectionLabel index="01" name="Invitation" />
+        <h1 id="invitation-title" className="pl-h1 mt-6">
+          A pilot is forming.
+        </h1>
+        <p className="pl-intro mt-8">
+          TIRO is exploring a first, bounded pilot for preserving cultural and linguistic memory with its context, its provenance, and the authority of the people it
+          comes from intact. It begins with conversations.
+        </p>
+        <p className="pl-reason mt-6">
+          To record something does not make it ours. Before anything is recorded, the people and communities a memory belongs to need to shape what a pilot is,
+          who decides, and what it must never do. That is why relationships, and the authority they carry, come first.
+        </p>
+      </header>
 
-      <Movement
-        id="status"
-        index="02"
-        name="Status"
-        register="respect"
-        header={<MovementTitle id="status">What this is, and what it is not.</MovementTitle>}
-      >
-        <div className="mt-10 grid max-w-4xl gap-8 md:grid-cols-2">
-          <div className="fd-panel">
-            <p className="lt-label mb-4 text-[var(--tiro-accent)]">We are inviting</p>
-            <p className="text-base leading-relaxed text-[var(--tiro-text-soft)]">
-              Conversations and consultation. A name, an email address, the kind of interest you have, and, if you like, which topics you would like to talk about.
-            </p>
+      <div className="la-frame pl-wrap">
+        <section id="status" aria-labelledby="status-title" className="pl-section">
+          <SectionLabel index="02" name="Status" />
+          <h2 id="status-title" className="pl-h2 mt-5">
+            What this is, and what it is not.
+          </h2>
+          <div className="pl-ledger">
+            <div>
+              <p className="pl-term mb-4 text-[var(--tiro-accent)]">We are inviting</p>
+              <p>
+                Conversations and consultation. A name, an email address, the kind of interest you have, and, if you like, which topics you would like to talk about.
+              </p>
+            </div>
+            <div>
+              <p className="pl-term mb-4 text-[var(--tiro-contested)]">We are not collecting</p>
+              <ul>
+                {NOT_REQUESTED.map((item) => (
+                  <li key={item}>
+                    <span aria-hidden="true" className="text-[var(--tiro-contested)]">
+                      ✕
+                    </span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-          <div className="fd-panel">
-            <p className="lt-label mb-4 text-[var(--tiro-contested)]">We are not collecting</p>
-            <ul className="space-y-2 text-base leading-relaxed text-[var(--tiro-text-soft)]">
-              {NOT_REQUESTED.map((item) => (
-                <li key={item} className="flex gap-3">
-                  <span aria-hidden="true" className="text-[var(--tiro-contested)]">
-                    ✕
-                  </span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-        <p className="mt-8 max-w-[var(--lt-measure)] text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-          Please do not send any of these, here or by email. Expressing interest is not consent to collect, preserve, or publish anything, and does not name you
-          publicly. Read how TIRO holds what is entrusted to it:{" "}
-          <Link href="/community-rights" className="tiro-link">
-            Community Rights &amp; Stewardship
-          </Link>
-          .
-        </p>
-      </Movement>
+          <p className="pl-aside">
+            Please do not send any of these, here or by email. Expressing interest is not consent to collect, preserve, or publish anything, and does not name you
+            publicly. Read how TIRO holds what is entrusted to it:{" "}
+            <Link href="/community-rights">Community Rights &amp; Stewardship</Link>.
+          </p>
+        </section>
 
-      <Movement id="ways" index="03" name="Participate" register="participate" header={<MovementTitle id="ways">Ways to take part.</MovementTitle>}>
-        <ul className="mt-12 max-w-3xl">
-          {WAYS.map((w) => (
-            <li key={w.title} className="border-b border-[var(--tiro-border)] py-6">
-              <h3 className="font-[family-name:var(--font-display)] text-2xl md:text-3xl">{w.title}</h3>
-              <p className="mt-2 max-w-[var(--lt-measure)] text-base leading-relaxed text-[var(--tiro-text-muted)]">{w.body}</p>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-8 max-w-[var(--lt-measure)] text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-          These are expressions of interest. None of them is a selection, a role, or a verified authority.
-        </p>
-      </Movement>
+        <section id="ways" aria-labelledby="ways-title" className="pl-section">
+          <SectionLabel index="03" name="Participate" />
+          <h2 id="ways-title" className="pl-h2 mt-5">
+            Ways to take part.
+          </h2>
+          <ul className="pl-entries">
+            {WAYS.map((w) => (
+              <li key={w.title}>
+                <h3 className="pl-h3">{w.title}</h3>
+                <p className="pl-text mt-2">{w.body}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="pl-aside">These are expressions of interest. None of them is a selection, a role, or a verified authority.</p>
+        </section>
 
-      <Movement id="process" index="04" name="How it proceeds" register="preserve" header={<MovementTitle id="process">How it proceeds.</MovementTitle>}>
-        <ol className="mt-12 max-w-3xl">
-          {STEPS.map((s, i) => (
-            <li key={s.title} className="flex gap-5 border-b border-[var(--tiro-border)] py-6">
-              <span className="flex flex-col items-center pt-1" aria-hidden="true">
-                <OriginPoint size={16} tone={i === STEPS.length - 1 ? "accent" : "mineral"} absent={i === STEPS.length - 1} />
-              </span>
-              <div>
-                <h3 className="font-[family-name:var(--font-display)] text-2xl">
-                  <span className="sr-only">Step {i + 1}: </span>
-                  {s.title}
-                </h3>
-                <p className="mt-2 max-w-[var(--lt-measure)] text-base leading-relaxed text-[var(--tiro-text-muted)]">{s.body}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-        <p className="mt-8 max-w-[var(--lt-measure)] text-sm leading-relaxed text-[var(--tiro-text-muted)]">
-          We do not promise a reply time. TIRO is small and deliberate, and every inquiry is read by a person.
-        </p>
-      </Movement>
+        <section id="process" aria-labelledby="process-title" className="pl-section">
+          <SectionLabel index="04" name="How it proceeds" />
+          <h2 id="process-title" className="pl-h2 mt-5">
+            How it proceeds.
+          </h2>
+          {/* The last step's origin is open: it has not happened, and may not. */}
+          <ol className="pl-entries pl-steps">
+            {STEPS.map((s, i) => (
+              <li key={s.title}>
+                <span className="pl-mark" aria-hidden="true">
+                  <OriginPoint size={16} tone={i === STEPS.length - 1 ? "accent" : "mineral"} absent={i === STEPS.length - 1} />
+                </span>
+                <div>
+                  <h3 className="pl-h3">
+                    <span className="sr-only">Step {i + 1}: </span>
+                    {s.title}
+                  </h3>
+                  <p className="pl-text mt-2">{s.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <p className="pl-aside">We do not promise a reply time. TIRO is small and deliberate, and every inquiry is read by a person.</p>
+        </section>
 
-      <Movement
-        id="interest"
-        index="05"
-        name="Express interest"
-        register="participate"
-        end
-        header={<MovementTitle id="interest">Start a conversation.</MovementTitle>}
-      >
+        <section id="interest" aria-labelledby="interest-title" className="pl-section">
+          <SectionLabel index="05" name="Express interest" />
+          <h2 id="interest-title" className="pl-h2 mt-5">
+            Start a conversation.
+          </h2>
         <div className="mt-10 max-w-2xl">
           {open && runtime ? (
             <>
@@ -163,16 +155,17 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
               <PilotInterestForm formToken={issueFormToken(runtime)} noticeVersion={PRIVACY_NOTICE_VERSION} referral={referral} demo />
             </>
           ) : (
-            <div className="fd-panel">
-              <p className="lt-label mb-4 text-[var(--tiro-accent)]">Form not yet open</p>
-              <p className="text-base leading-relaxed text-[var(--tiro-text-soft)]">
+            // Closed: a dashed panel, not a form. Nothing here takes input.
+            <div className="pl-closed">
+              <p className="pl-term mb-4 text-[var(--tiro-accent)]">Form not yet open</p>
+              <p className="text-[1.0625rem] leading-relaxed text-[var(--tiro-text-soft)]">
                 The interest form will open once its privacy notice has been reviewed and its records have a secure home. Until then, you are welcome to write to
               </p>
               {/* <wbr /> lets the address break before its "@" when it cannot fit on the narrowest phones. */}
-              <a href="mailto:custodians@tiro.foundation" className="mt-4 inline-block font-[family-name:var(--font-display)] text-2xl italic text-[var(--tiro-text)] hover:text-[var(--tiro-accent)]">
+              <a href="mailto:custodians@tiro.foundation" className="pl-closed-address">
                 custodians<wbr />@tiro.foundation
               </a>
-              <p className="mt-4 text-sm leading-relaxed text-[var(--tiro-text-muted)]">
+              <p className="mt-5 text-[0.9375rem] leading-relaxed text-[var(--tiro-text-muted)]">
                 A line saying what kind of conversation interests you is enough. Please do not attach or send stories, recordings, or other material; if anything like that reaches us, we delete it and tell you.
               </p>
             </div>
@@ -198,7 +191,17 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
           </dl>
         </section>
         ) : null}
-      </Movement>
+        </section>
+      </div>
     </main>
+  );
+}
+
+// "02 / Status": the section's number and name, as on the page before.
+function SectionLabel({ index, name }: { index: string; name: string }) {
+  return (
+    <p className="la-eyebrow">
+      {index} <span aria-hidden="true">/</span> {name}
+    </p>
   );
 }

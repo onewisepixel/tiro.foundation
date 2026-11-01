@@ -1,4 +1,4 @@
-# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights, About, Nodes and Contact studies, and the inventory
+# Milestone 3.0, Phase 3b: inner pages — the Manifesto, Community Rights, About, Nodes, Contact and Pilot studies, and the inventory
 
 Status: **`/manifesto` approved and released, 2026-10-30** (decision 50; PR #17 merged as `3c997d4`). The study was built on branch `design/phase-3b-manifesto`, from `main` at `6cd0920` (Phase 3a released).
 P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merged as `512bebe` after independent review; verified in production).
@@ -6,9 +6,10 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 `/about`: **approved and released, 2026-10-30** (decision 52; PR #20 merged as `d9cfb00`; verified in production, §1c.3). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
 `/nodes` and the node profiles: **approved and released, 2026-10-30** (decision 53; PR #21 merged as `02e61b0`; the ring's semantics corrected before release, §1d.2; verified in production, §1d.3). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 `/contact`: **approved and released, 2026-11-01** (decision 54; PR #22 merged as `e3e07e4`; verified in production, §1e.3). The study was built on branch `design/phase-3b-contact`, from `main` at `02e61b0`.
-Date: 2026-10-31.
+`/pilot`: **sixth study, presentation only, for founder visual approval; not merged** (§1f). Branch `design/phase-3b-pilot`, from `main` at `e3e07e4`.
+Date: 2026-11-01.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Five studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d) and `/contact` (§1e), all released, with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Six studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d) and `/contact` (§1e), all released, and `/pilot` (§1f, in review; presentation only), after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -362,6 +363,54 @@ The approval was recorded in `10b00a1` (Linux CI 41283626325 passed, every step 
 
 Mailbox operational readiness remains open as P3B-6.
 
+## 1f. `/pilot`: an invitation with its limits first (presentation only)
+
+The founder's direction: a presentation study, with the form kept inactive and the page's existing behaviour unchanged.
+
+`/pilot` was the last inner page in the Living Trace 0.2 `Movement` grammar: a decorative spine down the left with origin points, and movement registers that switched surfaces (section 04 in the paper register). The study moves it into the archive family. `Movement` itself is untouched: `/living-trace` and the Memory Project records still use it.
+
+| Element | Treatment | Why |
+| --- | --- | --- |
+| Opening | "01 / Invitation" as the eyebrow, "A pilot is forming." in display italic, the first paragraph as a lede and the second (why relationships come first) beneath it; under `--la-header` | The family's opening. The section numbers and names are the page's own, kept as eyebrows |
+| Sections | 02–05 each under a strong rule, with its number and name as the eyebrow and its title as the `h2`. Same anchors: `#invitation`, `#status`, `#ways`, `#process`, `#interest` | The spine was decorative and the registers changed surfaces between sections; one rhythm reads as one page |
+| Status | "We are inviting" and "We are not collecting" side by side as a ledger (stacked on phones), the not-collected items with their ✕ marks in the contested colour; the two cards are gone | The limits are the page's first substance, and a ledger reads as a statement, not as two options |
+| Ways and steps | Entries under rules, as before. The steps keep their origin points, the last one open | The open origin means the step has not happened, and may not |
+| The form, closed | **"Form not yet open"** in a **dashed** panel, with the address (breaking only before its "@") and the request not to send material | The dashed mark is the site's sign for what is not yet in place (the Memory Project's gates, the Nodes ring), so the panel cannot be mistaken for a form. Nothing in it takes input |
+| The form, open (local demo only) | Unchanged: the same branch, gate, token, `PilotInterestForm`, the "Local demonstration" notice and the draft privacy notice | Plan §4: form logic, tokens, the notice version and the gate stay inside Flight Deck's boundary |
+| Not added | Motion, imagery, new buttons, response times | Presentation only |
+
+**Content and behaviour preserved:**
+
+- The metadata, the three lists (`NOT_REQUESTED`, `WAYS`, `STEPS`), every sentence and both links are unchanged. The whole text of `<main>`, compared in the rendered page, is **identical** before and after, and the heading outline is the same (one h1, four h2s, seven h3s).
+- The form gate (`isPublicFormOpen`), the runtime, the token, the referral handling, `PilotInterestForm`, `actions.ts` and the privacy notice are untouched. In production the form stays closed.
+- `src/components/trace/Movement.tsx` is untouched.
+
+### 1f.1 Verification
+
+All checks compare production (`main` at `e3e07e4`) with a production build of this branch.
+
+| Check | Result |
+| --- | --- |
+| Text, links, headings | As above |
+| Closed form | "Form not yet open" in the dashed panel; no `<form>` element on the page (new release check) |
+| Open form (local demo) | Rendered in the local Flight Deck demo (`npm run dev:flight-deck`; synthetic, loopback only): the "Local demonstration" notice, `PilotInterestForm` and the draft privacy notice render inside the new section 05, and the closed panel does not. Not submitted |
+| Narrow screens | Swept at 280, 300, 320, 340, 360, 375, 390, 414, 480, 600, 768, 820, 1024 and 1440 px: no horizontal overflow at any width; the address stays within the panel (on one line, at the panel's smaller size) |
+| Keyboard | Inside the page: the Community Rights link, then the address, each with a visible focus outline |
+| axe-core (WCAG 2.0, 2.1 and 2.2, A and AA) | **No violations** of any severity, in light and dark, at 1440 and 390 px |
+| Release suite (`public-site-checks.mjs`) | **213 of 213 pass**. New checks: the five anchors, and the closed form shown as not open with no form |
+| The approved interfaces | `/`, `/memory-project`, the records and `/living-trace`: **0 differing pixels and identical keyboard behaviour** (120 captures, of which the 12 of `/pilot` differ by design). The other differences are in `/living-trace` captures with identical style fingerprints: four motion captures (13–37 px), and one reduced-motion capture (74 px) that was identical to production when captured again. No shared component (`Movement`, `OriginPoint`, `globals.css`) changed |
+| Disclosure verifier | The boundary holds (40 client files, one more than before for the Pilot stylesheet; 399 prerendered files; 29 routes) |
+| Unit tests, lint, build | 555 of 559 tests pass; the 4 failures are the known Windows-only `managedLoginScript` tests, as on `main`. Lint: 0 errors (2 warnings in unchanged backend files). Build passes |
+
+**Screenshots** (`docs/design/phase-3b/`), each page captured in one render with nothing joined:
+
+- `pilot.desktop.jpg`: before and after at 1440 px, light and dark.
+- `pilot.mobile.jpg`: before and after at 390 px, light and dark.
+- `pilot.desktop.light.png`, `pilot.desktop.dark.png` and `pilot.mobile.dark.png`: the new page at full resolution.
+- `pilot.open-demo.jpg`: the new page with the form open in the local demo, at 1440 px, light and dark (the small circle at the left edge is Next.js's development indicator, not part of the page).
+
+**Limitations:** tested in Chrome only, with no screen-reader session. The open form was rendered in the local demo, not submitted.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -401,7 +450,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 3. `/about`: the institution explained (released; decision 52, §1c).
 4. `/nodes` and the two node profiles: the gazetteer (released; decision 53, §1d).
 5. `/contact`: the entrance (released; decision 54, §1e).
-6. `/pilot` (presentation only).
+6. `/pilot` (presentation only; study in §1f).
 7. `/memories` (restyle only).
 
 Each is one PR, with the Manifesto's evidence: content preserved, screenshots, accessibility, and the release checks.

@@ -167,6 +167,12 @@ async function check(base, outFile) {
   const mailto = [...contactHtml.matchAll(/<a[^>]*href="(mailto:[^"]*)"[^>]*>([\s\S]*?)<\/a>/g)];
   ok("/contact: one address, the exact mailto: link, its text the address", mailto.length === 1 && mailto[0][1] === "mailto:custodians@tiro.foundation" && mailto[0][2].replace(/<[^>]*>/g, "").trim() === "custodians@tiro.foundation", mailto.map((m) => m[1]).join(", "));
   ok("/contact: no form", !/<form[\s>]/.test(contactHtml));
+  // Pilot: its five sections keep their anchors, and while the form is
+  // closed (every deployment until its gate is recorded) the page says so
+  // and contains no form.
+  const pilotHtml = await (await fetch(base + "/pilot")).text();
+  ok("/pilot keeps its section anchors", ["invitation", "status", "ways", "process", "interest"].every((id) => pilotHtml.includes(`id="${id}"`)));
+  ok("/pilot: the form is shown as not yet open, and there is no form", pilotHtml.includes("Form not yet open") && !/<form[\s>]/.test(pilotHtml));
   // Nodes: every seed has an anchor in the directory (/nodes#enugu), and a
   // profile's sections are headings with anchors (/nodes/lagos#themes).
   const nodesHtml = await (await fetch(base + "/nodes")).text();
