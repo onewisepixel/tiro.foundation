@@ -5,10 +5,10 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 `/community-rights`: **approved and released, 2026-10-30** (decision 51; PR #19 merged as `acf6372`; verified in production, §1b.3). The study was built on branch `design/phase-3b-community-rights`, from `main` at `512bebe`.
 `/about`: **approved and released, 2026-10-30** (decision 52; PR #20 merged as `d9cfb00`; verified in production, §1c.3). The study was built on branch `design/phase-3b-about`, from `main` at `acf6372`.
 `/nodes` and the node profiles: **approved and released, 2026-10-30** (decision 53; PR #21 merged as `02e61b0`; the ring's semantics corrected before release, §1d.2; verified in production, §1d.3). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
-`/contact`: **fifth study, for founder visual approval; not merged** (§1e). Branch `design/phase-3b-contact`, from `main` at `02e61b0`.
+`/contact`: **approved for release, 2026-11-01** (decision 54; PR #22; §1e.2). The study was built on branch `design/phase-3b-contact`, from `main` at `02e61b0`.
 Date: 2026-10-31.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Five studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c) and `/nodes` with its two profiles (§1d), all released, and `/contact` (§1e, in review), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Five studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c) and `/nodes` with its two profiles (§1d), all released, and `/contact` (§1e, approved for release), with one fix to `/pilot` (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -341,6 +341,12 @@ All checks compare production (`main` at `02e61b0`) with a production build of t
 
 **Limitations:** tested in Chrome only, with no screen-reader session. Whether the mailbox is monitored is outside the page: the study keeps the address that was already published.
 
+### 1e.2 Founder approval
+
+The founder approved the visual design of PR #22 at `cf89827` with no revisions (decision 54), having reviewed the desktop and mobile comparisons and the diff, confirmed copy and links preserved, and independently confirmed Linux CI 41250463978, including the disclosure verifier.
+
+The founder separated presentation from operational readiness: a working `mailto:` link does not establish that anyone receives or monitors the messages. Because Community Rights directs rights requests to `/contact`, mailbox monitoring is a stewardship obligation, tracked as **P3B-6** (§3). It does not block this presentation-only release, which adds no promise or intake.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -367,10 +373,11 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released), `/contact` (§1e) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released), `/contact` (§1e) |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released), `/contact` (§1e, approved) |
 | P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48 |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
+| **P3B-6** | **Mailbox operational readiness.** A working `mailto:` link does not establish that anyone receives or monitors the messages, and Community Rights directs correction, restriction and withdrawal requests to `/contact` | `custodians@tiro.foundation` (`/contact`, `/pilot`) | Founder review of PR #22, 2026-11-01 (decision 54) | Operational, not a design task; not a blocker for the presentation-only Contact release. **Before TIRO accepts real records:** verify the mailbox's delivery and ownership, who monitors it, and a procedure for handling rights-related requests. No email infrastructure or intake is added in Phase 3b |
 
 ## 4. Proposed order after the Manifesto
 
@@ -378,7 +385,7 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 2. `/community-rights`: the policy page, cited from the homepage, the Memory Project and every record; it most needs anchors (released; decision 51, §1b).
 3. `/about`: the institution explained (released; decision 52, §1c).
 4. `/nodes` and the two node profiles: the gazetteer (released; decision 53, §1d).
-5. `/contact` (study in §1e).
+5. `/contact`: the entrance (approved; decision 54, §1e).
 6. `/pilot` (presentation only).
 7. `/memories` (restyle only).
 
