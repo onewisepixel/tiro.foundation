@@ -7,10 +7,10 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 `/nodes` and the node profiles: **approved and released, 2026-10-30** (decision 53; PR #21 merged as `02e61b0`; the ring's semantics corrected before release, §1d.2; verified in production, §1d.3). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 `/contact`: **approved and released, 2026-11-01** (decision 54; PR #22 merged as `e3e07e4`; verified in production, §1e.3). The study was built on branch `design/phase-3b-contact`, from `main` at `02e61b0`.
 `/pilot`: **approved and released, 2026-11-01** (decision 55; PR #23 merged as `37c2b11`; verified in production, §1f.3). The study was built on branch `design/phase-3b-pilot`, from `main` at `e3e07e4`.
-`/memories` and its record pages: **seventh study, restyle only, for founder visual approval; not merged** (§1g). Branch `design/phase-3b-memories`, from `main` at `37c2b11`.
+`/memories` and its record pages: **seventh study, restyle only; approved (decision 56), release pending** (§1g). Branch `design/phase-3b-memories`, from `main` at `37c2b11`.
 Date: 2026-11-01.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) and `/pilot` (§1f; presentation only), all released, and `/memories` with its record pages (§1g, in review; restyle only), after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) and `/pilot` (§1f; presentation only), all released, and `/memories` with its record pages (§1g, approved; restyle only), after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -489,9 +489,15 @@ All checks compare production (`main` at `37c2b11`) with a production build of t
 
 **Observations, not changed here (restyle only):**
 
-- On a **live** record page the notice comes after the title and summary, as before; on a static record page it comes first (ethos §6.1). The order is content, so it is kept; if live records are ever enabled, moving the notice first should be part of that decision.
-- A record whose backend fails is served with **HTTP 200** (the "temporarily unavailable" page), as before. A 503 would describe it more accurately to crawlers and monitors; that is a behaviour change, outside this study.
+- On a **live** record page the notice comes after the title and summary, as before; on a static record page it comes first (ethos §6.1). The order is content, so it is kept. Tracked as **P3B-7**, a requirement before live records are enabled.
+- A record whose backend fails is served with **HTTP 200** (the "temporarily unavailable" page), as before. A 503 would describe it more accurately to crawlers and monitors; that is a behaviour change, outside this study. Tracked as **P3B-8**, a requirement before live records are enabled.
 - The field names in Provenance & Consent keep their colons ("Contributor:"), now set as small labels above their text, because the text is unchanged.
+
+### 1g.2 Founder approval
+
+The founder approved the visual design of PR #24 at `4b9ae71` with no presentation changes (decision 56): `/memories` and its record pages as an archival register, kept separate from the Memory Project demonstration.
+
+The founder made the two observations above explicit **pre-activation requirements**, tracked as **P3B-7** (live-record notice precedence) and **P3B-8** (service-failure HTTP semantics) in §3. Neither blocks this restyle, and neither behaviour is changed in PR #24.
 
 ## 2. Inventory of the other Phase 3b pages
 
@@ -519,11 +525,13 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*`, `/memories/[id]` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released); `/memories` and its record pages (in review, §1g) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, `/nodes` and its profiles, and `/contact` (released); `/memories` and its record pages (in review, §1g) |
-| P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48. **In review** (§1g, PR pending approval) |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*`, `/memories/[id]` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released); `/memories` and its record pages (approved, §1g) |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, `/nodes` and its profiles, and `/contact` (released); `/memories` and its record pages (approved, §1g) |
+| P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48. **Approved** (decision 56, §1g); release pending |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 | **P3B-6** | **Mailbox operational readiness.** A working `mailto:` link does not establish that anyone receives or monitors the messages, and Community Rights directs correction, restriction and withdrawal requests to `/contact` | `custodians@tiro.foundation` (`/contact`, `/pilot`) | Founder review of PR #22, 2026-11-01 (decision 54) | Operational, not a design task; not a blocker for the presentation-only Contact release. **Before TIRO accepts real records:** verify the mailbox's delivery and ownership, who monitors it, and a procedure for handling rights-related requests, and confirm that `/pilot`'s existing statement holds: "every inquiry is read by a person" (decision 55). No email infrastructure or intake is added in Phase 3b |
+| **P3B-7** | **Live-record notice precedence.** On a live record page (`PublicMemoryDetail`) the record-kind notice follows the title and summary; on a static record it precedes them (ethos §6.1) | `/memories/[id]` for backend-sourced records (none served: live records are disabled) | Founder review of PR #24, 2026-11-02 (decision 56) | **Pre-activation requirement**, not a blocker for the restyle. Before live records are enabled: determine the required notice ordering and enforce it, with a release check like the static records' |
+| **P3B-8** | **Service-failure HTTP semantics.** When the live Memory service fails, `/memories/[id]` renders "This record could not be checked right now" with **HTTP 200** | `src/app/memories/[id]/page.tsx` | Founder review of PR #24, 2026-11-02 (decision 56) | **Pre-activation requirement**, not a blocker for the restyle. Before live records are enabled: resolve the status (for example 503), keeping unavailable, restricted and nonexistent records distinct (restricted and nonexistent stay a flat 404) |
 
 ## 4. Proposed order after the Manifesto
 
@@ -533,6 +541,6 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 4. `/nodes` and the two node profiles: the gazetteer (released; decision 53, §1d).
 5. `/contact`: the entrance (released; decision 54, §1e).
 6. `/pilot` (presentation only; released; decision 55, §1f).
-7. `/memories` (restyle only; study in §1g).
+7. `/memories` (restyle only; approved, decision 56, §1g).
 
 Each is one PR, with the Manifesto's evidence: content preserved, screenshots, accessibility, and the release checks.
