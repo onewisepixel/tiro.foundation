@@ -4,6 +4,8 @@ import { memories, type MemoryRecord } from "@/data/memories";
 import { getRecordKindNotice } from "@/data/recordNotices";
 import { fetchPublicMemoryListing } from "@/lib/publicMemoryApi";
 import PublicMemoryCard from "@/components/PublicMemoryCard";
+import "@/components/archive/archive.css";
+import "./memories.css";
 
 // The live section below reads from the backend on every request — no
 // Partial Prerendering is available here (cacheComponents isn't enabled),
@@ -75,78 +77,69 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
   const listingResult = await fetchPublicMemoryListing({ cursor });
 
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-12 pt-8 md:pb-16 md:pt-12">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Archive Index</p>
-          <h1 className="mb-5 font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            {indexCopy.heading}
-          </h1>
-          <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            {indexCopy.subtitle}
-          </p>
-        </div>
-      </section>
+    <main id="top" className="la mm bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header className="la-frame mm-wrap mm-head">
+        <p className="la-eyebrow">Archive Index</p>
+        <h1 className="mm-h1 mt-6">{indexCopy.heading}</h1>
+        <p className="mm-intro mt-8">{indexCopy.subtitle}</p>
+      </header>
 
-      <section className="px-6 pb-28 md:pb-36">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <div className="la-frame mm-wrap">
+        <div className="mm-index">
           {memories.map((memory) => {
             const notice = getRecordKindNotice(memory.recordKind);
 
             return (
-              <article key={memory.id} className="tiro-card">
-                {notice ? (
-                  <p className="mb-5 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
-                    {notice.full}
-                  </p>
-                ) : null}
+              <article key={memory.id} className="mm-entry">
+                {notice ? <p className="mm-notice">{notice.full}</p> : null}
 
-                <div className="tiro-kv border-t-0">
-                  <span className="k">{memory.recordId}</span>
-                  <span className="v">{memory.archiveStatus}</span>
-                </div>
-                <div className="tiro-kv">
-                  <span className="k">Location</span>
-                  <span className="v">{memory.location}</span>
-                </div>
-                <div className="tiro-kv">
-                  <span className="k">Era</span>
-                  <span className="v">{memory.era}</span>
-                </div>
-                <div className="tiro-kv">
-                  <span className="k">Media</span>
-                  <span className="v">{memory.media.type}</span>
-                </div>
-
-                <h2 className="mt-6 font-[family-name:var(--font-display)] text-2xl italic tracking-tight text-[var(--tiro-text-soft)]">
-                  {memory.title}
-                </h2>
-
-                <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
-                  {memory.summary}
+                <p className="mm-accession">
+                  <span className="mm-id">{memory.recordId}</span>
+                  <span className="mm-status">{memory.archiveStatus}</span>
                 </p>
 
-                <div className="mt-5 flex flex-wrap gap-2.5">
-                  {memory.tags.slice(0, 4).map((tag) => (
-                    <span key={`${memory.id}-${tag}`} className="tiro-chip">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+                <div className="mm-entry-body">
+                  <dl className="mm-facts">
+                    <div>
+                      <dt className="la-term">Location</dt>
+                      <dd>{memory.location}</dd>
+                    </div>
+                    <div>
+                      <dt className="la-term">Era</dt>
+                      <dd>{memory.era}</dd>
+                    </div>
+                    <div>
+                      <dt className="la-term">Media</dt>
+                      <dd>{memory.media.type}</dd>
+                    </div>
+                  </dl>
 
-                <Link href={`/memories/${memory.id}`} className="tiro-link mt-6 inline-block text-sm">
-                  View record
-                </Link>
+                  <h2 className="mm-title">{memory.title}</h2>
+
+                  <p className="mm-summary">{memory.summary}</p>
+
+                  <div className="mm-tags">
+                    {memory.tags.slice(0, 4).map((tag) => (
+                      <span key={`${memory.id}-${tag}`} className="tiro-chip">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+
+                  <Link href={`/memories/${memory.id}`} className="la-more mt-6">
+                    View record
+                  </Link>
+                </div>
               </article>
             );
           })}
         </div>
-      </section>
+      </div>
 
-      <section className="px-6 pb-28 md:pb-36">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-5">Live Records</p>
-          <p className="mb-8 max-w-3xl text-sm leading-relaxed text-[var(--tiro-text-muted)] md:text-base">
+      <section id="live-records" aria-labelledby="live-records-title" className="la-frame mm-wrap mm-live">
+        <div className="mm-live-inner">
+          <h2 id="live-records-title" className="mm-h2">Live Records</h2>
+          <p className="mm-text mt-5">
             Backend-sourced demonstration records approved for public display through the staff review
             workflow. Kept separate from the archive index above, which describes only the static
             records listed there.
@@ -156,7 +149,7 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             // Reviewer-caught finding: some candidates on this page could
             // not be checked, so records may be missing from it. Never
             // present a partial page as the whole slice.
-            <p role="status" className="mb-8 text-sm text-[var(--tiro-text-muted)]">
+            <p role="status" className="mm-state" data-state="incomplete">
               Some records could not be checked just now, so this list may be incomplete. Please try again
               shortly.
             </p>
@@ -166,16 +159,19 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             // Decision 44: backend-connected records are not shown publicly
             // without an explicit decision. Not enabled is a deliberate
             // state, described as one, never as an outage.
-            <p className="text-sm text-[var(--tiro-text-muted)]">
-              Live records are not enabled on this site. Records from the live Memory service are not shown publicly until their public display is
-              approved.
+            <p className="mm-state" data-state="disabled">
+              <span className="mm-ring" aria-hidden="true" />
+              <span>
+                Live records are not enabled on this site. Records from the live Memory service are not shown publicly until their public display is
+                approved.
+              </span>
             </p>
           ) : !listingResult.ok ? (
-            <p className="text-sm text-[var(--tiro-text-muted)]">
+            <p className="mm-state" data-state="unavailable">
               Live records are temporarily unavailable. Please try again shortly.
             </p>
           ) : listingResult.listing.items.length > 0 ? (
-            <div className="flex flex-col gap-6">
+            <div className="mm-index mm-index-live">
               {listingResult.listing.items.map((record) => (
                 <PublicMemoryCard key={record.recordId} record={record} />
               ))}
@@ -190,7 +186,7 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             // readPublicListing). Describe THIS slice only; the "Load
             // more" link below (rendered whenever nextCursor is present,
             // independent of this branch) keeps continuation available.
-            <p className="text-sm text-[var(--tiro-text-muted)]">
+            <p className="mm-state">
               No live records on this page — more may be available further on.
             </p>
           ) : cursor === null ? (
@@ -198,15 +194,15 @@ export default async function MemoriesIndexPage({ searchParams }: MemoriesIndexP
             // first page (no cursor) and it's also exhausted (no
             // nextCursor) — the only case where "empty" and "nothing
             // published" actually coincide.
-            <p className="text-sm text-[var(--tiro-text-muted)]">No live records are currently published.</p>
+            <p className="mm-state">No live records are currently published.</p>
           ) : (
-            <p className="text-sm text-[var(--tiro-text-muted)]">No further live records are available.</p>
+            <p className="mm-state">No further live records are available.</p>
           )}
 
           {listingResult.ok && listingResult.listing.nextCursor ? (
             <Link
               href={`/memories?cursor=${encodeURIComponent(listingResult.listing.nextCursor)}`}
-              className="tiro-link mt-8 inline-block text-sm"
+              className="la-more mt-8"
             >
               Load more
             </Link>

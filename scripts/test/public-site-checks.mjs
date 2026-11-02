@@ -207,6 +207,25 @@ async function check(base, outFile) {
     for (const id of ["demo-audio-record", "demo-image-record", "demo-video-record"]) {
       ok(`/memories/${id} (static demonstration) still 200`, (await head(`/memories/${id}`)).status === 200);
     }
+    // The not-enabled state is drawn as not yet in place (dashed), never as an outage.
+    ok("/memories: the not-enabled state is the dashed panel", /class="mm-state" data-state="disabled"/.test(memoriesHtml) && !/data-state="unavailable"/.test(memoriesHtml));
+    ok("/memories: Live Records is a heading with an anchor", /<h2[^>]*>Live Records<\/h2>/.test(memoriesHtml) && memoriesHtml.includes('id="live-records"'));
+  }
+
+  // /memories (restyle): every demonstration record carries its notice, and
+  // the notice comes before the record's title, on the index and on each
+  // record page. A record page's parts are headings with anchors, and its
+  // integrity notes stay folded.
+  const DEMO_NOTICE = "Demonstration record — illustrative content";
+  const memoriesIndexHtml = await (await fetch(base + "/memories")).text();
+  const indexEntries = memoriesIndexHtml.split(/<article\b/).slice(1).filter((a) => a.includes("DEMO-MEM-"));
+  ok("/memories: each demonstration entry shows its notice before its title", indexEntries.length === 3 && indexEntries.every((a) => a.includes(DEMO_NOTICE) && a.indexOf(DEMO_NOTICE) < a.indexOf("<h2")), `${indexEntries.length} entries`);
+  const RECORD_SECTIONS = [["provenance-consent", "Provenance &amp; Consent"], ["media", "Media"], ["transcript", "Transcript"], ["cultural-context", "Cultural Context / Notes"], ["tags", "Tags"], ["related-nodes", "Related Nodes"], ["related-memories", "Related Memories"]];
+  for (const id of ["demo-audio-record", "demo-image-record", "demo-video-record"]) {
+    const html = await (await fetch(`${base}/memories/${id}`)).text();
+    ok(`/memories/${id}: the notice precedes the title`, html.includes(DEMO_NOTICE) && html.indexOf(DEMO_NOTICE) < html.indexOf("<h1"));
+    ok(`/memories/${id}: its parts are headings with anchors`, RECORD_SECTIONS.every(([a, t]) => html.includes(`id="${a}"`) && new RegExp(`<h2[^>]*>${t}</h2>`).test(html)));
+    ok(`/memories/${id}: integrity notes stay folded`, !/<details[^>]*\sopen/.test(html) && html.includes("Record Integrity Notes"));
   }
 
   // ---------- Browser checks ----------
@@ -229,7 +248,7 @@ async function check(base, outFile) {
     for (const theme of ["light", "dark"]) {
       await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }, { name: "prefers-reduced-motion", value: "reduce" }] });
       await setTheme(theme);
-      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/about", "/community-rights", "/pilot", "/contact", "/nodes", "/nodes/lagos", "/nodes/nigerian-pidgin"]) {
+      for (const p of [...LIVING_ARCHIVE, "/manifesto", "/about", "/community-rights", "/pilot", "/contact", "/nodes", "/nodes/lagos", "/nodes/nigerian-pidgin", "/memories", "/memories/demo-audio-record"]) {
         consoleErrors = [];
         await go(base + p);
         await evaluate(`if (!window.axe) { ${AXE} }`);

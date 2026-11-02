@@ -15,16 +15,16 @@ function MediaItem({ recordId, mediaId, contentType }: { recordId: string; media
   // media (see the milestone's caching decisions).
   if (contentType.startsWith("image/")) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt="" className="max-w-full rounded border border-[var(--tiro-border)]" />;
+    return <img src={src} alt="" className="mm-live-media" />;
   }
   if (contentType.startsWith("audio/")) {
     return <audio controls src={src} className="w-full" />;
   }
   if (contentType.startsWith("video/")) {
-    return <video controls src={src} className="max-w-full rounded border border-[var(--tiro-border)]" />;
+    return <video controls src={src} className="mm-live-media" />;
   }
   return (
-    <a href={src} className="tiro-link text-sm">
+    <a href={src} className="la-more">
       Download ({contentType})
     </a>
   );
@@ -39,53 +39,45 @@ export default function PublicMemoryDetail({ record }: PublicMemoryDetailProps) 
   const notice = getRecordKindNotice(record.recordKind);
 
   return (
-    <main className="relative min-h-screen bg-[var(--tiro-bg)] pt-28 text-[var(--tiro-text)] md:pt-32">
-      <section className="px-6 pb-14 pt-8 md:pb-16 md:pt-12">
-        <div className="mx-auto max-w-5xl">
-          <p className="tiro-eyebrow mb-6">Live Record</p>
-          <h1 className="mb-6 max-w-3xl font-[family-name:var(--font-display)] text-4xl italic leading-tight tracking-tight md:text-6xl">
-            {record.title}
-          </h1>
-          <p className="max-w-3xl text-base leading-relaxed text-[var(--tiro-text-muted)] md:text-lg">
-            {record.summary}
-          </p>
+    <main id="top" className="la mm bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
+      <header className="la-frame mm-wrap mm-head">
+        <p className="la-eyebrow">Live Record</p>
+        <h1 className="mm-h1 mt-8">{record.title}</h1>
+        <p className="mm-intro mt-8">{record.summary}</p>
 
-          {notice ? (
-            <p className="mt-6 inline-block border border-[var(--tiro-accent)] px-3 py-1.5 font-[family-name:var(--font-code)] text-[11px] uppercase leading-relaxed tracking-[0.1em] text-[var(--tiro-accent)]">
-              {notice.full}
-            </p>
-          ) : null}
+        {notice ? <p className="mm-notice mt-8">{notice.full}</p> : null}
 
-          <div className="tiro-card mt-10">
-            <div className="tiro-kv border-t-0">
-              <span className="k">Record ID</span>
-              <span className="v">{record.recordId}</span>
-            </div>
-            <div className="tiro-kv">
-              <span className="k">Provenance</span>
-              <span className="v">{record.provenanceRef}</span>
-            </div>
-            {record.reviewedAt ? (
-              <div className="tiro-kv">
-                <span className="k">Reviewed</span>
-                <span className="v">{record.reviewedAt}</span>
-              </div>
-            ) : null}
+        <dl className="mm-ledger">
+          <div>
+            <dt className="la-term">Record ID</dt>
+            <dd className="mm-id">{record.recordId}</dd>
           </div>
-        </div>
-      </section>
+          <div>
+            <dt className="la-term">Provenance</dt>
+            <dd>{record.provenanceRef}</dd>
+          </div>
+          {record.reviewedAt ? (
+            <div>
+              <dt className="la-term">Reviewed</dt>
+              <dd>{record.reviewedAt}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </header>
 
       {record.media.length > 0 ? (
-        <section className="px-6 pb-12 md:pb-16">
-          <div className="tiro-card mx-auto max-w-5xl">
-            <p className="tiro-eyebrow mb-5">Media</p>
-            <div className="space-y-6">
+        <div className="la-frame mm-wrap mm-sections">
+          <section id="media" aria-labelledby="media-title" className="mm-section">
+            <h2 id="media-title" className="mm-h2">
+              Media
+            </h2>
+            <div className="mm-body mm-live-media-list">
               {record.media.map((media) => (
                 <MediaItem key={media.mediaId} recordId={record.recordId} mediaId={media.mediaId} contentType={media.contentType} />
               ))}
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       ) : null}
     </main>
   );
