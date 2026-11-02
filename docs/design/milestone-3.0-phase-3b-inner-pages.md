@@ -7,10 +7,11 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 `/nodes` and the node profiles: **approved and released, 2026-10-30** (decision 53; PR #21 merged as `02e61b0`; the ring's semantics corrected before release, §1d.2; verified in production, §1d.3). The study was built on branch `design/phase-3b-nodes`, from `main` at `d9cfb00`.
 `/contact`: **approved and released, 2026-11-01** (decision 54; PR #22 merged as `e3e07e4`; verified in production, §1e.3). The study was built on branch `design/phase-3b-contact`, from `main` at `02e61b0`.
 `/pilot`: **approved and released, 2026-11-01** (decision 55; PR #23 merged as `37c2b11`; verified in production, §1f.3). The study was built on branch `design/phase-3b-pilot`, from `main` at `e3e07e4`.
-`/memories` and its record pages: **seventh study, restyle only; approved (decision 56), release pending** (§1g). Branch `design/phase-3b-memories`, from `main` at `37c2b11`.
-Date: 2026-11-01.
+`/memories` and its record pages: **approved and released, 2026-11-02** (decision 56; PR #24 merged as `b8781c3`; verified in production, §1g.3). The study was built on branch `design/phase-3b-memories`, from `main` at `37c2b11`.
+**Phase 3b complete:** every page in its scope is released; see `milestone-3.0-phase-3b-completion.md`.
+Date: 2026-11-02.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) and `/pilot` (§1f; presentation only), all released, and `/memories` with its record pages (§1g, approved; restyle only), after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e), `/pilot` (§1f; presentation only) and `/memories` with its record pages (§1g; restyle only), all released, after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
@@ -499,6 +500,26 @@ The founder approved the visual design of PR #24 at `4b9ae71` with no presentati
 
 The founder made the two observations above explicit **pre-activation requirements**, tracked as **P3B-7** (live-record notice precedence) and **P3B-8** (service-failure HTTP semantics) in §3. Neither blocks this restyle, and neither behaviour is changed in PR #24.
 
+### 1g.3 Release and production verification
+
+The approval was recorded in `09b4dbc` (Linux CI 41505548898 passed, every step including the disclosure verifier and the Flight Deck integration tests; the branch 0 commits behind `main`). PR #24 was then marked ready and merged with a merge commit as **`b8781c3`**. Linux CI 41506017585 passed on the merge commit, and the team production deployment completed. Checked at `https://www.tiro.foundation/memories` and the three record pages:
+
+| Check | Result |
+| --- | --- |
+| Release suite against production | **241 of 241 pass**, including every `/memories` check below, and axe (no serious or critical violations) and console checks in both themes at 1440 and 390 px |
+| Notices before static record details | On the index, each of the three entries shows its demonstration notice before its accession and title; on each record page, before the title |
+| The three demonstration records | `/memories/demo-audio-record`, `demo-image-record` and `demo-video-record` return 200; `/memories/demo` still redirects (307) to `demo-audio-record` |
+| Headings and anchors | The eight parts of each record are `h2`s with anchors, and "Live Records" is a heading; navigating to `#live-records` and each record anchor lands below the header, at 1440 and 390 px |
+| Keyboard | Index: the three "View record" links. Record page: the integrity-notes toggle, the related nodes, the related records. Each with a visible focus outline, in light and in dark |
+| Integrity notes | Folded on load on all three records (no `open` attribute) |
+| Live records not enabled | The dashed panel, with "Live records are not enabled on this site…"; no outage wording |
+| Horizontal overflow | None at 14 widths from 280 to 1440 px on the index and the three records, in **light and in dark** |
+| Both themes | Full-page captures of the index and `demo-audio-record` at 1440 and 390 px in light and dark are **byte-identical** to those approved |
+| Restricted and unknown records | `/memories/not-a-record`, `/memories/restricted-record` and `/memories/demo-mem-0001` return **404**, with no outage page (live records are disabled, so no backend record is served) |
+| Disclosure boundary | `/flight-deck`, `/flight-deck/cases`, `/flight-deck/outreach`, `/flight-deck/login` and `/api/flight-deck/health` return 404 |
+
+P3B-7 and P3B-8 remain open as pre-activation requirements; live records stay disabled.
+
 ## 2. Inventory of the other Phase 3b pages
 
 | Page | What it is | Structure today | Reusable from the Living Archive | Distinct needs | Defects found |
@@ -525,9 +546,9 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 | ID | Issue | Where | Since | Plan |
 | --- | --- | --- | --- | --- |
 | **P3B-1** | **Horizontal overflow at 320 px**: `custodians@tiro.foundation`, set as an `inline-block` display-size link, is 349 px wide and cannot wrap. The page scrolls sideways on the smallest phones | `/pilot` (the "Start a conversation" section) | Before Phase 3a (identical on `main` at `5715821`) | **Repaired and released** (PR #18, merged as `512bebe`; Linux CI 41104899979): a `<wbr />` lets the address break before its `@` only when it cannot fit. At 320 px the address breaks onto two lines and the page width drops from 349 to 320. At wider widths it stays on one line; the only pixel change is sub-pixel anti-aliasing on the address's last glyphs (about 55–86 pixels; its width moves by 0.01 px), because the text is now two runs. Its text, selection and copy are unchanged, as are the link and the form. Every other page is unchanged. The release checks no longer carry a known exception. Verified in production: 320 px wide at 320 px, the exact `mailto:` link, the form unchanged ("Form not yet open"), and every public `/flight-deck` route 404 |
-| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*`, `/memories/[id]` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released); `/memories` and its record pages (approved, §1g) |
-| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, `/nodes` and its profiles, and `/contact` (released); `/memories` and its record pages (approved, §1g) |
-| P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48. **Approved** (decision 56, §1g); release pending |
+| P3B-2 | Section labels are not headings | `/about`, `/community-rights`, `/nodes/*`, `/memories/[id]` | Before 3.0 | Fixed page by page as each is restyled: `/community-rights`, `/about`, and `/nodes` and its profiles (released); `/memories` and its record pages (released). **Resolved** for every page in Phase 3b's scope |
+| P3B-3 | Hard-coded `pt-28` header offsets | every page in §2 except `/pilot` | Before 3.0 | Each page adopts `--la-header` when restyled: `/community-rights`, `/about`, `/nodes` and its profiles, and `/contact` (released); `/memories` and its record pages (released). **Resolved** for every page in Phase 3b's scope |
+| P3B-4 | `/memories` still in the old visual language | `/memories`, `/memories/[id]` | — | Restyle only, under decisions 44 and 48. **Resolved**: released (decision 56; PR #24, `b8781c3`; §1g.3) |
 | P3B-5 | On phones, the local bar scrolls sideways without an obvious cue that more parts follow | `LocalNav` (`/manifesto`, `/memory-project`) | Founder review, 2026-10-30 | Not blocking. Revisit (for example, a subtle fade at the right edge) if touch-device testing shows confusion |
 | **P3B-6** | **Mailbox operational readiness.** A working `mailto:` link does not establish that anyone receives or monitors the messages, and Community Rights directs correction, restriction and withdrawal requests to `/contact` | `custodians@tiro.foundation` (`/contact`, `/pilot`) | Founder review of PR #22, 2026-11-01 (decision 54) | Operational, not a design task; not a blocker for the presentation-only Contact release. **Before TIRO accepts real records:** verify the mailbox's delivery and ownership, who monitors it, and a procedure for handling rights-related requests, and confirm that `/pilot`'s existing statement holds: "every inquiry is read by a person" (decision 55). No email infrastructure or intake is added in Phase 3b |
 | **P3B-7** | **Live-record notice precedence.** On a live record page (`PublicMemoryDetail`) the record-kind notice follows the title and summary; on a static record it precedes them (ethos §6.1) | `/memories/[id]` for backend-sourced records (none served: live records are disabled) | Founder review of PR #24, 2026-11-02 (decision 56) | **Pre-activation requirement**, not a blocker for the restyle. Before live records are enabled: determine the required notice ordering and enforce it, with a release check like the static records' |
@@ -541,6 +562,6 @@ axe-core reports **no violations** on these pages today (Phase 3a release checks
 4. `/nodes` and the two node profiles: the gazetteer (released; decision 53, §1d).
 5. `/contact`: the entrance (released; decision 54, §1e).
 6. `/pilot` (presentation only; released; decision 55, §1f).
-7. `/memories` (restyle only; approved, decision 56, §1g).
+7. `/memories` (restyle only; released; decision 56, §1g).
 
 Each is one PR, with the Manifesto's evidence: content preserved, screenshots, accessibility, and the release checks.
