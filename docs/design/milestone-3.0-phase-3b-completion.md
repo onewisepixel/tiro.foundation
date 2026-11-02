@@ -1,8 +1,8 @@
 # Milestone 3.0, Phase 3b: completion report
 
-Status: **every page in Phase 3b's scope is released** (plan §8 Phase 3b: restyle the inner pages, `/memories` and `/pilot`, one PR per page). Prepared for founder review, 2026-11-02.
+Status: **every page in Phase 3b's scope is released** (plan §8 Phase 3b: restyle the inner pages, `/memories` and `/pilot`, one PR per study). **Accepted as complete by the founder, 2026-11-02 (decision 57).**
 Owner: TIRO founder / Steward.
-Evidence: `milestone-3.0-phase-3b-inner-pages.md` (one section per study, each with its verification, approval and production record) and `decisions.md` (decisions 50–56).
+Evidence: `milestone-3.0-phase-3b-inner-pages.md` (one section per study, each with its verification, approval and production record) and `decisions.md` (decisions 50–56; acceptance, decision 57).
 
 Completing Phase 3b resolves none of the outstanding items in §3: each stays open until it is resolved on its own terms. Nothing in this report authorizes Phase 4, enabling live records, or Phase 5 cleanup (§4).
 
@@ -32,6 +32,13 @@ Checked on 2026-11-02, after PR #24's deployment (`b8781c3`):
 - **Disclosure boundary:** every public Flight Deck route checked returns 404; the disclosure verifier passes in CI on `b8781c3`.
 - **Live records:** not enabled; `/memories` says so, and restricted and unknown records return 404.
 - **The public form:** closed; `/pilot` shows "Form not yet open" and has no form.
+
+### 2.1 Limitations of this verification
+
+- **Chrome only:** the automated visual and accessibility checks (captures, axe, overflow, keyboard) ran in Chrome; no other browser engine was tested.
+- **No screen-reader session:** headings, landmarks and focus were checked by automation and keyboard, not with a screen reader.
+- **Synthetic fixtures for live records:** the live-record states, which production cannot show, were rendered against a local mock with synthetic records, not the real backend.
+- **Mailbox not verified:** the operational readiness of `custodians@tiro.foundation` is unverified (P3B-6).
 
 ## 3. Outstanding items, not resolved by completing Phase 3b
 

@@ -11,7 +11,7 @@ P3B-1, the `/pilot` overflow: **repaired and released, 2026-10-30** (PR #18 merg
 **Phase 3b complete:** every page in its scope is released; see `milestone-3.0-phase-3b-completion.md`.
 Date: 2026-11-02.
 Owner: TIRO founder / Steward.
-Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e) `/pilot` (§1f; presentation only) and `/memories` with its record pages (§1g; restyle only), all released, after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
+Scope: plan §8 Phase 3b, restyling the inner pages with their substance unchanged. Seven studies change pages: `/manifesto` (§1), `/community-rights` (§1b), `/about` (§1c), `/nodes` with its two profiles (§1d), `/contact` (§1e), `/pilot` (§1f; presentation only) and `/memories` with its record pages (§1g; restyle only), all released, after one earlier fix to it (P3B-1, a line break in the email address; released). The other pages are inventoried here and not touched.
 
 ## 1. `/manifesto` as the reference for long-form institutional pages
 
