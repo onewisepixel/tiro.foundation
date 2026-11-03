@@ -1,2 +1,0 @@
-CI demonstration for PR 4.1 (decision 58): a deliberate, inert protected-path change.
-It is reverted in the next commit. Nothing here is evidence.
