@@ -15,19 +15,22 @@
 //      intentionally permitted:
 //        - the `className` and `style` JSX attributes (their values too);
 //        - side-effect stylesheet imports (`import "./x.css"`);
-//        - generic wrappers: a `div`, `span` or `p` with no attributes
-//          other than className/style is replaced by its children, and the
-//          three tags are otherwise treated as one ("generic"), so p -> div
-//          with the same attributes is permitted;
-//        - empty decorative elements whose only attribute is
-//          aria-hidden="true";
+//        - generic wrappers: a `div` or `span` with no attributes other
+//          than className/style is replaced by its children, and the two
+//          tags are otherwise treated as one ("generic"). A `p` keeps its
+//          identity: it is never flattened, and p <-> div/span is a change;
+//        - empty decorative elements: an empty `span`, `div` or `hr` whose
+//          only attribute is aria-hidden="true" (no handler, tabIndex, role,
+//          href or anything else; never a control);
 //        - fragments, comments, formatting, JSX whitespace and the order of
 //          attributes and of import declarations.
 //      Everything else is protected: imports, data reads, every condition,
 //      label maps and copy, element types and order, form fields, hidden
 //      tokens, action bindings, validation attributes, ids, roles, aria-*,
-//      hrefs. The third layer, the runtime control census, is
-//      scripts/test/flight-deck-census.mjs.
+//      hrefs. A NEW component file passes automatically only if it is
+//      provably static presentation (checkPresentationOnly); otherwise it
+//      needs explicit review. The third layer, the runtime control census,
+//      is scripts/test/flight-deck-census.mjs.
 //
 // It is a regression safeguard, not a proof of behavioural equivalence. It
 // cannot see what CSS does: an erased className can hide, reorder, clip or
@@ -39,14 +42,17 @@
 // exceptions file at all (the PR that introduces this checker) is the
 // branch's own file used, and the report says so.
 //
-// Enforcement: a branch named `phase-4/*` (or --mode phase4) is checked on
-// both layers and fails on any finding. Any other branch that changes a
-// Flight Deck mixed or presentation file is checked on layer B (and on
-// new or deleted Flight Deck files); its path findings are reported only.
-// A branch that touches no Flight Deck presentation file is reported only.
+// Enforcement (auto mode): a branch is ENFORCED on both layers, path and
+// structure, if its name is `phase-4/*` OR it changes any Flight Deck
+// presentation file (a mixed file, a component, or a console stylesheet),
+// whatever the branch is called. A branch that changes no Flight Deck
+// presentation file is REPORTED only: it follows its own review (for
+// example an authorized operational change in src/lib/flightDeck). An
+// enforced branch that must also change protected code needs an exception
+// merged first. --mode enforce|report overrides auto.
 //
 //   node scripts/test/flight-deck-boundary.mjs [--base origin/main] [--branch NAME]
-//        [--mode auto|phase4|report] [--working-tree] [--json FILE]
+//        [--mode auto|enforce|report] [--working-tree] [--json FILE]
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -148,7 +154,11 @@ export function classifyPath(file) {
 // ---------- Canonical form (layer B) ----------
 
 const STYLE_ATTRS = new Set(["className", "style"]);
-const GENERIC = new Set(["div", "span", "p"]);
+// Wrappers that carry no semantics. `p` is deliberately absent: a
+// paragraph keeps its identity in the comparison.
+const GENERIC = new Set(["div", "span"]);
+// The only elements that may be added or removed as empty decoration.
+const DECORATIVE = new Set(["span", "div", "hr"]);
 const isIntrinsic = (tag) => /^[a-z]/.test(tag);
 const kindName = (node) => ts.SyntaxKind[node.kind];
 
@@ -189,8 +199,12 @@ function canonJsx(node) {
     if (GENERIC.has(tag) && attrs.length === 0) {
       return children;
     }
-    const decorative = attrs.length > 0 && attrs.every((a) => a.t === "aria-hidden" && a.c.length === 1 && a.c[0].k === "str" && a.c[0].t === "true");
-    if (decorative && children.length === 0) {
+    // Decorative only if it is a safe tag, has no children at all in the
+    // source, and its one remaining attribute is aria-hidden="true". Any
+    // handler, tabIndex, role, href, id or other attribute disqualifies it.
+    const rawEmpty = ts.isJsxSelfClosingElement(node) || node.children.every((ch) => ts.isJsxText(ch) && !ch.text.trim());
+    const onlyHidden = attrs.length === 1 && attrs[0].t === "aria-hidden" && attrs[0].c.length === 1 && attrs[0].c[0].k === "str" && attrs[0].c[0].t === "true";
+    if (DECORATIVE.has(tag) && rawEmpty && onlyHidden) {
       return [];
     }
   }
@@ -415,22 +429,91 @@ export function compareSources(before, after, file = "file.tsx") {
   return findings;
 }
 
-// A new component under src/components/flight-deck must be presentation only.
-const PRESENTATION_IMPORT_RE = /^(react|next\/link|\.\/[^/]+|\.\.?\/.*\.css)$/;
+// A NEW component under src/components/flight-deck passes automatically only
+// if it is provably static presentation. The rule is an allowlist: anything
+// the checker cannot establish as safe is a finding, and the file then needs
+// explicit review (an exception merged first). Permitted:
+//   - imports of stylesheets and of types only (no value import at all, so
+//     no indirect route to operational modules, actions, hooks or Link);
+//   - type declarations, function components, and constants made of literals;
+//   - JSX of non-interactive elements and of components declared in the
+//     same file, with no event handler, ref, spread, href/src, tabIndex,
+//     action, name or dangerouslySetInnerHTML;
+//   - only these calls: join, filter, map, slice, concat, trim, toUpperCase,
+//     toLowerCase (building class names and lists).
+// Rejected: "use client"/"use server", any other call (fetch, hooks, server
+// actions, timers, router, clipboard), new, await, assignment, increment,
+// tagged templates, browser and runtime globals, top-level code.
+const SAFE_METHODS = new Set(["join", "filter", "map", "slice", "concat", "trim", "toUpperCase", "toLowerCase"]);
+const UNSAFE_GLOBALS = new Set(["window", "document", "globalThis", "self", "localStorage", "sessionStorage", "navigator", "location", "history", "process", "fetch", "XMLHttpRequest", "WebSocket", "EventSource", "eval", "Function", "setTimeout", "setInterval", "requestAnimationFrame", "require", "module", "crypto", "indexedDB", "caches"]);
+const UNSAFE_TAGS = new Set(["a", "button", "input", "select", "textarea", "form", "label", "option", "details", "summary", "dialog", "iframe", "object", "embed", "script", "style", "link", "meta", "video", "audio", "img", "picture", "source", "area", "map", "canvas"]);
+const UNSAFE_ATTRS = new Set(["action", "formAction", "form", "name", "ref", "tabIndex", "href", "src", "srcSet", "dangerouslySetInnerHTML", "contentEditable", "autoFocus", "draggable", "target", "download"]);
+const isLiteralValue = (n) =>
+  ts.isStringLiteral(n) || ts.isNumericLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || n.kind === ts.SyntaxKind.TrueKeyword || n.kind === ts.SyntaxKind.FalseKeyword || n.kind === ts.SyntaxKind.NullKeyword ||
+  (ts.isArrayLiteralExpression(n) && n.elements.every(isLiteralValue)) ||
+  (ts.isObjectLiteralExpression(n) && n.properties.every((p) => ts.isPropertyAssignment(p) && isLiteralValue(p.initializer))) ||
+  ((ts.isAsExpression(n) || ts.isSatisfiesExpression(n)) && isLiteralValue(n.expression));
+const isPlainFunction = (n) => (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) && !n.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) && !n.asteriskToken;
+
 export function checkPresentationOnly(text, file = "component.tsx") {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const findings = [];
-  const push = (node, message) => findings.push({ file, line: lineOf(node), category: "new component is not presentation-only", message });
+  const push = (node, message) => findings.push({ file, line: lineOf(node), category: "new component needs explicit review", message });
+  const local = new Set();
   for (const st of sf.statements) {
     if (ts.isImportDeclaration(st)) {
       const spec = st.moduleSpecifier.text;
-      if (!isStyleImport(spec) && !PRESENTATION_IMPORT_RE.test(spec)) push(st, `imports ${spec}`);
+      const cl = st.importClause;
+      const typeOnly = cl && (cl.isTypeOnly || (!cl.name && cl.namedBindings && ts.isNamedImports(cl.namedBindings) && cl.namedBindings.elements.every((e) => e.isTypeOnly)));
+      if (!(isStyleImport(spec) && !cl) && !typeOnly) push(st, `value import from "${spec}" (new components may import only stylesheets and types)`);
+    } else if (ts.isExpressionStatement(st) && ts.isStringLiteral(st.expression)) {
+      push(st, `"${st.expression.text}" directive`);
+    } else if (ts.isTypeAliasDeclaration(st) || ts.isInterfaceDeclaration(st)) {
+      // types are erased
+    } else if (ts.isFunctionDeclaration(st)) {
+      if (st.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) || st.asteriskToken) push(st, "async or generator function");
+      if (st.name) local.add(st.name.text);
+    } else if (ts.isVariableStatement(st) && st.declarationList.flags & ts.NodeFlags.Const) {
+      for (const d of st.declarationList.declarations) {
+        if (!d.initializer || !(isPlainFunction(d.initializer) || isLiteralValue(d.initializer))) push(d, `top-level value that is neither a plain function nor a literal: ${d.name.getText()}`);
+        if (ts.isIdentifier(d.name)) local.add(d.name.text);
+      }
+    } else if (ts.isExportAssignment(st) && ts.isIdentifier(st.expression)) {
+      // export default Name
+    } else if (ts.isExportDeclaration(st) && !st.moduleSpecifier) {
+      // export { Name }
+    } else {
+      push(st, `top-level statement that may run code: ${collapse(st.getText()).slice(0, 60)}`);
     }
   }
   const visit = (node) => {
-    if (ts.isExpressionStatement(node) && ts.isStringLiteral(node.expression) && node.expression.text === "use server") push(node, `"use server"`);
-    if (ts.isJsxAttribute(node) && ["action", "formAction", "name"].includes(node.name.getText())) push(node, `${node.name.getText()}= attribute`);
-    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ["form", "input", "select", "textarea", "button"].includes(node.tagName.getText())) push(node, `<${node.tagName.getText()}> element`);
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const method = ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
+      if (!method || !SAFE_METHODS.has(method)) push(node, `call: ${collapse(callee.getText()).slice(0, 60)}()`);
+    }
+    if (ts.isNewExpression(node)) push(node, "new expression");
+    if (ts.isAwaitExpression(node) || ts.isYieldExpression(node)) push(node, "await or yield");
+    if (ts.isTaggedTemplateExpression(node)) push(node, "tagged template");
+    if (ts.isDeleteExpression(node)) push(node, "delete");
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) push(node, "assignment");
+    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)) push(node, "increment or decrement");
+    if (ts.isIdentifier(node) && UNSAFE_GLOBALS.has(node.text)) {
+      const p = node.parent;
+      const isPropertyName = (ts.isPropertyAccessExpression(p) && p.name === node) || (ts.isPropertyAssignment(p) && p.name === node);
+      if (!isPropertyName) push(node, `browser or runtime global: ${node.text}`);
+    }
+    if (ts.isJsxSpreadAttribute(node)) push(node, "spread attributes (could pass handlers or bindings)");
+    if (ts.isJsxAttribute(node)) {
+      const name = node.name.getText();
+      if (/^on[A-Z]/.test(name)) push(node, `event handler: ${name}`);
+      else if (UNSAFE_ATTRS.has(name)) push(node, `attribute: ${name}`);
+    }
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const tag = node.tagName.getText();
+      if (isIntrinsic(tag) && UNSAFE_TAGS.has(tag)) push(node, `interactive or resource element: <${tag}>`);
+      if (!isIntrinsic(tag) && !local.has(tag)) push(node, `component not declared in this file: <${tag}>`);
+    }
     ts.forEachChild(node, visit);
   };
   visit(sf);
@@ -493,12 +576,19 @@ export function runCheck({ base = "origin/main", branch, mode = "auto", workingT
   const structuralException = (file) => mine.find((e) => (e.structural ?? []).some((g) => matchGlob(g, file)));
 
   const files = changedFiles(mergeBase, cwd, workingTree).map((f) => ({ ...f, ...classifyPath(f.file) }));
-  const touchesFlightDeck = files.some((f) => f.cls === "mixed" || f.cls === "component" || (f.cls === "presentation" && f.file.startsWith("src/")));
-  const effective = mode === "auto" ? (branch.startsWith("phase-4/") ? "phase4" : touchesFlightDeck ? "flight-deck" : "report") : mode;
+  // Flight Deck presentation: a mixed file, a component, or a console
+  // stylesheet. Touching any of them brings the whole branch under
+  // enforcement, whatever it is called.
+  const presentationFiles = files.filter((f) => f.cls === "mixed" || f.cls === "component" || (f.cls === "presentation" && f.file.startsWith("src/")));
+  const phase4Branch = branch.startsWith("phase-4/");
+  if (!["auto", "enforce", "report"].includes(mode)) throw new Error(`unknown mode: ${mode}`);
+  const effective = mode === "auto" ? (phase4Branch || presentationFiles.length ? "enforce" : "report") : mode;
+  const reason =
+    mode !== "auto" ? `--mode ${mode}` : phase4Branch ? "a phase-4/* branch" : presentationFiles.length ? `changes Flight Deck presentation (${presentationFiles.map((f) => f.file).slice(0, 3).join(", ")}${presentationFiles.length > 3 ? ", ..." : ""})` : "changes no Flight Deck presentation file";
 
   const findings = [];
   const notes = [];
-  const add = (layer, f) => findings.push({ layer, enforced: effective === "phase4" || (effective === "flight-deck" && layer === "B"), ...f });
+  const add = (layer, f) => findings.push({ layer, enforced: effective === "enforce", ...f });
 
   for (const f of files) {
     if (f.cls === "protected") {
@@ -516,7 +606,10 @@ export function runCheck({ base = "origin/main", branch, mode = "auto", workingT
       if (f.status === "D") {
         add("B", { file: f.file, line: null, category: "deleted Flight Deck file", message: "a Flight Deck component was deleted" });
       } else if (f.status === "A") {
-        for (const x of checkPresentationOnly(after, f.file)) add("B", x);
+        const result = checkPresentationOnly(after, f.file);
+        const ex = structuralException(f.file);
+        if (result.length && ex) notes.push(`${f.file}: new component reviewed and permitted by exception, decision ${ex.decision}: ${ex.reason}`);
+        else for (const x of result) add("B", x);
       } else {
         const before = showAt(mergeBase, f.file, cwd);
         for (const x of compareSources(before, after, f.file)) add("B", x);
@@ -546,14 +639,14 @@ export function runCheck({ base = "origin/main", branch, mode = "auto", workingT
   }
 
   const failed = findings.filter((x) => x.enforced);
-  return { base, mergeBase, head, branch, mode: effective, exceptionsSource: exceptions.source, files, findings, notes, ok: failed.length === 0 };
+  return { base, mergeBase, head, branch, mode: effective, modeReason: reason, exceptionsSource: exceptions.source, files, findings, notes, ok: failed.length === 0 };
 }
 
 export function formatReport(r) {
   const lines = [];
   lines.push(`Flight Deck boundary check (decision 58)`);
   lines.push(`  branch ${r.branch}, head ${r.head.slice(0, 12)}, merge base ${r.mergeBase.slice(0, 12)} (${r.base})`);
-  lines.push(`  mode: ${r.mode}${r.mode === "phase4" ? " (paths and structure enforced)" : r.mode === "flight-deck" ? " (structure enforced; paths reported)" : " (nothing enforced: no Flight Deck presentation file changed)"}`);
+  lines.push(`  mode: ${r.mode} (${r.mode === "enforce" ? "paths and structure enforced" : "reported only; the branch follows its own review"}): ${r.modeReason}`);
   lines.push(`  exceptions read from: ${r.exceptionsSource}`);
   const counts = {};
   for (const f of r.files) counts[f.cls] = (counts[f.cls] ?? 0) + 1;

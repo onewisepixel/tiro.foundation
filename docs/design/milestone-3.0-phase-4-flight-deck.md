@@ -56,7 +56,7 @@ First match wins. Anything not listed is not an approved Phase 4 path.
 | `src/app/flight-deck/**/page.tsx` | **Mixed** | Page markup, with data reads, conditions and forms. `gates/`, `recovery/` and `sign-in/` are authorization screens: the report asks for founder review of any change |
 | `src/app/flight-deck/**/*.css`, `src/components/flight-deck/**/*.css` | Presentation | Console-scoped styles |
 | `src/components/flight-deck/ui.tsx`, `client.tsx` | **Mixed** | Shared components with the status vocabulary, the `returnTo` token, the formatting, the navigation and the submit controls |
-| `src/components/flight-deck/*.tsx` (new) | Component | Must be presentation-only: no forms, inputs, buttons, `action=` or `name=`, no "use server", and no imports other than React, `next/link`, stylesheets and sibling files |
+| `src/components/flight-deck/*.tsx` (new) | Component | Passes automatically only if it is **provably static presentation** (§3.2). Anything the checker can't establish as safe is a finding and needs explicit review, which means an exception merged first |
 | `src/app/globals.css` | Protected | Shared with `/pilot` and the public site |
 | `src/app/pilot/**`, `src/components/pilot/**` | Protected | The public-form boundary |
 | `src/**` (everything else, including the root layout, `TopNav` and `Footer`) | Protected | The public site and shared code |
@@ -72,8 +72,8 @@ Each changed mixed file, before and after, is parsed with the TypeScript compile
 
 - the `className` and `style` attributes, whatever their values;
 - side-effect stylesheet imports (`import "./x.css"`);
-- **generic wrappers**: a `div`, `span` or `p` with no attribute other than `className` or `style` is replaced by its children. The three tags are otherwise treated as one, so `p` → `div` with the same attributes is permitted;
-- empty decorative elements whose only attribute is `aria-hidden="true"`;
+- **generic wrappers**: a `div` or `span` with no attribute other than `className` or `style` is replaced by its children, and the two tags are otherwise treated as one (`div` ↔ `span` with the same attributes is permitted). **A `p` keeps its identity.** It is never flattened, so `p` ↔ `div`/`span`, or removing a paragraph around its text, is a change;
+- **empty decorative elements**, and only these: an empty `span`, `div` or `hr` whose one attribute (beside `className`/`style`) is `aria-hidden="true"`. Any other element (a control, a link, an input or any interactive or resource element), any event handler, `tabIndex`, `role`, `id` or other attribute, or any content inside, makes it an ordinary element and therefore a change;
 - fragments, comments, formatting, JSX whitespace, and the order of attributes and of import declarations.
 
 **Protected** (anything else that differs fails):
@@ -94,17 +94,52 @@ The two `SyntheticBanner` strings in `ui.tsx` must also be present verbatim.
 
 A finding gives the file, the line and a category (for example "permission, approval or gate condition" or "server-action binding"). That makes a failure readable.
 
+**New components.** A new file under `src/components/flight-deck/` passes automatically only if the checker can establish that it is static presentation. The rule is an allowlist, so anything else needs explicit review.
+
+**Permitted:**
+- imports of stylesheets and of types only. No value import at all, so there is no indirect route to operational modules, server actions, hooks, `next/link` or sibling files such as `ui.tsx`;
+- type declarations, plain (non-async) function components, and constants built from literals;
+- JSX of non-interactive elements and of components declared in the same file;
+- these calls only: `join`, `filter`, `map`, `slice`, `concat`, `trim`, `toUpperCase` and `toLowerCase`, for building class names and lists.
+
+**Rejected:**
+- a `"use client"` or `"use server"` directive;
+- any other call: network requests, hooks and effects, server actions, timers, routing, the clipboard;
+- `new`, `await`, assignment, increment, `delete` and tagged templates;
+- browser and runtime globals (`window`, `document`, `fetch`, `localStorage`, `navigator`, `process` and the rest);
+- top-level code;
+- event handlers, `ref`, spread attributes, `href`, `src`, `tabIndex`, `action`, `name` and `dangerouslySetInnerHTML`;
+- interactive or resource elements (`a`, `button`, `input`, `form`, `details`, `img`, `iframe`, `video` and the rest);
+- components not declared in the file.
+
 ### 3.3 Exceptions, modes and CI
 
 - **Exceptions** are listed in `scripts/test/flight-deck-boundary.exceptions.json`. Each names a branch, the authorizing decision and a reason.
 - They are read from the **merge base**, so a branch cannot grant itself one: an exception takes effect only after it has been merged. PR 4.1 introduces the file, so its own exception (decision 58: `ci.yml`, `scripts/flight-deck/e2e.mjs`, `scripts/test/flight-deck-*`, `docs/design/phase-4/baseline/**`) is read from the branch once, and the report says so.
 - **The checker itself** also runs from the merge base in CI once the base has one, so a branch cannot weaken the check that judges it.
-- **Modes:**
-  - `phase-4/*` branches: layers A and B enforced.
-  - Other branches that change a Flight Deck mixed or presentation file: layer B enforced; path findings reported only.
-  - Other branches: report only.
-  - Pushes to `main`: report only.
+- **Enforcement rules on pull requests** (corrected after the founder's review of PR #26; the branch name no longer decides):
+  1. **Enforced, on paths (A) and structure (B):** any PR that changes a Flight Deck presentation file (a mixed file, a component or a console stylesheet), **whatever its branch is called**. A Flight Deck change can't escape path enforcement by a different branch name.
+  2. **Enforced:** every `phase-4/*` branch, even one that touches only protected files.
+  3. **Reported only:** a PR that changes no Flight Deck presentation file. It follows its own review: for example an authorized operational change in `src/lib/flightDeck/` or `actions.ts` alone, or any unrelated work.
+  4. **An authorized change that must touch both Flight Deck presentation and protected code** (for example a future no-op Save fix) gets an exception for its branch, listing the protected paths and the files allowed to change structurally. The exception must be **merged into `main` first** with its decision number. Exceptions are never read from the PR being checked.
+  5. **Pushes to `main`:** report only. The pull request is the enforcement point.
 - **CI** runs it as the separate `flight-deck-boundary` job, so `build-lint-test` is unchanged. **It is not yet a required check.** Branch protection requires only `build-lint-test`. Making the new job required is a repository-settings change for the founder (§9).
+
+**The merge-base execution path, demonstrated.** PR 4.1 has to run its own checker, because `main` has none yet. From the next PR on, CI copies the checker from the merge base into `$RUNNER_TEMP` and runs that copy. The self-tests exercise this exactly:
+- They run the real "Flight Deck protected boundary" step script, read from `ci.yml`, with bash.
+- The run happens in a throwaway repository whose base already contains the checker and an exceptions file, and whose working copy has its own `typescript`, as `npm ci` gives CI.
+
+Results, locally (Git Bash on Windows) and on Linux CI:
+
+| Check | Result |
+| --- | --- |
+| The base copy is used ("Checker taken from the merge base") and exceptions are read from the merge base | Yes, in every case |
+| TypeScript resolves although `$RUNNER_TEMP` alone cannot resolve it; resolution comes from the working copy | Yes (asserted both ways) |
+| A permitted change | Exit 0, PASS |
+| A protected change | Exit 1, `FAIL [A] src/lib/flightDeck/access.ts` |
+| An exception on the base | Honoured (exit 0) |
+| An exception the branch adds for itself | Ignored (exit 1) |
+| A branch that rewrites its checker to always pass, plus a protected change | Exit 1. The base checker judges it; the branch's own copy would have exited 0 |
 
 ### 3.4 Limitations
 
@@ -117,7 +152,8 @@ The checker is a regression safeguard, not a proof of behavioural equivalence.
   - make a control look granted, approved or verified when it is not.
 
   Those are for the founder's review of before-and-after captures and the runtime checks.
-- Generic-wrapper flattening permits a new `div` or `span`, which can change layout and, through CSS, perceived grouping.
+- Generic-wrapper flattening permits a new `div` or `span` (and an empty decorative `span`, `div` or `hr`), which can change layout and, through CSS, perceived grouping.
+- The new-component rule is deliberately conservative. A legitimate component that uses anything outside the allowlist is routed to explicit review rather than permitted.
 - Only the first structural difference in each file is reported. Fixing it may reveal the next.
 - Server-action identity is checked by the bound name in the source, and by export name at runtime (the census). Behaviour inside an action is out of the checker's view; it is protected by path.
 - A presentational React component (other than a CSS class) cannot replace markup without an exception. That is deliberate: such a component could drop or reorder its children.
@@ -150,15 +186,21 @@ Recorded on 2026-11-03 from the unchanged Flight Deck code at `bec57d2`, against
   - It is not a Flight Deck screen. Nothing in the app was changed to draw it.
 - `relationship-print.{dark,light}.pdf`: the print view as a browser prints it (A4, backgrounds off).
 
+**The development indicator.** The round "N" button at the left edge of the console captures, including `status-vocabulary.desktop.*.jpg`, is the Next.js development indicator of the local demo server. It is not part of the Flight Deck interface and does not appear in a production build.
+
 Dates in the seed move with the day, so these images are for review, not for pixel identity across days. Later PRs capture "before" from `main` and "after" from the branch with the same script, side by side.
 
-### 5.2 Checker self-tests (98 tests, all pass)
+### 5.2 Checker self-tests (132 tests, all pass)
 
-90 boundary tests and 8 census tests:
-- each mixed file, unchanged, compares equal;
+There are 124 boundary tests and 8 census tests. They run locally and on Linux CI. Besides the cases below, they cover:
+- each of the 8 mixed files compares equal to itself;
 - 34 path classifications;
-- two new-component checks;
-- the cases below.
+- census normalization and difference detection.
+
+PR 4.1's review corrections added:
+- the paragraph, decorative-element and new-component cases;
+- the branch-name-independent enforcement cases;
+- the merge-base CI-path cases.
 
 | Case | Expected | Result |
 | --- | --- | --- |
@@ -184,7 +226,7 @@ Dates in the seed move with the day, so these images are for review, not for pix
 | data read changed (needs-review -> draft) | Reject | rejected (data read or runtime call) |
 | operational import added | Reject | rejected (operational import) |
 | navigation target changed | Reject | rejected (navigation target) |
-| consequence text moved after the decision buttons | Reject | rejected (behaviour code or element order) |
+| consequence text moved after the decision buttons | Reject | rejected (element structure (landmarks, headings, controls, order)) |
 | visible copy changed | Reject | rejected (visible text) |
 | shell: approvals count read changed | Reject | rejected (data read or runtime call) |
 | navigation item removed | Reject | rejected (status vocabulary or label map) |
@@ -194,20 +236,55 @@ Dates in the seed move with the day, so these images are for review, not for pix
 | approved style-only import (console stylesheet in the shell) | Permit | permitted |
 | harmless presentation wrapper | Permit | permitted |
 | wrapper inside a shared component | Permit | permitted |
-| generic tag swap with the same semantics (p -> div) | Permit | permitted |
+| paragraph replaced by a division (p -> div, same attributes) | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| paragraph unwrapped (a styled p removed around its text) | Reject | rejected (visible text) |
+| generic wrapper swap with the same attributes (div -> span) | Permit | permitted |
 | inline style removed | Permit | permitted |
-| decorative empty element added | Permit | permitted |
+| decorative empty span added | Permit | permitted |
+| decorative empty div added (open and close tags) | Permit | permitted |
+| decorative rule added (hr) | Permit | permitted |
+| aria-hidden button added (a control is never decorative) | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| aria-hidden link added | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| aria-hidden input added | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| aria-hidden span with an event handler | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| aria-hidden span made focusable | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| aria-hidden span with a role | Reject | rejected (element structure (landmarks, headings, controls, order)) |
+| aria-hidden span wrapping content | Reject | rejected (element structure (landmarks, headings, controls, order)) |
 | comments and formatting | Permit | permitted |
 | attribute order changed | Permit | permitted |
+| new component: an ordinary static presentation component | Permit | permitted |
+| new component: a network request (fetch) | Reject | needs review |
+| new component: an effect that invokes a server action | Reject | needs review |
+| new component: an event handler with an operational consequence | Reject | needs review |
+| new component: a direct server-action call in render | Reject | needs review |
+| new component: indirect access through a sibling module (./ui) | Reject | needs review |
+| new component: indirect access through a protected module | Reject | needs review |
+| new component: a client directive | Reject | needs review |
+| new component: a browser global (navigation) | Reject | needs review |
+| new component: a link to an operational route | Reject | needs review |
+| new component: a form control | Reject | needs review |
+| new component: spread props (could pass handlers) | Reject | needs review |
+| new component: top-level code with a side effect | Reject | needs review |
+| new component: state mutation | Reject | needs review |
 | CLI: phase-4 branch with a class change passes | Permit | exit 0 |
 | CLI: phase-4 branch touching src/lib/flightDeck fails | Reject | exit 1 |
 | CLI: phase-4 branch changing a hidden token fails | Reject | exit 1 |
 | CLI: phase-4 branch adding a new route fails | Reject | exit 1 |
 | CLI: non-Phase-4 branch touching only operational code is reported, not failed | Permit | exit 0 |
+| CLI: non-Phase-4 branch changing presentation AND a protected operational file fails | Reject | exit 1 |
+| CLI: the same non-Phase-4 branch with presentation-only changes passes | Permit | exit 0 |
+| CLI: an authorized operational change touching Flight Deck passes with its exception merged first | Permit | exit 0 |
+| CLI: the same operational change without its exception fails | Reject | exit 1 |
+| CLI: a non-Phase-4 PR cannot authorize its own exception | Reject | exit 1 |
 | CLI: non-Phase-4 branch changing Flight Deck copy fails on structure | Reject | exit 1 |
 | CLI: an exception merged into the base is honoured | Permit | exit 0 |
 | CLI: an exception a branch grants itself is ignored once the base has an exceptions file | Reject | exit 1 |
 | CLI: the merge base, not the base tip, is the comparison point | Permit | exit 0 |
+| CI path: a permitted change passes, the base checker loading TypeScript | Permit | exit 0 |
+| CI path: a protected change fails | Reject | exit 1 |
+| CI path: an exception on the base is honoured | Permit | exit 0 |
+| CI path: an exception added by the branch is ignored | Reject | exit 1 |
+| CI path: a checker weakened on the branch cannot weaken the base checker | Reject | exit 1 |
 
 Protected paths tested include `src/lib/flightDeck/**`, `src/proxy.ts`, both `actions.ts` files, `guard.ts`, the auth, internal and export routes, `globals.css`, the root layout, `TopNav`, `/pilot` and its form, `backend/`, `infra/`, `deploy/`, `ci.yml`, `package.json`, the lockfile, the checker, `e2e.mjs`, `next.config.ts` and both evidence directories. All are classified protected.
 
@@ -310,7 +387,7 @@ Not part of Phase 4 and not complete. The earlier records are not changed.
 
 ## 9. Decisions still open for the founder
 
-1. **Make `flight-deck-boundary` a required status check.** This is a branch-protection setting; it is not changed by this PR.
+1. **Make `flight-deck-boundary` a required status check** on `main`, beside `build-lint-test`. This is a branch-protection setting; it is not changed by this PR. **PR 4.1's merge is held until it is confirmed.**
 2. The public site chrome around the console (§5.4 item 5): keep it during Phase 4, or decide separately.
 3. The "outgoing text" frame in place of register paper, and status tones by form (§2), at PR 4.3 and 4.5 review.
 4. The staging approach for G4 item 11.

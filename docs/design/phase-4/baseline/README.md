@@ -11,4 +11,6 @@ The pre-redesign record of Flight Deck, taken on 2026-11-03 from the unchanged c
 | `screens/status-vocabulary.desktop.<theme>.jpg` | Every status, stage and Health state in its Badge markup, rendered in the test browser from the definitions in source (not a Flight Deck screen) | Same |
 | `screens/relationship-print.<theme>.pdf` | The relationship print view, printed to A4 with backgrounds off | Same |
 
+The round "N" at the left edge of the console captures (including the status-vocabulary sheet) is the Next.js development indicator of the local demo server, not part of the Flight Deck interface.
+
 All data is synthetic. Compare a later build with `node scripts/test/flight-deck-census.mjs --out <tmp> --compare docs/design/phase-4/baseline/census.json`.

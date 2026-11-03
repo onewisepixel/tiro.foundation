@@ -65,9 +65,10 @@ jobs:
   # (docs/design/milestone-3.0-phase-4-flight-deck.md). A separate job, so
   # build-lint-test is unchanged. The checker is taken from the merge base
   # when the base has one, so a branch cannot weaken the check it is judged
-  # by; its exceptions are read from the base too. On pull requests, phase-4/*
-  # branches fail on any protected change, and other branches fail on a
-  # structural change to Flight Deck files. On pushes to main it reports only.
+  # by; its exceptions are read from the base too. On pull requests, any
+  # branch that is phase-4/* or changes Flight Deck presentation is enforced
+  # on paths and structure, whatever its name; other PRs are reported only.
+  # On pushes to main it reports only.
   flight-deck-boundary:
     runs-on: ubuntu-latest
     steps:
