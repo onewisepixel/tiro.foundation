@@ -1,0 +1,11 @@
+{
+  "comment": "Approved exceptions to the Flight Deck protected boundary (scripts/test/flight-deck-boundary.mjs). Read from the merge base, so an exception takes effect only after it is merged. Each needs the branch it applies to, the decision that authorizes it, and a reason. 'paths' permits protected paths; 'structural' permits structural differences in mixed files.",
+  "exceptions": [
+    {
+      "branch": "phase-4/boundary-baseline",
+      "decision": 58,
+      "reason": "PR 4.1 (boundary and baseline): adds the checker, census and capture tooling, the E2E output override, the CI job that runs them, and the recorded baseline",
+      "paths": [".github/workflows/ci.yml", "scripts/flight-deck/e2e.mjs", "scripts/test/flight-deck-*", "docs/design/phase-4/baseline/**"]
+    }
+  ]
+}

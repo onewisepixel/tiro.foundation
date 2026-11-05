@@ -60,3 +60,47 @@ jobs:
       - name: CDK synth (no deploy, no credentials)
         working-directory: infra
         run: npx cdk synth
+
+  # Milestone 3.0, Phase 4 (decision 58): the Flight Deck protected boundary
+  # (docs/design/milestone-3.0-phase-4-flight-deck.md). A separate job, so
+  # build-lint-test is unchanged. The checker is taken from the merge base
+  # when the base has one, so a branch cannot weaken the check it is judged
+  # by; its exceptions are read from the base too. On pull requests, any
+  # branch that is phase-4/* or changes Flight Deck presentation is enforced
+  # on paths and structure, whatever its name; other PRs are reported only.
+  # On pushes to main it reports only.
+  flight-deck-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history, for the merge base)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Boundary checker and census self-tests
+        run: node --test scripts/test/flight-deck-boundary.test.mjs scripts/test/flight-deck-census.test.mjs
+
+      - name: Flight Deck protected boundary
+        env:
+          BOUNDARY_BRANCH: ${{ github.head_ref || github.ref_name }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^1' }}
+          MODE: ${{ github.event_name == 'pull_request' && 'auto' || 'report' }}
+        run: |
+          BASE_SHA=$(git merge-base "$BASE_REF" HEAD)
+          if git cat-file -e "$BASE_SHA:scripts/test/flight-deck-boundary.mjs" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/test/flight-deck-boundary.mjs" > "$RUNNER_TEMP/flight-deck-boundary.mjs"
+            echo "Checker taken from the merge base ($BASE_SHA)."
+            node "$RUNNER_TEMP/flight-deck-boundary.mjs" --base "$BASE_REF" --branch "$BOUNDARY_BRANCH" --mode "$MODE"
+          else
+            echo "The merge base has no checker (the PR that introduces it): using this branch's copy."
+            node scripts/test/flight-deck-boundary.mjs --base "$BASE_REF" --branch "$BOUNDARY_BRANCH" --mode "$MODE"
+          fi

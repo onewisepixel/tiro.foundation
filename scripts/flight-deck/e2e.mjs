@@ -7,6 +7,10 @@
 //
 //   npm run dev:flight-deck            (in another terminal)
 //   npm run e2e:flight-deck            (BASE_URL defaults to http://localhost:3100)
+//   E2E_OUT=<dir> npm run e2e:flight-deck
+//                                      screenshots and results go to <dir> instead,
+//                                      leaving the committed evidence untouched
+//                                      (Phase 4 verification runs; decision 58)
 //
 // The run resets the local store to the synthetic seed first.
 import { spawn } from "node:child_process";
@@ -15,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3100";
-const OUT = path.resolve(import.meta.dirname, "../../docs/flight-deck/screens");
+const OUT = process.env.E2E_OUT ? path.resolve(process.env.E2E_OUT) : path.resolve(import.meta.dirname, "../../docs/flight-deck/screens");
 const CHROME = [process.env.CHROME_PATH, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(
   (p) => p && fs.existsSync(p),
 );
