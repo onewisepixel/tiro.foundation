@@ -1,6 +1,13 @@
 # Milestone 3.0, Phase 4.1: governance hardening study
 
-> **Status: PROPOSED, NOT APPROVED.** This is an assessment and design for founder review. Nothing here is authorized. No workflow, checker, setting, credential, collaborator or permission has been changed. Decision 59 below is a proposal. It is not entered in `decisions.md`.
+> **Status: DESIGN ACCEPTED (decision 59, 2026-11-04), limited to Phase 4.1. Implementation is NOT authorized.** The founder approved decision 59 against `d821226`, and it is recorded in `decisions.md`. Nothing in §4 or §6 is authorized by it:
+> - the acceptance repository;
+> - PRs 4.1b-1 to 4.1b-3;
+> - settings S1–S5;
+> - credential steps C1–C3;
+> - any change to staging deployment.
+>
+> Each needs its own authorization. No workflow, checker, setting, credential, collaborator or permission has been changed.
 >
 > **Amended 2026-11-04 on founder direction:**
 > - Administrator bypass is kept: "Include administrators" stays off.
@@ -318,13 +325,17 @@ Credential steps (founder actions; nothing is created, issued or changed by this
    - **Recommended:** restrict the deployment ref to `main` before treating the environment as a fully enforced main-only boundary. For example, the workflow could refuse any `ref` other than `main`, or drop the input and deploy the run's own commit.
    - The workflow is **unchanged** by this study. Any restriction on its inputs needs its own authorization.
 
-## 9. Proposed decision 59 (PROPOSED, NOT APPROVED; not entered in `decisions.md`)
+## 9. Decision 59 (approved 2026-11-04, limited; recorded in `decisions.md`)
+
+The text as reviewed. The register entry carries the approval and its limits.
 
 | # | Decision | Status | Rationale | Conditions and open questions |
 | --- | --- | --- | --- | --- |
-| 59 | **Boundary governance hardening.** The Flight Deck boundary is enforced by a trusted `pull_request_target` workflow (`flight-deck-boundary-trusted`) that runs only `main`'s checker and treats PR content as git data: read-only token, no secrets, no PR code executed. Changes to workflows and to the boundary control plane must travel alone. **Approval stays founder-controlled (Option A):** acceptance is recorded against the exact head SHA before a PR is marked ready or merged, required approving reviews stay at 0, and **"Include administrators" stays off** while TIRO has one developer. Any administrator override is deliberate and documented. **Agent authority is distinguished from founder authority:** the classic token is retired promptly, an interim fine-grained token carries only routine permissions, and a separate non-admin machine identity or GitHub App is evaluated as the real separation. `flight-deck-staging` is restricted to `main`. That restriction governs the branch that starts the workflow, not the ref it deploys. The staging workflow's separately selectable `ref` remains a residual risk until the deployment ref is restricted to `main` under its own authorization | **Proposed** | Demonstrated: a PR can redefine the job behind a required check (§2.2, V1–V6), and a merge-base checker cannot defend its own invocation. There is no eligible independent reviewer today, so a required approval would be overridden routinely. A founder-owned token, however narrow, is still the founder, not a separate identity | Sequence §4. Each PR (4.1b-1 to 4.1b-3), each setting (S1–S5) and each credential step (C1–C3) needs separate authorization. Acceptance tests G-1 to G-10 come first, in a disposable repository. "Blocked" means blocked for a non-admin actor; the founder's bypass is not a failure. **If G-3 fails, work stops for founder approval before any GitHub App or credential is introduced.** Does not authorize PR 4.2, staging deployment or live records |
+| 59 | **Boundary governance hardening.** The Flight Deck boundary is enforced by a trusted `pull_request_target` workflow (`flight-deck-boundary-trusted`) that runs only `main`'s checker and treats PR content as git data: read-only token, no secrets, no PR code executed. Changes to workflows and to the boundary control plane must travel alone. **Approval stays founder-controlled (Option A):** acceptance is recorded against the exact head SHA before a PR is marked ready or merged, required approving reviews stay at 0, and **"Include administrators" stays off** while TIRO has one developer. Any administrator override is deliberate and documented. **Agent authority is distinguished from founder authority:** the classic token is retired promptly, an interim fine-grained token carries only routine permissions, and a separate non-admin machine identity or GitHub App is evaluated as the real separation. `flight-deck-staging` is restricted to `main`. That restriction governs the branch that starts the workflow, not the ref it deploys. The staging workflow's separately selectable `ref` remains a residual risk until the deployment ref is restricted to `main` under its own authorization | **Approved, limited** (2026-11-04) | Demonstrated: a PR can redefine the job behind a required check (§2.2, V1–V6), and a merge-base checker cannot defend its own invocation. There is no eligible independent reviewer today, so a required approval would be overridden routinely. A founder-owned token, however narrow, is still the founder, not a separate identity | Sequence §4. Each PR (4.1b-1 to 4.1b-3), each setting (S1–S5) and each credential step (C1–C3) needs separate authorization. Acceptance tests G-1 to G-10 come first, in a disposable repository. "Blocked" means blocked for a non-admin actor; the founder's bypass is not a failure. **If G-3 fails, work stops for founder approval before any GitHub App or credential is introduced.** Does not authorize PR 4.2, staging deployment or live records |
 
-## 10. Founder decisions needed before implementation
+## 10. Founder decisions still needed before implementation
+
+Item 1 is settled: decision 59 is approved. Item 2 is settled: PR #26 is acceptable for merge once its final head is accepted. The remaining items are open.
 
 1. Approve, amend or reject **decision 59**, as amended.
 2. **PR #26.** Either merge it with this limitation recorded (recommended: it protects against everything except a deliberate workflow edit, which shows in the diff), or hold it until the trusted check exists.

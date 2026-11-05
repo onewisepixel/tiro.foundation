@@ -1,6 +1,6 @@
 # Milestone 3.0, Phase 4: Flight Deck presentation
 
-Status: **Direction accepted in principle; only PR 4.1 (boundary and baseline) is authorized (decision 58).** PRs 4.2–4.7 each need separate review and authorization. No staging deployment, live-record activation or Phase 5 work is authorized.
+Status: **Direction accepted in principle; only PR 4.1 (boundary and baseline) is authorized (decision 58).** PR 4.1's governance hardening design is accepted (decision 59; `milestone-3.0-phase-4-governance-hardening.md`), but its implementation (PRs 4.1b-1 to 4.1b-3) is not authorized. PRs 4.2–4.7 each need separate review and authorization. No staging deployment, live-record activation or Phase 5 work is authorized.
 Date: 2026-11-03. Base: `main` at `bec57d2` (PR #25, decision 57).
 Owner: TIRO founder / Steward.
 Scope: plan §4 and §8 Phase 4 (`milestone-3.0-consolidation-plan.md`), as refined by the founder-reviewed Phase 4 assessment (2026-11-02).
@@ -387,7 +387,10 @@ Not part of Phase 4 and not complete. The earlier records are not changed.
 
 ## 9. Decisions still open for the founder
 
-1. **Make `flight-deck-boundary` a required status check** on `main`, beside `build-lint-test`. This is a branch-protection setting; it is not changed by this PR. **PR 4.1's merge is held until it is confirmed.**
+1. ~~**Make `flight-deck-boundary` a required status check** on `main`, beside `build-lint-test`.~~ **Done by the founder.** It was verified on 2026-11-04 as required, with GitHub Actions as its source and strict checks on (governance study §1).
+   - A pull request can still redefine the job behind the check. This is a disclosed bootstrap limitation.
+   - The fix is the trusted workflow of decision 59, whose implementation is not yet authorized.
+   - Administrator bypass is retained deliberately.
 2. The public site chrome around the console (§5.4 item 5): keep it during Phase 4, or decide separately.
 3. The "outgoing text" frame in place of register paper, and status tones by form (§2), at PR 4.3 and 4.5 review.
 4. The staging approach for G4 item 11.
