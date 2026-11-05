@@ -9,6 +9,8 @@
 > - Option A is retained.
 > - Test expectations are corrected for the bypass.
 > - The App fallback now needs founder approval.
+>
+> **Second amendment, same day:** the staging restriction (S3) governs the branch that starts the workflow, not the ref it deploys. The selectable deployment ref is recorded as a residual risk (§8, limitation 9).
 
 Date: 2026-11-04. Branch: `phase-4/boundary-baseline` (PR #26). Reviewed head: `cb4c576`. Related record: `milestone-3.0-phase-4-flight-deck.md` §3.3 and §9.
 
@@ -47,7 +49,9 @@ The study covers two limitations of PR 4.1:
   - Its scopes include `repo`, `workflow`, `delete_repo`, `admin:org` and `admin:repo_hook`. It expires 2027-09-02.
   - An agent using it acts as the founder with full admin rights. It could change branch protection, push to `main` or merge, even though standing instructions forbid all three.
   - GitHub cannot tell the founder's actions from an agent's.
-- **D-3. The staging environment has no branch restriction.** Any workflow on any branch can name `environment: flight-deck-staging`. Such a job would wait for the founder's approval and then receive the Vercel token. The approval gate holds. A tampered PR workflow could still request it, and the approval prompt is the only barrier.
+- **D-3. The staging environment has no branch restriction, and its deployment ref is chosen separately.**
+  - Any workflow on any branch can name `environment: flight-deck-staging`. Such a job would wait for the founder's approval and then receive the Vercel token. The approval gate holds. A tampered PR workflow could still request it, and the approval prompt is the only barrier.
+  - `deploy-flight-deck-staging.yml` also takes a `ref` input (default `main`). Both its `verify` and `deploy` jobs check out that ref. The code that is deployed is therefore chosen independently of the branch the workflow runs from.
 
 ## 2. Workflow-definition tampering
 
@@ -281,7 +285,7 @@ The acceptance repository should therefore run its "blocked" cases (G-3, G-4, G-
 | S2 | same | remove `flight-deck-boundary` | after S1, before PR 4.1b-3 |
 | — | Branch protection `main`, "Include administrators" | **no change: stays off** (D-1, founder direction) | — |
 | — | Branch protection `main`, required approving reviews | **no change: stays 0** (Option A) | — |
-| S3 | Environment `flight-deck-staging` | deployment branches: `main` only. This **intentionally prevents deployment from any other branch through that environment**: the manual staging deploy must be started from `main`, as the current workflow already does. It may still deploy another ref through its `ref` input. Consider "prevent self-review" once a second reviewer exists | near term |
+| S3 | Environment `flight-deck-staging` | deployment branches: `main` only. **What this protects:** GitHub evaluates the restriction against the **branch that starts the workflow run** (its `GITHUB_REF`). So only a workflow definition on `main` can use the environment and its credentials, and workflows on other branches, tampered ones included, are refused. This intentionally prevents starting a staging deployment from any other branch. **What it does not protect:** the code that run checks out. The staging workflow, started from `main`, can still check out and deploy any ref named in its `ref` input, after the founder's approval. S3 alone is therefore **not** a main-only deployment boundary (limitation 9). Consider "prevent self-review" once a second reviewer exists | near term |
 | S4 | Later, Option B | after an agent identity exists: 1 approval, dismiss stale, last-push approval, `CODEOWNERS` with code-owner review | when the founder decides |
 | S5 | Only with separate founder approval after a failed G-3 | GitHub App for the trusted check; private key in an environment restricted to `main`; required check pinned to the App | conditional |
 
@@ -308,13 +312,17 @@ Credential steps (founder actions; nothing is created, issued or changed by this
 5. **The PR that introduces the trusted workflow,** and PR #26 itself, are judged under the old regime and by founder review (the bootstrap).
 6. **The parser reads untrusted input.** A crafted file can at worst slow or crash the check, which fails closed.
 7. **PR 4.1's structural limits remain,** as listed in `milestone-3.0-phase-4-flight-deck.md` §3.4.
-8. **Restricting staging to `main` (S3)** removes the option of deploying through `flight-deck-staging` from any other branch. This is intended.
+8. **Restricting staging to `main` (S3)** removes the option of starting a deployment through `flight-deck-staging` from any other branch. This is intended.
+9. **The staging deployment ref is selectable independently.** S3 restricts the branch that *initiates* the workflow, not the code it deploys. `deploy-flight-deck-staging.yml` accepts a `ref` input and checks it out in both jobs. So a run started from `main` can, after the founder's approval, deploy code from any other branch or commit with the staging environment's credentials.
+   - This is not a compromise or a defect in the current approval gate. It means S3 must **not** be treated as a guarantee that only `main`'s code reaches staging.
+   - **Recommended:** restrict the deployment ref to `main` before treating the environment as a fully enforced main-only boundary. For example, the workflow could refuse any `ref` other than `main`, or drop the input and deploy the run's own commit.
+   - The workflow is **unchanged** by this study. Any restriction on its inputs needs its own authorization.
 
 ## 9. Proposed decision 59 (PROPOSED, NOT APPROVED; not entered in `decisions.md`)
 
 | # | Decision | Status | Rationale | Conditions and open questions |
 | --- | --- | --- | --- | --- |
-| 59 | **Boundary governance hardening.** The Flight Deck boundary is enforced by a trusted `pull_request_target` workflow (`flight-deck-boundary-trusted`) that runs only `main`'s checker and treats PR content as git data: read-only token, no secrets, no PR code executed. Changes to workflows and to the boundary control plane must travel alone. **Approval stays founder-controlled (Option A):** acceptance is recorded against the exact head SHA before a PR is marked ready or merged, required approving reviews stay at 0, and **"Include administrators" stays off** while TIRO has one developer. Any administrator override is deliberate and documented. **Agent authority is distinguished from founder authority:** the classic token is retired promptly, an interim fine-grained token carries only routine permissions, and a separate non-admin machine identity or GitHub App is evaluated as the real separation. `flight-deck-staging` is restricted to `main` | **Proposed** | Demonstrated: a PR can redefine the job behind a required check (§2.2, V1–V6), and a merge-base checker cannot defend its own invocation. There is no eligible independent reviewer today, so a required approval would be overridden routinely. A founder-owned token, however narrow, is still the founder, not a separate identity | Sequence §4. Each PR (4.1b-1 to 4.1b-3), each setting (S1–S5) and each credential step (C1–C3) needs separate authorization. Acceptance tests G-1 to G-10 come first, in a disposable repository. "Blocked" means blocked for a non-admin actor; the founder's bypass is not a failure. **If G-3 fails, work stops for founder approval before any GitHub App or credential is introduced.** Does not authorize PR 4.2, staging deployment or live records |
+| 59 | **Boundary governance hardening.** The Flight Deck boundary is enforced by a trusted `pull_request_target` workflow (`flight-deck-boundary-trusted`) that runs only `main`'s checker and treats PR content as git data: read-only token, no secrets, no PR code executed. Changes to workflows and to the boundary control plane must travel alone. **Approval stays founder-controlled (Option A):** acceptance is recorded against the exact head SHA before a PR is marked ready or merged, required approving reviews stay at 0, and **"Include administrators" stays off** while TIRO has one developer. Any administrator override is deliberate and documented. **Agent authority is distinguished from founder authority:** the classic token is retired promptly, an interim fine-grained token carries only routine permissions, and a separate non-admin machine identity or GitHub App is evaluated as the real separation. `flight-deck-staging` is restricted to `main`. That restriction governs the branch that starts the workflow, not the ref it deploys. The staging workflow's separately selectable `ref` remains a residual risk until the deployment ref is restricted to `main` under its own authorization | **Proposed** | Demonstrated: a PR can redefine the job behind a required check (§2.2, V1–V6), and a merge-base checker cannot defend its own invocation. There is no eligible independent reviewer today, so a required approval would be overridden routinely. A founder-owned token, however narrow, is still the founder, not a separate identity | Sequence §4. Each PR (4.1b-1 to 4.1b-3), each setting (S1–S5) and each credential step (C1–C3) needs separate authorization. Acceptance tests G-1 to G-10 come first, in a disposable repository. "Blocked" means blocked for a non-admin actor; the founder's bypass is not a failure. **If G-3 fails, work stops for founder approval before any GitHub App or credential is introduced.** Does not authorize PR 4.2, staging deployment or live records |
 
 ## 10. Founder decisions needed before implementation
 
@@ -322,5 +330,6 @@ Credential steps (founder actions; nothing is created, issued or changed by this
 2. **PR #26.** Either merge it with this limitation recorded (recommended: it protects against everything except a deliberate workflow edit, which shows in the diff), or hold it until the trusted check exists.
 3. Authorize the **disposable acceptance repository** and tests G-1 to G-10, including pushing tampered workflows there. Decide whether a non-admin test account may be used there for the "blocked" cases.
 4. Authorize **PRs 4.1b-1, 4.1b-2 and 4.1b-3**.
-5. Approve and schedule **settings S1–S3**, which the founder performs.
-6. Schedule **credential steps C1–C2** (retirement promptly), and choose between a machine account and a GitHub App for **C3**.
+5. Approve and schedule **settings S1–S3**, which the founder performs. S3 restricts the initiating branch only (limitation 9).
+6. Decide whether and when to authorize **restricting the staging workflow's deployment ref to `main`**, as separate work. Until then, the environment is not a complete main-only boundary.
+7. Schedule **credential steps C1–C2** (retirement promptly), and choose between a machine account and a GitHub App for **C3**.
