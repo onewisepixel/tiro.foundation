@@ -111,7 +111,9 @@ rejects("navigation item removed", "client", (s) => mutate(s, `  { href: "/fligh
 
 // ---------- Permitted presentation changes (must pass) ----------
 permits("CSS class change", "approvals", (s) => mutate(s, `className="fd-panel" aria-labelledby`, `className="fd-register fd-decision" aria-labelledby`));
-permits("shell header offset via the token", "layout", (s) => mutate(mutate(s, `pt-[61px]`, `pt-[var(--la-header)]`), `top-[61px]`, `top-[var(--la-header)]`));
+// Anchored on the page's main landmark, not on the shell's current offset
+// classes, so the case keeps working once the shell adopts the token.
+permits("shell header offset via the token", "layout", (s) => mutate(s, `<main id="flight-deck" className="`, `<main id="flight-deck" className="pt-[var(--la-header)] `));
 permits("approved style-only import (page stylesheet)", "approvals", (s) => `import "./approvals.css";\n${s}`);
 permits("approved style-only import (console stylesheet in the shell)", "layout", (s) => `import "@/components/flight-deck/flight-deck.css";\n${s}`);
 permits("harmless presentation wrapper", "approvals", (s) => mutate(s, `      <Notice params={params} />`, `      <div className="fd-notices">\n        <Notice params={params} />\n      </div>`));
