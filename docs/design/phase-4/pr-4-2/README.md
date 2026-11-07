@@ -1,10 +1,12 @@
 # PR 4.2: shell and navigation, verification record
 
-**Branch:** `phase-4/shell-navigation-4-2`. **Implementation:** `752e2db` (shell and navigation) and `e6a68a6` (header offset at `--la-header`), on `main` at `c0ba7cb`.
+**Branch:** `phase-4/shell-navigation-4-2`. **Integration base:** `main` at `5d42f9a`. **Implementation:** `96705c3` (shell and navigation) and `a29178a` (header offset at `--la-header`).
 
-**Depends on** `governance/boundary-selftest-anchor` (`6e5d27e`), which must be merged into `main` first.
+The branch was first built on `c0ba7cb` as `752e2db` and `e6a68a6`. It was rebased onto `5d42f9a` without conflicts, and each commit is patch-identical to its original.
 
-**Visual review:** accepted by Veris at `752e2db`, conditional on the header offset and the footer-focus finding. Both are resolved below.
+**Self-test correction:** PR #27 (`governance/boundary-selftest-anchor`) is merged into `main` at `5d42f9a`. Its corrected "shell header offset via the token" self-test is included in this branch through that base.
+
+**Visual review:** accepted by Veris at `752e2db` (now `96705c3`), conditional on the header offset and the footer-focus finding. Both are resolved below.
 
 Presentation only. The changed files are:
 - `src/app/flight-deck/flight-deck.css` (new, console-scoped);
@@ -14,7 +16,7 @@ Presentation only. The changed files are:
 
 ## Representative captures
 
-"Before" is `main` at `c0ba7cb`; "after" is this branch. All come from the local synthetic demo, signed in as the founder.
+"Before" is `main` at `c0ba7cb`; "after" is this branch. `5d42f9a` differs from `c0ba7cb` only in a test file, so the "before" captures still show `main`. All come from the local synthetic demo, signed in as the founder.
 
 | Files | Shows |
 | --- | --- |
@@ -29,13 +31,18 @@ The complete set is kept outside the repository: 29 + 29 full-page captures, clo
 
 ## Results
 
+Integrated verification, run locally on Windows at `9fa47b4` (this branch on `5d42f9a`, before this record was updated). These are local results; GitHub CI has not yet run for this branch.
+
 | Check | Result |
 | --- | --- |
-| Boundary checker against `main` | PASS, enforce mode: 1 presentation and 3 mixed files; the stylesheet import is noted as permitted |
-| Boundary self-tests | 124/124 with the anchor fix applied. Without it, this branch's own copy fails one case on its anchor (see above) |
+| Boundary checker, merge base `5d42f9a` | PASS, enforce mode: 13 files, 10 presentation and 3 mixed; the stylesheet import is noted as permitted |
+| Boundary self-tests | 124/124, using the corrected self-test from PR #27 |
+| Census self-tests | 8/8 |
 | Census against `docs/design/phase-4/baseline/census.json` | **Identical**, on the file store and on PostgreSQL, for all four roles |
 | Flight Deck E2E (`E2E_OUT` outside the repository) | 53/53 on the file store; 53/53 on PostgreSQL |
 | Build, `verify:disclosure`, lint | Pass. Lint has 0 errors; its 2 warnings are in untouched backend files |
+| `test:flight-deck-pg` | 28/28 in this run (see the intermittent case below) |
+| `npm test` | 555 pass; the 4 known Windows failures below |
 | Header alignment (console top minus header bottom) | 0 px at 1440, 1024, 768, 390, 360 and 320 px, both themes. The sticky bar is also at 0 px after scrolling. It was −2 px with the earlier 61 px offset |
 | Horizontal overflow, 12 console screens × 6 widths × 2 themes | 0 of 144 |
 | Approvals on screen and clickable | Yes at every width and theme. Before, not at 390, 360 or 320 px |
@@ -53,12 +60,12 @@ With only the indicator hidden, the same probe hits the About link itself, in bo
 These failures are in protected code that this PR does not touch, and they reproduce without it.
 
 - **`npm test` on Windows: 4 tests in `src/lib/flightDeck/managedLoginScript.test.ts`** ("request file is not private"). They check file permissions in a way that can't pass on Windows. The same 4 fail on unchanged `main`; Linux CI passes them.
-- **`test:flight-deck-pg`: the worker-lock case** ("retries a failed send … a second concurrent tick is locked out") is intermittent. It failed 1 of 20 runs of that test alone, and 2 of 6 runs of the full suite. It's a timing race: the two "concurrent" ticks sometimes don't overlap.
+- **`test:flight-deck-pg`: the worker-lock case** ("retries a failed send … a second concurrent tick is locked out") is intermittent. It failed 1 of 20 runs of that test alone, and 2 of 7 runs of the full suite (the integrated run passed). It's a timing race: the two "concurrent" ticks sometimes don't overlap.
   - The code it exercises (`src/lib/flightDeck`) is identical to `main`.
   - It is recorded here for its own follow-up, not for change in Phase 4.
 
 ## Release order
 
-1. Merge `governance/boundary-selftest-anchor` alone, under its own review.
-2. Bring this branch onto the new `main`, then rerun the boundary check, the self-tests, the census and the E2E.
-3. Release review of PR 4.2 on GitHub, with Linux CI.
+1. **Done:** `governance/boundary-selftest-anchor` merged alone as PR #27, under its own review (`main` at `5d42f9a`).
+2. **Done:** this branch rebased onto `5d42f9a`, and the boundary check, self-tests, census, E2E, build, disclosure check and lint rerun locally (Results, above).
+3. **Pending:** GitHub publication of PR 4.2 and its release review, with Linux CI. Phase 4.2 is not yet released.
