@@ -20,8 +20,8 @@ const NAV = [
 export function FlightDeckNav({ approvals }: { approvals: number }) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Flight Deck" className="fd-nav w-full min-w-0 max-w-full overflow-x-auto lg:w-auto">
-      <ul className="flex min-w-max gap-1 font-[family-name:var(--font-code)] text-xs uppercase tracking-[0.06em]">
+    <nav aria-label="Flight Deck" className="fd-nav">
+      <ul className="fd-nav-list">
         {NAV.map((item) => {
           const active = item.href === "/flight-deck" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
@@ -29,11 +29,11 @@ export function FlightDeckNav({ approvals }: { approvals: number }) {
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className="relative inline-flex min-h-11 items-center gap-1.5 border-b-2 border-transparent px-2.5 text-[var(--tiro-text-soft)] hover:text-[var(--tiro-text)]"
+                className="fd-nav-link"
               >
                 {item.label}
                 {item.label === "Approvals" && approvals > 0 ? (
-                  <span className="border border-[var(--tiro-accent)] px-1 text-[10px] text-[var(--tiro-accent)]">
+                  <span className="fd-nav-count">
                     {approvals}
                     <span className="sr-only"> awaiting</span>
                   </span>

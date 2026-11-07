@@ -165,7 +165,7 @@ export function day(iso: string | null | undefined): string {
 
 export function SyntheticBanner({ environment }: { environment: "local-demo" | "staging" }) {
   return (
-    <p className="border-b border-[var(--tiro-accent)] bg-[var(--tiro-surface)] px-[var(--lt-gutter)] py-2 text-center font-[family-name:var(--font-code)] text-[11px] uppercase tracking-[0.12em] text-[var(--tiro-accent)] md:px-6">
+    <p className="fd-banner">
       <span aria-hidden="true">◌ </span>
       {environment === "staging"
         ? "Staging · synthetic data only · cloud-hosted · no real contacts"

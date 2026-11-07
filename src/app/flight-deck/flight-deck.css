@@ -1,0 +1,268 @@
+/* ======================================================================
+   Flight Deck: console shell and navigation (Milestone 3.0 Phase 4, PR 4.2)
+
+   The console in the Living Archive family at an operational density: the
+   site's type, hairline rules and header offset (--la-header), a console
+   bar held under the site header like the public pages' local bar, and a
+   navigation that keeps every destination, Approvals included, on screen
+   at every width.
+
+   Header offset: the console still sits 61px below the top of the page
+   (pt-[61px] and top-[61px] in layout.tsx), not at --la-header (63px).
+   Moving it to the token is part of PR 4.2's brief, but the boundary
+   checker's self-test "shell header offset via the token" anchors on those
+   two literal classes, and changing that test is a protected change. The
+   offset waits for that exception; nothing else here depends on it.
+
+   Scope: every selector sits under .fd-shell (the console layout's root).
+   Next.js keeps a route's stylesheet loaded after client-side navigation,
+   so nothing here may reach the public site or /pilot. globals.css is not
+   edited: its fd-* and tiro-* rules are shared with /pilot.
+
+   No colour is added: only the --tiro-* tokens, and in print the light
+   theme's existing ink values. No motion.
+   ====================================================================== */
+
+/* Keyboard focus and in-page links stop below the fixed site header, and
+   on wide screens below the sticky console bar too. */
+html:has(.fd-shell) {
+  scroll-padding-top: calc(var(--la-header) + 1rem);
+}
+
+@media (min-width: 1024px) {
+  html:has(.fd-shell .fd-bar) {
+    scroll-padding-top: calc(var(--la-header) + 6.5rem);
+  }
+}
+
+/* ---------- The synthetic banner ----------
+   First in the console, full width, in the accent: the same size, colour
+   and text as before, set as a label band between two rules. */
+.fd-shell .fd-banner {
+  border-top: 1px solid var(--tiro-border);
+  border-bottom: 1px solid var(--tiro-accent);
+  background: var(--tiro-surface);
+  padding: 0.6rem var(--lt-gutter);
+  text-align: center;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tiro-accent);
+}
+
+@media (min-width: 768px) {
+  .fd-shell .fd-banner {
+    padding-inline: 1.5rem;
+  }
+}
+
+/* ---------- The console bar ----------
+   Navigation, then who is signed in and Sign out. Static on phones and
+   tablets, so it never covers the page while reading; held under the site
+   header from 1024px, where it fits in one or two short rows. */
+.fd-shell .fd-bar {
+  border-bottom: 1px solid var(--tiro-border);
+  background: var(--tiro-bg);
+}
+
+/* Its offset under the header is the top-[61px] class (see above). */
+@media (min-width: 1024px) {
+  .fd-shell .fd-bar {
+    position: sticky;
+    z-index: 30;
+  }
+}
+
+.fd-shell .fd-bar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1.5rem;
+  margin-inline: auto;
+  max-width: 72rem;
+  padding-inline: var(--lt-gutter);
+}
+
+@media (min-width: 768px) {
+  .fd-shell .fd-bar-inner {
+    padding-inline: 1.5rem;
+  }
+}
+
+/* ---------- Navigation ----------
+   Phones: every destination at once, in a three-column register, so
+   Approvals and its count are never scrolled out of sight. From 640px a
+   row that wraps; from 1024px one row. */
+.fd-shell .fd-nav {
+  width: 100%;
+  min-width: 0;
+}
+
+.fd-shell .fd-nav-list {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: space-between;
+  margin-inline: -0.4rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 359px) {
+  .fd-shell .fd-nav-list {
+    letter-spacing: 0.03em;
+  }
+}
+
+@media (min-width: 640px) {
+  .fd-shell .fd-nav {
+    width: auto;
+  }
+
+  .fd-shell .fd-nav-list {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 0.15rem;
+    letter-spacing: 0.1em;
+  }
+}
+
+@media (min-width: 1024px) {
+  .fd-shell .fd-nav-list {
+    flex-wrap: nowrap;
+  }
+}
+
+.fd-shell .fd-nav-link {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  padding-inline: 0.4rem;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  color: var(--tiro-text-soft);
+}
+
+@media (min-width: 640px) {
+  .fd-shell .fd-nav-link {
+    padding-inline: 0.55rem;
+  }
+}
+
+.fd-shell .fd-nav-link:hover {
+  color: var(--tiro-text);
+}
+
+.fd-shell .fd-nav-link[aria-current="page"] {
+  color: var(--tiro-accent);
+  border-bottom-color: var(--tiro-accent);
+}
+
+/* The number awaiting approval: outlined, in the accent, as before. */
+.fd-shell .fd-nav-count {
+  border: 1px solid var(--tiro-accent);
+  padding: 0 0.3rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  color: var(--tiro-accent);
+}
+
+/* ---------- Who is signed in ----------
+   Quiet, at the end of the bar. On phones a row of its own under a rule,
+   the name on the left and Sign out on the right. */
+.fd-shell .fd-who {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  border-top: 1px solid var(--tiro-border);
+  font-size: 0.75rem;
+  color: var(--tiro-text-muted);
+}
+
+.fd-shell .fd-who button {
+  min-height: 2.75rem;
+}
+
+.fd-shell .fd-role {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+@media (min-width: 640px) {
+  .fd-shell .fd-who {
+    width: auto;
+    margin-left: auto;
+    border-top: none;
+    justify-content: flex-end;
+  }
+}
+
+/* ---------- The page ---------- */
+.fd-shell .fd-main {
+  margin-inline: auto;
+  max-width: 72rem;
+  padding: 2rem var(--lt-gutter) 6rem;
+}
+
+@media (min-width: 768px) {
+  .fd-shell .fd-main {
+    padding: 2.5rem 1.5rem 6rem;
+  }
+}
+
+/* ---------- Print ----------
+   The page's content as dark ink, whichever theme is on screen (the
+   printed dark theme was pale). The values are the light theme's existing
+   ones; muted text prints at the "soft" strength for legibility. The site
+   header, the navigation and Sign out are already hidden for print; the
+   empty bar goes too. The synthetic banner stays first, framed by rules. */
+@media print {
+  .fd-shell {
+    --tiro-text: #14161f;
+    --tiro-text-soft: rgba(20, 22, 31, 0.84);
+    --tiro-text-muted: rgba(20, 22, 31, 0.84);
+    --tiro-text-subtle: rgba(20, 22, 31, 0.7);
+    --tiro-border: rgba(20, 22, 31, 0.16);
+    --tiro-border-strong: rgba(20, 22, 31, 0.28);
+    --tiro-surface: rgba(20, 22, 31, 0.035);
+    --tiro-surface-strong: rgba(20, 22, 31, 0.07);
+    --tiro-accent: #8b3a2b;
+    --tiro-mineral: #46605d;
+    --tiro-mineral-line: #5f7976;
+    --tiro-contested: #8b3a2b;
+    padding-top: 0;
+    background: none;
+    color: var(--tiro-text);
+  }
+
+  /* Paper, even when the browser prints background graphics. */
+  html:has(.fd-shell),
+  html:has(.fd-shell) body {
+    background: none;
+  }
+
+  .fd-shell .fd-bar {
+    display: none;
+  }
+
+  .fd-shell .fd-banner {
+    border: 1px solid var(--tiro-accent);
+    padding: 0.4rem 0.75rem;
+  }
+
+  .fd-shell .fd-main {
+    max-width: none;
+    padding: 1.25rem 0 0;
+  }
+}

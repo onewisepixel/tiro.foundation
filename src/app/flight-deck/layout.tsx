@@ -4,6 +4,7 @@ import { FlightDeckNav } from "@/components/flight-deck/client";
 import { SyntheticBanner } from "@/components/flight-deck/ui";
 import { getActor, getBootstrapRuntime, getConsoleRuntime } from "@/lib/flightDeck/runtime";
 import { signOut } from "./actions";
+import "./flight-deck.css";
 
 export const metadata: Metadata = {
   title: "Flight Deck — TIRO (private)",
@@ -26,15 +27,15 @@ export default async function FlightDeckLayout({ children }: { children: React.R
     : 0;
 
   return (
-    <div className="min-h-screen bg-[var(--tiro-bg)] pt-[61px] text-[var(--tiro-text)]">
+    <div className="fd-shell min-h-screen bg-[var(--tiro-bg)] pt-[61px] text-[var(--tiro-text)]">
       {rt.store.synthetic ? <SyntheticBanner environment={rt.mode === "local-demo" ? "local-demo" : "staging"} /> : null}
       {actor && consoleOpen ? (
-        <div className="sticky top-[61px] z-30 border-b border-[var(--tiro-border)] bg-[var(--tiro-bg)]">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 px-[var(--lt-gutter)] md:px-6">
+        <div className="fd-bar top-[61px]">
+          <div className="fd-bar-inner">
             <FlightDeckNav approvals={approvals} />
-            <form action={signOut} className="fd-noprint flex items-center gap-3 py-2 text-xs text-[var(--tiro-text-muted)]">
+            <form action={signOut} className="fd-noprint fd-who">
               <span>
-                {actor.displayName} · <span className="uppercase tracking-[0.06em]">{actor.role}</span>
+                {actor.displayName} · <span className="fd-role">{actor.role}</span>
               </span>
               <button type="submit" className="tiro-link">
                 Sign out
@@ -43,7 +44,7 @@ export default async function FlightDeckLayout({ children }: { children: React.R
           </div>
         </div>
       ) : null}
-      <main id="flight-deck" className="mx-auto max-w-6xl px-[var(--lt-gutter)] pb-24 pt-8 md:px-6 md:pt-10">
+      <main id="flight-deck" className="fd-main">
         {children}
       </main>
     </div>
