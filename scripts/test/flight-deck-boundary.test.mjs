@@ -111,7 +111,11 @@ rejects("navigation item removed", "client", (s) => mutate(s, `  { href: "/fligh
 
 // ---------- Permitted presentation changes (must pass) ----------
 permits("CSS class change", "approvals", (s) => mutate(s, `className="fd-panel" aria-labelledby`, `className="fd-register fd-decision" aria-labelledby`));
-permits("shell header offset via the token", "layout", (s) => mutate(mutate(s, `pt-[61px]`, `pt-[var(--la-header)]`), `top-[61px]`, `top-[var(--la-header)]`));
+// The header offset is set through the token on the shell root and on the
+// console's navigation bar. Anchored on where each element sits in the
+// layout, not on its current offset classes, so the case holds before and
+// after the shell adopts the token.
+permits("shell header offset via the token", "layout", (s) => mutate(mutate(s, `return (\n    <div className="`, `return (\n    <div className="pt-[var(--la-header)] `), `{actor && consoleOpen ? (\n        <div className="`, `{actor && consoleOpen ? (\n        <div className="top-[var(--la-header)] `));
 permits("approved style-only import (page stylesheet)", "approvals", (s) => `import "./approvals.css";\n${s}`);
 permits("approved style-only import (console stylesheet in the shell)", "layout", (s) => `import "@/components/flight-deck/flight-deck.css";\n${s}`);
 permits("harmless presentation wrapper", "approvals", (s) => mutate(s, `      <Notice params={params} />`, `      <div className="fd-notices">\n        <Notice params={params} />\n      </div>`));
