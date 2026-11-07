@@ -1,5 +1,6 @@
 /* ======================================================================
    Flight Deck: console shell and navigation (Milestone 3.0 Phase 4, PR 4.2)
+   and shared components (PR 4.3, at the end of this file)
 
    The console in the Living Archive family at an operational density: the
    site's type, hairline rules and header offset (--la-header), a console
@@ -262,5 +263,197 @@ html:has(.fd-shell) {
   .fd-shell .fd-main {
     max-width: none;
     padding: 1.25rem 0 0;
+  }
+}
+
+/* ======================================================================
+   Shared components (Milestone 3.0 Phase 4, PR 4.3)
+
+   Badges, notices, page titles, sections, fields, empty states and
+   buttons, as accepted at the PR 4.3 semantic review. Words, glyphs,
+   roles and tones are unchanged; only their form is set here. The shared
+   .fd-badge and .fd-button rules in globals.css (also used by /pilot)
+   stay as they are and are refined for the console only.
+   ====================================================================== */
+
+/* ---------- Status badges: tone told apart by form ----------
+   Weight follows urgency, so the four tones differ without colour (in
+   the light themes attention and blocked share one colour):
+     blocked    a flagged outline: heavy left edge, no fill;
+     attention  an outline;
+     done       no box, a rule beneath: settled and on record;
+     neutral    a faint hairline box, muted text.
+   No fill anywhere: a fill is kept for the page's affirmative action. */
+.fd-shell .fd-badge {
+  border: 1px solid var(--tiro-border);
+  background: transparent;
+  padding: 0.1rem 0.45rem;
+  line-height: 1.5;
+  color: var(--tiro-text-muted);
+}
+
+.fd-shell .fd-badge[data-tone="attention"] {
+  border-color: var(--tiro-accent);
+  color: var(--tiro-accent);
+}
+
+.fd-shell .fd-badge[data-tone="blocked"] {
+  border-color: var(--tiro-contested);
+  border-left-width: 5px;
+  padding-left: 0.4rem;
+  color: var(--tiro-contested);
+}
+
+.fd-shell .fd-badge[data-tone="done"] {
+  border-color: transparent;
+  border-bottom-color: var(--tiro-mineral-line);
+  padding-inline: 0;
+  color: var(--tiro-mineral);
+}
+
+/* ---------- Notices ----------
+   An error is enclosed: read it before going on. A confirmation is a rule
+   at the margin and recedes. Role, glyph and text are unchanged. */
+.fd-shell .fd-notice {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 0.85rem 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--tiro-text);
+}
+
+.fd-shell .fd-notice-error {
+  border: 1px solid var(--tiro-contested);
+  border-left-width: 3px;
+  background: var(--tiro-surface);
+}
+
+.fd-shell .fd-notice-ok {
+  border-left: 1px solid var(--tiro-mineral-line);
+}
+
+/* ---------- Page titles and sections ----------
+   The eyebrow is a muted label: the accent is kept for state and for the
+   current destination. A hairline closes the title block, as on the
+   public pages' local headers. Section rules are a step stronger, since
+   rules, not panels, now carry the grouping. */
+.fd-shell .fd-title {
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--tiro-border);
+  padding-bottom: 1.25rem;
+}
+
+.fd-shell .fd-eyebrow {
+  margin-bottom: 0.5rem;
+  color: var(--tiro-text-muted);
+}
+
+.fd-shell .fd-title-lede {
+  margin-top: 0.75rem;
+  max-width: 42rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--tiro-text-muted);
+}
+
+.fd-shell .fd-section {
+  margin-bottom: 2.5rem;
+}
+
+.fd-shell .fd-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--tiro-border-strong);
+  padding-bottom: 0.5rem;
+}
+
+.fd-shell .fd-section-head h2 {
+  color: var(--tiro-text-soft);
+}
+
+/* ---------- Fields and empty states ---------- */
+.fd-shell .fd-field-label {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--tiro-text);
+}
+
+.fd-shell .fd-field-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--tiro-text-muted);
+}
+
+/* "Nothing here" is a recorded absence, not a message. */
+.fd-shell .fd-empty {
+  border-left: 1px solid var(--tiro-border);
+  padding: 0.35rem 0 0.35rem 0.85rem;
+  font-size: 0.875rem;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- Buttons: action hierarchy ----------
+   Primary, the page's single affirmative action: filled, its weight
+   unchanged. Default: an outline, no fill. Danger: the contested outline
+   with a heavy left edge, so it is never read as primary where the two
+   share a colour. Pending ("Working…"): a faint outline rather than a
+   fade. Links styled as buttons keep the default form. Targets are 44px,
+   as in the navigation. */
+.fd-shell .fd-button {
+  border-color: var(--tiro-border-strong);
+  background: transparent;
+  min-height: 2.75rem;
+}
+
+.fd-shell .fd-button:hover {
+  background: var(--tiro-surface);
+  border-color: var(--tiro-text-soft);
+}
+
+.fd-shell .fd-button[data-tone="primary"] {
+  background: var(--tiro-accent);
+  border-color: var(--tiro-accent);
+  color: var(--tiro-bg);
+}
+
+.fd-shell .fd-button[data-tone="primary"]:hover {
+  border-color: var(--tiro-text);
+}
+
+.fd-shell .fd-button[data-tone="danger"] {
+  border-color: var(--tiro-contested);
+  border-left-width: 3px;
+  background: transparent;
+  color: var(--tiro-contested);
+}
+
+.fd-shell .fd-button[data-tone="danger"]:hover {
+  background: var(--tiro-surface);
+}
+
+.fd-shell .fd-button:disabled,
+.fd-shell .fd-button[aria-disabled="true"] {
+  opacity: 1;
+  border-color: var(--tiro-border);
+  background: transparent;
+  color: var(--tiro-text-subtle);
+  cursor: not-allowed;
+}
+
+/* Print: backgrounds are off, so the filled primary button would print as
+   pale text on paper. It prints as an outline in ink instead. */
+@media print {
+  .fd-shell .fd-button[data-tone="primary"] {
+    background: none;
+    color: var(--tiro-text);
   }
 }

@@ -82,7 +82,7 @@ export function Notice({ params }: { params: Record<string, string | string[] | 
   const error = typeof params.error === "string" ? params.error : null;
   if (error) {
     return (
-      <p role="alert" className="mb-6 flex gap-3 border-l-2 border-[var(--tiro-contested)] bg-[var(--tiro-surface)] py-3 pl-4 pr-3 text-sm text-[var(--tiro-text)]">
+      <p role="alert" className="fd-notice fd-notice-error">
         <span aria-hidden="true" className="text-[var(--tiro-contested)]">
           ✕
         </span>
@@ -95,7 +95,7 @@ export function Notice({ params }: { params: Record<string, string | string[] | 
   }
   if (notice) {
     return (
-      <p role="status" className="mb-6 flex gap-3 border-l-2 border-[var(--tiro-mineral-line)] bg-[var(--tiro-surface)] py-3 pl-4 pr-3 text-sm text-[var(--tiro-text)]">
+      <p role="status" className="fd-notice fd-notice-ok">
         <span aria-hidden="true" className="text-[var(--tiro-mineral)]">
           ✓
         </span>
@@ -108,10 +108,10 @@ export function Notice({ params }: { params: Record<string, string | string[] | 
 
 export function PageTitle({ eyebrow, title, children }: { eyebrow: string; title: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-8">
-      <p className="lt-label mb-2 text-[var(--tiro-accent)]">{eyebrow}</p>
+    <div className="fd-title">
+      <p className="lt-label fd-eyebrow">{eyebrow}</p>
       <h1 className="font-[family-name:var(--font-display)] text-3xl leading-tight md:text-4xl">{title}</h1>
-      {children ? <div className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--tiro-text-muted)]">{children}</div> : null}
+      {children ? <div className="fd-title-lede">{children}</div> : null}
     </div>
   );
 }
@@ -119,9 +119,9 @@ export function PageTitle({ eyebrow, title, children }: { eyebrow: string; title
 export function Section({ title, id, children, aside }: { title: string; id?: string; children: React.ReactNode; aside?: React.ReactNode }) {
   const hid = id ?? title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return (
-    <section aria-labelledby={`${hid}-h`} className="mb-10">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--tiro-border)] pb-2">
-        <h2 id={`${hid}-h`} className="lt-label !text-[var(--tiro-text-soft)]">
+    <section aria-labelledby={`${hid}-h`} className="fd-section">
+      <div className="fd-section-head">
+        <h2 id={`${hid}-h`} className="lt-label">
           {title}
         </h2>
         {aside}
@@ -132,17 +132,17 @@ export function Section({ title, id, children, aside }: { title: string; id?: st
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="py-3 text-sm text-[var(--tiro-text-muted)]">{children}</p>;
+  return <p className="fd-empty">{children}</p>;
 }
 
 export function Field({ label, htmlFor, hint, children }: { label: string; htmlFor: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="tiro-field-label !text-sm">
+      <label htmlFor={htmlFor} className="fd-field-label">
         {label}
       </label>
       {children}
-      {hint ? <span className="tiro-field-hint !text-xs">{hint}</span> : null}
+      {hint ? <span className="fd-field-hint">{hint}</span> : null}
     </div>
   );
 }
