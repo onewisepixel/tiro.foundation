@@ -27,10 +27,10 @@ export default async function FlightDeckLayout({ children }: { children: React.R
     : 0;
 
   return (
-    <div className="fd-shell min-h-screen bg-[var(--tiro-bg)] pt-[61px] text-[var(--tiro-text)]">
+    <div className="fd-shell min-h-screen bg-[var(--tiro-bg)] pt-[var(--la-header)] text-[var(--tiro-text)]">
       {rt.store.synthetic ? <SyntheticBanner environment={rt.mode === "local-demo" ? "local-demo" : "staging"} /> : null}
       {actor && consoleOpen ? (
-        <div className="fd-bar top-[61px]">
+        <div className="fd-bar top-[var(--la-header)]">
           <div className="fd-bar-inner">
             <FlightDeckNav approvals={approvals} />
             <form action={signOut} className="fd-noprint fd-who">

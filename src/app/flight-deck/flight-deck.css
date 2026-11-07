@@ -7,12 +7,10 @@
    navigation that keeps every destination, Approvals included, on screen
    at every width.
 
-   Header offset: the console still sits 61px below the top of the page
-   (pt-[61px] and top-[61px] in layout.tsx), not at --la-header (63px).
-   Moving it to the token is part of PR 4.2's brief, but the boundary
-   checker's self-test "shell header offset via the token" anchors on those
-   two literal classes, and changing that test is a protected change. The
-   offset waits for that exception; nothing else here depends on it.
+   Header offset: the shell starts, and the bar is held, exactly below the
+   site header, at --la-header (pt- and top-[var(--la-header)] in
+   layout.tsx). The earlier 61px offset slid the console 2px under the
+   63px header.
 
    Scope: every selector sits under .fd-shell (the console layout's root).
    Next.js keeps a route's stylesheet loaded after client-side navigation,
@@ -67,7 +65,7 @@ html:has(.fd-shell) {
   background: var(--tiro-bg);
 }
 
-/* Its offset under the header is the top-[61px] class (see above). */
+/* Its offset under the header is the top-[var(--la-header)] class. */
 @media (min-width: 1024px) {
   .fd-shell .fd-bar {
     position: sticky;
