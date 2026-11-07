@@ -1,6 +1,13 @@
 # PR 4.3: shared components, semantic review
 
-**Status: proposed, for founder and Veris review. Nothing is implemented.**
+**Status: accepted by the founder on 2026-11-07, with these decisions:**
+1. **Blocked badges:** candidate B, the flagged outline: a heavy left edge, no fill.
+2. **Completed vs authorized:** glyphs and tones are kept; the wording remains the distinction.
+3. **Informational vs actionable:** glyphs and tones are kept.
+4. **Page-title eyebrow:** muted text.
+5. **Notices, sections, fields, empty states and buttons:** as proposed.
+
+No protected change was authorized or made. The implementation and its verification are recorded in [README.md](README.md). The rest of this document is the review as it was presented.
 
 **Branch:** `phase-4/shared-components-4-3`, from `main` at `35f119d`.
 
@@ -11,6 +18,8 @@ This review compares the current and proposed treatment of each status and share
 The comparison sheets are outside the repository, in `C:\tiro\dev\evidence\phase-4-3\semantic-review\`:
 - `semantic-review.desktop.light.jpg`;
 - `semantic-review.desktop.dark.jpg`.
+
+**Correction after acceptance.** The sheets first presented showed candidate A, solid, in their main "Proposed" columns, with B in a separate table. Both sheets were regenerated with candidate B in every proposed column, page badges included, and the separate A/B table removed.
 
 Each sheet was rendered in the test browser inside the local synthetic demo, signed in as the founder, with the synthetic banner checked.
 - **Current:** the exact markup on `main` with the live stylesheets.
