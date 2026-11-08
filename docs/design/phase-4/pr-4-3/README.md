@@ -20,7 +20,7 @@ Presentation only. The changed files are:
 | --- | --- | --- |
 | Badge, blocked | 1px contested outline | Flagged outline: contested, with a 5px left edge, no fill |
 | Badge, attention | 1px accent outline | Unchanged |
-| Badge, done | 1px mineral outline | No box: a mineral rule beneath the word |
+| Badge, done | 1px mineral outline | No box: a mineral rule beneath the word. In a paragraph of running text, a 0.5rem end margin before the words that follow (review correction, below) |
 | Badge, neutral | Strong-border outline, soft text | Faint hairline box, muted text |
 | Notice, error | 2px left rule on the surface | Enclosed: contested 1px outline with a 3px left edge, on the surface |
 | Notice, confirmation | 2px left rule on the surface | A 1px mineral rule at the margin, no fill |
@@ -43,6 +43,7 @@ Presentation only. The changed files are:
 | `before/after.vocabulary.1440.light.jpg` | Every `StatusBadge`, `StageBadge` and Health state in the light theme, where attention and blocked share one colour. After, they are told apart by form |
 | `before/after.health.1440.light.jpg` | Muted eyebrow and title rule, section rules, a done badge, default and danger buttons |
 | `before/after.approvals.390.dark.jpg` | A phone: title, section, a neutral badge, and the decision row (primary, default, danger) |
+| `before/after.health-done-badges.1440.{dark,light}.jpg` | Close-ups for the review correction, scaled 1.5×: done badges in running text ("Running Every dispatch …") and right-aligned in a key/value row ("Verified: contact allowed") |
 
 The round "N" is the Next.js development indicator, not part of Flight Deck.
 
@@ -50,11 +51,20 @@ Outside the repository, in `C:\tiro\dev\evidence\phase-4-3\`:
 - `before/` and `after/`: the full set from the capture script, 29 + 29, including the relationship print PDFs in both themes;
 - `semantic-review/`: the corrected review sheets;
 - `inspect-before/` and `inspect-after/`: the inspection reports and print-media captures;
-- `verify/`: every log below.
+- `verify/`: the logs of the first run, at `784266b`;
+- `verify-r2/`, `done-spacing/` and the updated `inspect-after/`: the reruns after the review correction.
 
 ## Results
 
 Run locally on Windows on this branch. These are local results; GitHub CI has not run for this branch.
+
+After the review correction (below), these were rerun and pass as before:
+- the boundary checker and its self-tests;
+- the census on both stores and the E2E on both stores;
+- build, `verify:disclosure` and lint;
+- axe, overflow, keyboard focus, and contrast and form.
+
+`test:flight-deck-pg` and `npm test` are from the first run. The correction is one stylesheet rule, which neither suite loads.
 
 | Check | Result |
 | --- | --- |
@@ -100,7 +110,35 @@ Two outlines are below 3:1, but in neither case is the outline what identifies t
 ## Deviations from the accepted proposal
 
 1. **The primary button in print.** Browsers print without backgrounds, so the filled primary button printed its label in the background colour: 2.51:1 when printed from the dark theme, and pale on paper from either theme. A print-only rule now prints it as an ink outline (16.81:1). This was found in the baseline inspection. It is button styling within the approved scope, but it was not in the review.
-2. **Done badges have no side padding,** so their rule spans exactly the word. Next to running text this leaves a narrower gap than the old box did (Health, "Outbound activity"). The spacing belongs to the page markup and is left to PR 4.4 and 4.6.
+2. **The done-badge end margin is scoped to paragraphs of running text.** The review asked for a small logical end margin on done badges. Applied to every done badge, it moved two right-aligned badges off their edge, and it would have widened the gaps after done badges in rows of badges. So it applies only where text runs straight after the badge (see the review correction below).
+
+## Review correction: done-badge spacing
+
+Independent review found that, with no box, a done badge sat a word-space from the words after it ("Running Every dispatch …" on Health). The mineral rule is kept. One rule in `flight-deck.css` restores the gap:
+
+```css
+.fd-shell p:not(.flex):not(.grid) > .fd-badge[data-tone="done"] {
+  margin-inline-end: 0.5rem;
+}
+```
+
+**Why it's scoped.** It's a logical end margin, as the review asked, limited to paragraphs of ordinary inline flow. A margin on every done badge was tried first and measured. It moved the right-aligned badges off their edge:
+- the relationship's "Permitted" row went from 0 to 8px;
+- the outreach list's "Sent" went from 4 to 12px.
+
+It would also have added to the space in flex and grid rows, which already separate their badges with their own gap. In those rows the gap still does the spacing.
+
+**Measured** on the 12 console screens of PR 4.2 (54 done badges), in both themes at 1440, 390 and 320 px, and on Health in print in both themes:
+
+| | At `784266b` | Now |
+| --- | --- | --- |
+| Health: "Running" to the next word | 3.3px | 11.3px, on the same line, with the mineral rule intact, at every width, theme and print |
+| Health: "Verified: contact allowed" to its value's right edge | 0px | 0px |
+| Relationship: "Permitted" to its row's right edge | 0px | 0px |
+| Outreach list: "Sent" to its row's right edge | 4px (the row's padding) | 4px |
+| Done badges overflowing their parent | 0 | 0 |
+
+Pages that the seed doesn't render follow the same split. Gates and Recovery hold done badges in paragraphs and take the margin; there the badge ends the paragraph, so the margin changes nothing visible. The outreach and content detail headers and the campaign review badges are flex rows and don't take it.
 
 ## Known failures outside this change
 
@@ -117,5 +155,6 @@ These failures are in protected code that this PR does not touch, and they repro
 ## Release order
 
 1. **Done:** semantic review accepted; implementation and local verification (above).
-2. **Pending:** independent acceptance of this implementation.
-3. **Pending:** GitHub publication and release review, with Linux CI. Phase 4.3 is not released.
+2. **Done:** independent review. The implementation and the print-only primary-button rule were accepted, subject to the done-badge spacing correction, which is made above.
+3. **Pending:** acceptance of the correction.
+4. **Pending:** GitHub publication and release review, with Linux CI. Phase 4.3 is not released.

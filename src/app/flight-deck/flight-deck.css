@@ -311,6 +311,16 @@ html:has(.fd-shell) {
   color: var(--tiro-mineral);
 }
 
+/* Spacing after a done badge in running text. With no box, the badge would
+   sit a word-space from the words after it ("Running Every dispatch ...").
+   In a paragraph of ordinary inline flow, an end margin restores the gap
+   the box gave. Badges in flex and grid rows are spaced by the row's gap,
+   and a badge that ends a right-aligned value or row stays flush with the
+   edge, so neither takes the margin. */
+.fd-shell p:not(.flex):not(.grid) > .fd-badge[data-tone="done"] {
+  margin-inline-end: 0.5rem;
+}
+
 /* ---------- Notices ----------
    An error is enclosed: read it before going on. A confirmation is a rule
    at the margin and recedes. Role, glyph and text are unchanged. */
