@@ -1,6 +1,6 @@
 /* ======================================================================
-   Flight Deck: console shell and navigation (Milestone 3.0 Phase 4, PR 4.2)
-   and shared components (PR 4.3, at the end of this file)
+   Flight Deck: console shell and navigation (Milestone 3.0 Phase 4, PR 4.2),
+   shared components (PR 4.3) and read-only screens (PR 4.4), at the end
 
    The console in the Living Archive family at an operational density: the
    site's type, hairline rules and header offset (--la-header), a console
@@ -466,4 +466,202 @@ html:has(.fd-shell) {
     background: none;
     color: var(--tiro-text);
   }
+}
+
+/* ======================================================================
+   Read-only screens (Milestone 3.0 Phase 4, PR 4.4)
+
+   Now, the lists, Activity, Digest and the print view. Rules and type
+   carry the structure; an enclosure is kept only where it means "this
+   restricts what happens" (the paused notice, the alerts). Words, links,
+   order and conditions are unchanged.
+   ====================================================================== */
+
+/* ---------- Now: restrictions and alerts ----------
+   "All outbound activity is paused" is a restriction on everything that
+   follows: enclosed, with the blocked badge's heavy left edge. Alerts are
+   enclosed too, with a 3px left edge. Their colour follows their severity
+   through the page's existing inline style (contested for an action,
+   accent for a warning); the glyph (■ or ▲) and the hidden "Needs action"
+   or "Warning" prefix are unchanged. */
+.fd-shell .fd-restriction {
+  margin-bottom: 2rem;
+  border: 1px solid var(--tiro-contested);
+  border-left-width: 5px;
+  background: var(--tiro-surface);
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.fd-shell .fd-alerts {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.fd-shell .fd-alert {
+  display: flex;
+  gap: 0.75rem;
+  border-width: 1px 1px 1px 3px;
+  border-style: solid;
+  background: var(--tiro-surface);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+/* ---------- Now: the weekly review ----------
+   A way into the review, not a decision: set off by a rule, not a panel. */
+.fd-shell .fd-aside {
+  border-top: 1px solid var(--tiro-border-strong);
+  padding-top: 1rem;
+}
+
+.fd-shell .fd-aside-title {
+  font-size: 0.875rem;
+  color: var(--tiro-text);
+}
+
+.fd-shell .fd-aside-text {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- Lists ----------
+   Row numbers and dates line up in columns. */
+.fd-shell .fd-rank {
+  min-width: 1.25rem;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--tiro-text-muted);
+}
+
+/* The stage filter: links, styled as a filter rather than as status
+   badges. The current one (aria-current) is marked in the accent, as the
+   current destination is in the navigation. */
+.fd-shell .fd-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.fd-shell .fd-filter {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  border: 1px solid var(--tiro-border-strong);
+  padding: 0.2rem 0.6rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tiro-text-soft);
+}
+
+.fd-shell .fd-filter:hover {
+  border-color: var(--tiro-text-soft);
+  color: var(--tiro-text);
+}
+
+.fd-shell .fd-filter[aria-current="true"] {
+  border-color: var(--tiro-accent);
+  color: var(--tiro-accent);
+}
+
+/* ---------- Activity: the ledger ----------
+   A heavier rule under the column labels, hairlines between events, and
+   times in tabular figures so the column reads straight down. */
+.fd-shell .fd-ledger thead tr {
+  border-bottom: 1px solid var(--tiro-border-strong);
+}
+
+.fd-shell .fd-ledger tbody tr {
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+.fd-shell .fd-ledger tbody tr:hover {
+  background: var(--tiro-surface);
+}
+
+.fd-shell .fd-ledger th,
+.fd-shell .fd-ledger td {
+  padding: 0.6rem 0.9rem 0.6rem 0;
+}
+
+.fd-shell .fd-ledger th:last-child,
+.fd-shell .fd-ledger td:last-child {
+  padding-right: 0;
+}
+
+.fd-shell .fd-ledger .fd-when {
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- Digest: the four blocks ----------
+   Each block is a way into its work, not a decision: a rule above it
+   rather than a panel around it. */
+.fd-shell .fd-blocks {
+  display: grid;
+  gap: 0 2rem;
+}
+
+@media (min-width: 768px) {
+  .fd-shell .fd-blocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.fd-shell .fd-block {
+  display: block;
+  height: 100%;
+  border-top: 1px solid var(--tiro-border-strong);
+  padding: 0.9rem 0 1.25rem;
+}
+
+.fd-shell .fd-block:hover .fd-block-title {
+  color: var(--tiro-accent);
+}
+
+.fd-shell .fd-block-title {
+  margin-top: 0.4rem;
+  display: block;
+  color: var(--tiro-text);
+}
+
+.fd-shell .fd-block-count {
+  margin-top: 0.25rem;
+  display: block;
+  font-size: 0.75rem;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- The print view ----------
+   The SYNTHETIC or CONFIDENTIAL label in the accent, as the banner is;
+   each section opens with a hairline, so an empty section still reads as
+   a section. */
+.fd-shell .fd-print-label {
+  margin-bottom: 0.5rem;
+  color: var(--tiro-accent);
+}
+
+.fd-shell .fd-print-section {
+  margin-top: 2rem;
+  margin-bottom: 0.6rem;
+  border-top: 1px solid var(--tiro-border);
+  padding-top: 0.75rem;
+}
+
+.fd-shell .fd-print-list {
+  display: grid;
+  gap: 0.3rem;
+  padding-left: 1.25rem;
+  list-style: disc;
 }
