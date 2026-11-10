@@ -35,7 +35,7 @@ export default async function PrintProspect({ params }: { params: Promise<{ id: 
         </Link>
         <span className="text-[var(--tiro-text-muted)]">Use your browser&apos;s Print command.</span>
       </p>
-      <p className="lt-label mb-2">Flight Deck · relationship summary · {data.synthetic ? "SYNTHETIC DEMO DATA" : "CONFIDENTIAL"}</p>
+      <p className="lt-label fd-print-label">Flight Deck · relationship summary · {data.synthetic ? "SYNTHETIC DEMO DATA" : "CONFIDENTIAL"}</p>
       <h1 className="font-[family-name:var(--font-display)] text-3xl">{p.displayName}</h1>
       <p className="mt-2 text-[var(--tiro-text-muted)]">
         Generated {when(data.generatedAt)}. Operational contact record only: not an archival source, not verified authority, not consent to collect.
@@ -58,32 +58,32 @@ export default async function PrintProspect({ params }: { params: Promise<{ id: 
           </div>
         ))}
       </dl>
-      <h2 className="lt-label mt-8 mb-2">Contact permissions</h2>
-      <ul className="list-disc pl-5">
+      <h2 className="lt-label fd-print-section">Contact permissions</h2>
+      <ul className="fd-print-list">
         {data.permissions.map((x) => (
           <li key={x.id}>
             {x.purpose}: {x.state} ({x.basis}, {when(x.capturedAt)})
           </li>
         ))}
       </ul>
-      <h2 className="lt-label mt-8 mb-2">Submissions</h2>
-      <ul className="list-disc pl-5">
+      <h2 className="lt-label fd-print-section">Submissions</h2>
+      <ul className="fd-print-list">
         {data.submissions.map((s) => (
           <li key={s.id}>
             {when(s.submittedAt)}: topics {s.topics.length ? s.topics.join(", ") : "(none chosen)"} <span className="text-[var(--tiro-text-muted)]">[notice {s.noticeVersion}]</span>
           </li>
         ))}
       </ul>
-      <h2 className="lt-label mt-8 mb-2">Interactions</h2>
-      <ul className="list-disc pl-5">
+      <h2 className="lt-label fd-print-section">Interactions</h2>
+      <ul className="fd-print-list">
         {data.interactions.map((i) => (
           <li key={i.id}>
             {when(i.occurredAt)} · {i.direction} · {i.channel}: {i.summary}
           </li>
         ))}
       </ul>
-      <h2 className="lt-label mt-8 mb-2">Open and recent tasks</h2>
-      <ul className="list-disc pl-5">
+      <h2 className="lt-label fd-print-section">Open and recent tasks</h2>
+      <ul className="fd-print-list">
         {data.tasks.map((t) => (
           <li key={t.id}>
             [{t.status}] {t.title} {t.dueOn ? `(due ${t.dueOn})` : ""}

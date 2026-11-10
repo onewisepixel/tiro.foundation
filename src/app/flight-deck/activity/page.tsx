@@ -30,7 +30,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
       <Notice params={params} />
       {events.length === 0 ? <Empty>No activity.</Empty> : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[40rem] text-left text-xs">
+        <table className="fd-ledger w-full min-w-[40rem] text-left text-xs">
           <caption className="sr-only">Audit events, newest first</caption>
           <thead className="lt-label">
             <tr className="border-b border-[var(--tiro-border)]">
@@ -44,7 +44,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
           <tbody>
             {events.map((e) => (
               <tr key={e.id} className="border-b border-[var(--tiro-border)] align-top">
-                <td className="py-2 pr-3 whitespace-nowrap text-[var(--tiro-text-muted)]">{when(e.at)}</td>
+                <td className="fd-when">{when(e.at)}</td>
                 <td className="py-2 pr-3">
                   {displayNameFor(e.actorId)} <span className="text-[var(--tiro-text-muted)]">({e.actorRole})</span>
                 </td>

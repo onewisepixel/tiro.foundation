@@ -36,15 +36,15 @@ export default async function DigestPage({ searchParams }: { searchParams: Promi
       <Notice params={params} />
 
       <Section title="This week's blocks (a plan, not a timer)">
-        <ol className="grid gap-3 md:grid-cols-2">
+        <ol className="fd-blocks">
           {BLOCKS.map((block, i) => (
             <li key={block.title}>
-              <Link href={block.href} className="fd-panel block h-full hover:border-[var(--tiro-accent)]">
+              <Link href={block.href} className="fd-block">
                 <span className="lt-label">
                   {i + 1} · about {block.minutes} min
                 </span>
-                <span className="mt-2 block text-[var(--tiro-text)]">{block.title}</span>
-                <span className="mt-1 block text-xs text-[var(--tiro-text-muted)]">{block.count}</span>
+                <span className="fd-block-title">{block.title}</span>
+                <span className="fd-block-count">{block.count}</span>
               </Link>
             </li>
           ))}

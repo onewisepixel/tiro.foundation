@@ -26,9 +26,9 @@ export default async function NowPage({ searchParams }: { searchParams: Promise<
       <Notice params={params} />
 
       {alerts.length ? (
-        <ul role="status" className="mb-8 space-y-2">
+        <ul role="status" className="fd-alerts">
           {alerts.map((a) => (
-            <li key={a.key} className="flex gap-3 border-l-2 pl-4 text-sm" style={{ borderColor: a.severity === "action" ? "var(--tiro-contested)" : "var(--tiro-accent)" }}>
+            <li key={a.key} className="fd-alert" style={{ borderColor: a.severity === "action" ? "var(--tiro-contested)" : "var(--tiro-accent)" }}>
               <span aria-hidden="true">{a.severity === "action" ? "■" : "▲"}</span>
               <span>
                 <span className="sr-only">{a.severity === "action" ? "Needs action: " : "Warning: "}</span>
@@ -43,7 +43,7 @@ export default async function NowPage({ searchParams }: { searchParams: Promise<
       ) : null}
 
       {b.paused ? (
-        <p role="status" className="mb-8 border-l-2 border-[var(--tiro-contested)] pl-4 text-sm">
+        <p role="status" className="fd-restriction">
           <strong>All outbound activity is paused.</strong> Nothing will be dispatched or attested until it is resumed on{" "}
           <Link className="tiro-link" href="/flight-deck/health">
             Health
@@ -62,7 +62,7 @@ export default async function NowPage({ searchParams }: { searchParams: Promise<
                 {b.nextActions.map((a, i) => (
                   <li key={`${a.href}-${i}`}>
                     <Link href={a.href} className="fd-row flex items-start gap-4 px-1">
-                      <span className="font-[family-name:var(--font-code)] text-xs text-[var(--tiro-text-muted)]">{i + 1}</span>
+                      <span className="fd-rank">{i + 1}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[var(--tiro-text)]">{a.title}</span>
                         <span className="mt-1 block text-xs text-[var(--tiro-text-muted)]">
@@ -189,9 +189,9 @@ export default async function NowPage({ searchParams }: { searchParams: Promise<
             )}
           </Section>
 
-          <div className="fd-panel">
-            <p className="text-sm text-[var(--tiro-text-soft)]">Weekly review and digest</p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--tiro-text-muted)]">Generate the digest, work through the four review blocks, then mark the review complete.</p>
+          <div className="fd-aside">
+            <p className="fd-aside-title">Weekly review and digest</p>
+            <p className="fd-aside-text">Generate the digest, work through the four review blocks, then mark the review complete.</p>
             <Link href="/flight-deck/digest" className="fd-button mt-3">
               Open weekly review
             </Link>

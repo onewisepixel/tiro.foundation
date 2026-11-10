@@ -34,12 +34,12 @@ export default async function RelationshipsPage({ searchParams }: { searchParams
           Add a researched or referred contact
         </Link>
       </div>
-      <nav aria-label="Filter by stage" className="mb-6 flex flex-wrap gap-2 text-xs">
-        <Link href="/flight-deck/relationships" aria-current={!stage ? "true" : undefined} className={`fd-badge ${!stage ? "!border-[var(--tiro-accent)] !text-[var(--tiro-accent)]" : ""}`}>
+      <nav aria-label="Filter by stage" className="fd-filters">
+        <Link href="/flight-deck/relationships" aria-current={!stage ? "true" : undefined} className="fd-filter">
           All ({[...counts.values()].reduce((a, b) => a + b, 0)})
         </Link>
         {STAGES.filter((s) => counts.get(s)).map((s) => (
-          <Link key={s} href={`/flight-deck/relationships?stage=${s}`} aria-current={stage === s ? "true" : undefined} className={`fd-badge ${stage === s ? "!border-[var(--tiro-accent)] !text-[var(--tiro-accent)]" : ""}`}>
+          <Link key={s} href={`/flight-deck/relationships?stage=${s}`} aria-current={stage === s ? "true" : undefined} className="fd-filter">
             {STAGE_LABELS[s]} ({counts.get(s)})
           </Link>
         ))}
