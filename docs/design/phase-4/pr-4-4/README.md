@@ -42,9 +42,9 @@ What's kept:
 
 ## Representative captures
 
-Matched before/after pairs, taken by the same inspection script under the same conditions:
-- the local synthetic demo, signed in as the founder;
-- seed reset, so "before" and "after" show the same records.
+Matched before/after pairs, taken by the same inspection script in the local synthetic demo, signed in as the founder.
+
+The captures use equivalent seeded scenarios and application states. Runtime-generated identifiers, audit events, and print generation times may differ between captures. Comparisons assess presentation and structure, not byte-identical records.
 
 Before is `main` at `3c531a8`; after is this branch. All are crops of full-page captures.
 
@@ -89,7 +89,7 @@ The print view writes an audit event each time it is opened. Its data reads and 
 
 ## Limitations
 
-1. **The two alert severities share one form.** In the light themes, an "action" alert and a "warning" alert are the same colour, so they're told apart by the glyph (■ or ▲) and the hidden "Needs action" or "Warning" prefix, as before. I tried giving actions the heavy 5px edge through the alert's inline `style`. That broke the boundary self-test "permits: inline style removed", which anchors on that exact `style` string. The test file is protected tooling, so the change was reverted and the style is unchanged. Doing it would need a separate governance change to the self-test, as PR #27 was for the header offset. **Needs separate authorization if wanted.**
+1. **The two alert severities share one form.** In the light themes, an "action" alert and a "warning" alert are the same colour, so they're told apart by the glyph (■ or ▲) and the hidden "Needs action" or "Warning" prefix, as before. I tried giving actions the heavy 5px edge through the alert's inline `style`. That broke the boundary self-test "permits: inline style removed", which anchors on that exact `style` string. The test file is protected tooling, so the change was reverted and the style is unchanged. Doing it would need a separate governance change to the self-test, as PR #27 was for the header offset. **Deferred at independent review:** the glyphs and accessible labels already tell the severities apart, so the edge isn't needed for this iteration. It may be revisited separately, with a test fixture that renders both severities. No CSS workaround that inspects inline-style values is to be attempted.
 2. **Alerts aren't rendered in the seeded demo.** The local demo raises none, so the alert form was checked against the stylesheet and markup, not captured.
 3. **Activity on a phone** still scrolls sideways inside its own container (the table is 40rem wide), as before. The page itself doesn't overflow. Restacking the table at narrow widths with CSS can remove its table semantics in some browsers, so it's left as it is.
 
@@ -108,5 +108,5 @@ These failures are in protected code that this PR does not touch, and they repro
 ## Release order
 
 1. **Done:** implementation and local verification (above).
-2. **Pending:** independent review.
+2. **Done:** independent review. The implementation was accepted; the alert-severity edge was deferred (Limitation 1), and the description of the captures was corrected.
 3. **Pending:** GitHub publication and release review, with Linux CI. Phase 4.4 is not released.
