@@ -107,10 +107,10 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
             </div>
           </div>
           {can(actor, "edit-relationships") && c.status !== "closed" ? (
-            <details className="fd-panel mt-6">
-              <summary className="cursor-pointer text-sm">Edit scope and review status</summary>
-              <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">Changing purpose, audience, limits, or metrics returns the campaign to draft and voids its approval.</p>
-              <form action={editCampaignAction} className="mt-4 grid gap-4 md:grid-cols-2">
+            <details className="fd-disclosure mt-6">
+              <summary className="fd-summary">Edit scope and review status</summary>
+              <p className="fd-consequence">Changing purpose, audience, limits, or metrics returns the campaign to draft and voids its approval.</p>
+              <form action={editCampaignAction} className="fd-form-grid md:grid-cols-2">
                 <Return to="/flight-deck/campaigns" />
                 <input type="hidden" name="id" value={c.id} />
                 <input type="hidden" name="version" value={c.version} />

@@ -67,7 +67,7 @@ export default async function ContentDraftPage({ params, searchParams }: { param
       <div className="grid gap-x-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div>
           <Section title={`Exact post (version ${current.version})`}>
-            <div className="fd-panel tiro-register-paper">
+            <div className="fd-out">
               <div className="fd-pre">{current.body}</div>
             </div>
             <dl className="mt-3 text-xs">
@@ -99,8 +99,8 @@ export default async function ContentDraftPage({ params, searchParams }: { param
 
           {!locked && can(actor, "edit-drafts") ? (
             <Section title="Edit">
-              <p className="mb-3 text-xs text-[var(--tiro-text-muted)]">Any change (text, channel, origin, source, asset, schedule) voids the approval.</p>
-              <form action={editContentAction} className="grid gap-4 md:grid-cols-2">
+              <p className="fd-consequence">Any change (text, channel, origin, source, asset, schedule) voids the approval.</p>
+              <form action={editContentAction} className="fd-form-grid md:grid-cols-2">
                 <Return to={here} />
                 <input type="hidden" name="id" value={c.id} />
                 <input type="hidden" name="version" value={c.version} />
@@ -162,7 +162,7 @@ export default async function ContentDraftPage({ params, searchParams }: { param
                 </form>
               ) : null}
               {c.status === "needs-review" ? (
-                <p className="text-sm">
+                <p className="fd-pending">
                   Awaiting a decision in{" "}
                   <Link href="/flight-deck/approvals" className="tiro-link">
                     Approvals
@@ -181,13 +181,13 @@ export default async function ContentDraftPage({ params, searchParams }: { param
                       <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">No social platform is connected. The job will be held and the post marked ready to publish by hand.</p>
                     </form>
                   ) : null}
-                  <div className="fd-panel">
+                  <div className="fd-attest">
                     <p className="text-sm">Publish by hand</p>
                     <div className="mt-3">
                       <CopyButton text={current.body} label="Copy post text" />
                     </div>
                     {can(actor, "dispatch") ? (
-                      <form action={manualPublishAction} className="mt-4 space-y-3">
+                      <form action={manualPublishAction} className="mt-4 fd-form">
                         <Return to={here} />
                         <input type="hidden" name="id" value={c.id} />
                         <Field label="Link to the published post (https, optional)" htmlFor="externalUrl">

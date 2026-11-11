@@ -15,7 +15,7 @@ export default async function NewProspectPage({ searchParams }: { searchParams: 
         lists. A first message is possible only after a founder or reviewer accepts this basis.
       </PageTitle>
       <Notice params={params} />
-      <form action={createProspectAction} className="grid max-w-3xl gap-6 md:grid-cols-2">
+      <form action={createProspectAction} className="fd-form-grid max-w-3xl md:grid-cols-2">
         <Return to="/flight-deck/relationships/new" />
         <Field label="Name or form of address" htmlFor="displayName">
           <input id="displayName" name="displayName" required maxLength={120} className="tiro-input" />

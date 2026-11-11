@@ -119,9 +119,9 @@ export default async function ProspectPage({ params, searchParams }: { params: P
               </div>
             </dl>
             {can(actor, "edit-relationships") ? (
-              <details className="fd-panel">
-                <summary className="cursor-pointer text-sm">Edit details, owner, next action</summary>
-                <form action={editProspectAction} className="mt-4 grid gap-4 md:grid-cols-2">
+              <details className="fd-disclosure">
+                <summary className="fd-summary">Edit details, owner, next action</summary>
+                <form action={editProspectAction} className="mt-2 fd-form-grid md:grid-cols-2">
                   <Return to={here} />
                   <input type="hidden" name="id" value={p.id} />
                   <input type="hidden" name="version" value={p.version} />
@@ -233,9 +233,9 @@ export default async function ProspectPage({ params, searchParams }: { params: P
               </div>
             ))}
             {can(actor, "edit-relationships") ? (
-              <details className="fd-panel mt-4">
-                <summary className="cursor-pointer text-sm">Record an interaction</summary>
-                <form action={recordInteractionAction} className="mt-4 grid gap-4 md:grid-cols-2">
+              <details className="fd-disclosure mt-4">
+                <summary className="fd-summary">Record an interaction</summary>
+                <form action={recordInteractionAction} className="mt-2 fd-form-grid md:grid-cols-2">
                   <Return to={here} />
                   <input type="hidden" name="prospectId" value={p.id} />
                   <Field label="Direction" htmlFor="direction">
@@ -308,9 +308,9 @@ export default async function ProspectPage({ params, searchParams }: { params: P
               </div>
             ))}
             {can(actor, "edit-relationships") ? (
-              <details className="fd-panel mt-4">
-                <summary className="cursor-pointer text-sm">Add a task or follow-up reminder</summary>
-                <form action={createTaskAction} className="mt-4 grid gap-4 md:grid-cols-2">
+              <details className="fd-disclosure mt-4">
+                <summary className="fd-summary">Add a task or follow-up reminder</summary>
+                <form action={createTaskAction} className="mt-2 fd-form-grid md:grid-cols-2">
                   <Return to={here} />
                   <input type="hidden" name="prospectId" value={p.id} />
                   <div className="md:col-span-2">
@@ -492,13 +492,13 @@ export default async function ProspectPage({ params, searchParams }: { params: P
               </form>
             ) : null}
             {can(actor, "delete-records") ? (
-              <details className="fd-panel">
-                <summary className="cursor-pointer text-sm text-[var(--tiro-contested)]">Erase this person&apos;s record</summary>
+              <details className="fd-disclosure fd-disclosure-danger">
+                <summary className="fd-summary text-[var(--tiro-contested)]">Erase this person&apos;s record</summary>
                 <p className="mt-3 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
                   Permanently removes their details, submissions, notes, interactions, tasks and drafts. This cannot be undone. Keeping the opt-out record stores only a
                   keyed hash of the address, so they are never contacted again.
                 </p>
-                <form action={eraseAction} className="mt-3 space-y-3">
+                <form action={eraseAction} className="mt-3 fd-form">
                   <Return to={here} />
                   <input type="hidden" name="prospectId" value={p.id} />
                   <label className="tiro-check">
