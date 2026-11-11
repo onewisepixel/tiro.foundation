@@ -75,7 +75,7 @@ export default async function OutreachDraftPage({ params, searchParams }: { para
       <div className="grid gap-x-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div>
           <Section title={`Exact message (version ${current.version})`}>
-            <div className="fd-panel tiro-register-paper">
+            <div className="fd-out">
               <dl className="mb-4 text-xs">
                 <div className="tiro-kv">
                   <dt className="k">To</dt>
@@ -104,8 +104,8 @@ export default async function OutreachDraftPage({ params, searchParams }: { para
 
           {!locked && can(actor, "edit-drafts") ? (
             <Section title="Edit">
-              <p className="mb-3 text-xs text-[var(--tiro-text-muted)]">Saving any change creates a new version and voids any approval and queued dispatch for this message.</p>
-              <form action={editOutreachAction} className="space-y-4">
+              <p className="fd-consequence">Saving any change creates a new version and voids any approval and queued dispatch for this message.</p>
+              <form action={editOutreachAction} className="fd-form">
                 <Return to={here} />
                 <input type="hidden" name="id" value={d.id} />
                 <input type="hidden" name="version" value={d.version} />
@@ -152,7 +152,7 @@ export default async function OutreachDraftPage({ params, searchParams }: { para
                 </form>
               ) : null}
               {d.status === "needs-review" ? (
-                <p className="text-sm">
+                <p className="fd-pending">
                   Awaiting a decision in{" "}
                   <Link href="/flight-deck/approvals" className="tiro-link">
                     Approvals
@@ -173,7 +173,7 @@ export default async function OutreachDraftPage({ params, searchParams }: { para
                       </p>
                     </form>
                   ) : null}
-                  <div className="fd-panel">
+                  <div className="fd-attest">
                     <p className="text-sm">Send by hand</p>
                     <p className="mt-1 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
                       Copy the approved text, send it from custodians@tiro.foundation, then record it here. Copying is not sending.
@@ -184,7 +184,7 @@ export default async function OutreachDraftPage({ params, searchParams }: { para
                       <CopyButton text={current.body} label="Copy body" />
                     </div>
                     {can(actor, "dispatch") ? (
-                      <form action={manualSendAction} className="mt-4 space-y-3">
+                      <form action={manualSendAction} className="mt-4 fd-form">
                         <Return to={here} />
                         <input type="hidden" name="id" value={d.id} />
                         <label className="tiro-check text-sm">

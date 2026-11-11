@@ -56,7 +56,7 @@ export default async function DigestPage({ searchParams }: { searchParams: Promi
           Generated now, on this machine. Automatic delivery is off: no email provider and no schedule have been approved. It names people by display name only and
           never includes notes or addresses.
         </p>
-        <pre className="fd-panel tiro-register-paper overflow-x-auto whitespace-pre-wrap font-[family-name:var(--font-code)] text-xs leading-relaxed">{text}</pre>
+        <pre className="fd-out overflow-x-auto whitespace-pre-wrap font-[family-name:var(--font-code)] text-xs leading-relaxed">{text}</pre>
       </Section>
 
       <form action={markReviewCompleteAction}>

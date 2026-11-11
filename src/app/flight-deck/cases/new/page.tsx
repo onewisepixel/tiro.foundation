@@ -18,17 +18,17 @@ export default async function NewCasePage({ searchParams }: { searchParams: Prom
         Choose what happened. The case sets a deadline and a checklist, and for most kinds holds outreach to the person until it is resolved.
       </PageTitle>
       <Notice params={params} />
-      <form action={openCaseAction} className="grid max-w-3xl gap-6">
+      <form action={openCaseAction} className="fd-form-grid fd-form-grouped max-w-3xl">
         <Return to={back.split("?")[0]} />
         <fieldset>
-          <legend className="tiro-field-label !text-sm">What happened</legend>
+          <legend className="fd-field-label">What happened</legend>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             {CASE_KINDS.map((k, i) => (
-              <label key={k} className="tiro-check border border-[var(--tiro-border)] p-3 text-sm hover:border-[var(--tiro-border-strong)]">
+              <label key={k} className="tiro-check fd-choice">
                 <input type="radio" name="kind" value={k} required defaultChecked={i === 0} />
                 <span>
                   <span className="block text-[var(--tiro-text)]">{PLAYBOOKS[k].label}</span>
-                  <span className="tiro-field-hint !text-xs">
+                  <span className="fd-field-hint">
                     {PLAYBOOKS[k].purpose} Due within {PLAYBOOKS[k].dueDays} day{PLAYBOOKS[k].dueDays === 1 ? "" : "s"}.
                   </span>
                 </span>
@@ -36,7 +36,7 @@ export default async function NewCasePage({ searchParams }: { searchParams: Prom
             ))}
           </div>
         </fieldset>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="fd-form-grid md:grid-cols-2">
           <Field label="Person (required for most kinds)" htmlFor="prospectId">
             <select id="prospectId" name="prospectId" className="tiro-input" defaultValue={prospectId ?? ""}>
               <option value="">No one linked</option>
@@ -62,7 +62,7 @@ export default async function NewCasePage({ searchParams }: { searchParams: Prom
         >
           <input id="summary" name="summary" required maxLength={200} className="tiro-input" autoComplete="off" />
         </Field>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="fd-form-grid md:grid-cols-2">
           <Field label="For an opt-out: scope" htmlFor="optOutScope" hint="Applied the moment the case is opened.">
             <select id="optOutScope" name="optOutScope" className="tiro-input" defaultValue="all">
               <option value="all">All contact</option>

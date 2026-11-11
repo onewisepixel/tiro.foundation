@@ -117,7 +117,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
 
           {filled ? (
             <Section title="Reply to send by hand" aside={<CopyButton text={`${filled.subject}\n\n${filled.body}`} label="Copy reply" />}>
-              <div className="fd-panel tiro-register-paper">
+              <div className="fd-out">
                 <p className="mb-3 font-semibold">{filled.subject}</p>
                 <div className="fd-pre !text-sm">{filled.body}</div>
               </div>
@@ -142,7 +142,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
               <p className="mb-3 text-xs leading-relaxed text-[var(--tiro-text-muted)]">
                 If material that should never have been recorded sits in a field, replace it. The audit trail records that a field was redacted, not what it held.
               </p>
-              <form action={redactAction} className="space-y-3">
+              <form action={redactAction} className="fd-form">
                 <Return to={here} />
                 <input type="hidden" name="caseId" value={c.id} />
                 <input type="hidden" name="target" value="prospect" />
@@ -171,7 +171,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                         <input type="hidden" name="target" value="interaction" />
                         <input type="hidden" name="targetId" value={i.id} />
                         <input type="hidden" name="field" value="summary" />
-                        <button className="tiro-link">Redact summary</button>
+                        <button className="fd-button">Redact summary</button>
                       </form>
                     </li>
                   ))}
@@ -182,7 +182,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
 
           {open && can(actor, "edit-relationships") ? (
             <Section title="Resolve">
-              <form action={resolveCaseAction} className="space-y-3">
+              <form action={resolveCaseAction} className="fd-form">
                 <Return to={here} />
                 <input type="hidden" name="id" value={c.id} />
                 <input type="hidden" name="version" value={c.version} />

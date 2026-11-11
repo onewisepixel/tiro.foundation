@@ -1,6 +1,7 @@
 /* ======================================================================
    Flight Deck: console shell and navigation (Milestone 3.0 Phase 4, PR 4.2),
-   shared components (PR 4.3) and read-only screens (PR 4.4), at the end
+   shared components (PR 4.3), read-only screens (PR 4.4) and working
+   forms (PR 4.5), at the end
 
    The console in the Living Archive family at an operational density: the
    site's type, hairline rules and header offset (--la-header), a console
@@ -664,4 +665,174 @@ html:has(.fd-shell) {
   gap: 0.3rem;
   padding-left: 1.25rem;
   list-style: disc;
+}
+
+/* ======================================================================
+   Working forms (Milestone 3.0 Phase 4, PR 4.5)
+
+   The forms and the outgoing text beside them, as accepted in
+   docs/design/phase-4/pr-4-5/semantic-review.md. Outgoing text is set out
+   as ruled correspondence, not enclosed: it is the thing being decided
+   about, and must never look like a field. Ordinary editing opens under a
+   rule; an enclosure is kept for the irreversible (erasure) and for the
+   by-hand attestations. Words, conditions, tones and bindings are
+   unchanged.
+   ====================================================================== */
+
+/* ---------- Outgoing text: ruled correspondence ----------
+   Outreach, content, the case reply, the Approvals exact version and the
+   Digest preview. No fill and no box: a strong rule above and below, the
+   address lines set off by a hairline. Directly under a section heading
+   the heading's rule is the top rule, so it is not doubled. The 42rem
+   measure applies to the correspondence text (.fd-pre) only; the Digest
+   <pre> is the frame itself and keeps its full width. */
+.fd-shell .fd-out {
+  border-top: 1px solid var(--tiro-border-strong);
+  border-bottom: 1px solid var(--tiro-border-strong);
+  background: transparent;
+  padding: 1rem 0 1.25rem;
+}
+
+.fd-shell .fd-section-head + .fd-out {
+  border-top: 0;
+  padding-top: 0.25rem;
+}
+
+.fd-shell .fd-out > dl {
+  margin: 0 0 1rem;
+  border-bottom: 1px solid var(--tiro-border);
+  padding-bottom: 0.75rem;
+}
+
+.fd-shell .fd-out .fd-pre {
+  max-width: 42rem;
+}
+
+/* ---------- Disclosures ----------
+   Ordinary editing ("Edit details", "Record an interaction", "Add a task",
+   "Edit scope"): a strong rule above, a 44px summary row, and the open form
+   under a hairline at the margin. No panel. */
+.fd-shell .fd-disclosure {
+  border-top: 1px solid var(--tiro-border-strong);
+}
+
+.fd-shell .fd-summary {
+  display: list-item;
+  padding: 0.75rem 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  cursor: pointer;
+}
+
+.fd-shell .fd-disclosure[open] {
+  padding: 0 0 1.25rem 1rem;
+  background: linear-gradient(var(--tiro-border), var(--tiro-border)) no-repeat left 2.75rem / 1px calc(100% - 2.75rem);
+}
+
+.fd-shell .fd-disclosure[open] > .fd-summary {
+  margin-left: -1rem;
+}
+
+/* Erasure keeps its enclosure, with the danger button's contested edge:
+   the one disclosure here that leads to an irreversible act. */
+.fd-shell .fd-disclosure-danger {
+  border: 1px solid var(--tiro-contested);
+  border-left-width: 3px;
+  padding: 0 1rem;
+}
+
+.fd-shell .fd-disclosure-danger[open] {
+  padding: 0 1rem 1rem;
+  background: none;
+}
+
+.fd-shell .fd-disclosure-danger[open] > .fd-summary {
+  margin-left: 0;
+}
+
+/* Send by hand, publish by hand: an attestation, so enclosed; outlined,
+   with no fill. */
+.fd-shell .fd-attest {
+  border: 1px solid var(--tiro-border-strong);
+  background: transparent;
+  padding: 1.1rem;
+}
+
+@media (min-width: 768px) {
+  .fd-shell .fd-attest {
+    padding: 1.25rem;
+  }
+}
+
+/* ---------- Form rhythm ----------
+   Fields 1.25rem apart; where a form already groups its fields, the groups
+   2rem apart. Hidden inputs take no space. */
+.fd-shell .fd-form > :not(:last-child) {
+  margin-block-end: 1.25rem;
+}
+
+.fd-shell .fd-form-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.fd-shell .fd-form-grouped {
+  gap: 2rem;
+}
+
+/* ---------- Case kinds: choice cards ----------
+   The selected card is outlined in the accent (2px, inside the card); the
+   keyboard focus is a separate ring outside it. Either shows without the
+   other. */
+.fd-shell .fd-choice {
+  border: 1px solid var(--tiro-border);
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.fd-shell .fd-choice:hover {
+  border-color: var(--tiro-border-strong);
+}
+
+.fd-shell .fd-choice:has(input:checked) {
+  border-color: var(--tiro-accent);
+  box-shadow: inset 0 0 0 1px var(--tiro-accent);
+}
+
+.fd-shell .fd-choice:has(input:focus-visible) {
+  outline: 2px solid var(--tiro-text);
+  outline-offset: 3px;
+}
+
+/* ---------- Consequences and pending states ----------
+   A consequence of the form ("voids the approval") is a condition, not a
+   footnote: soft text at a strong hairline. A pending approval is a state
+   line: muted, at an accent hairline, with no box, so it is not read as a
+   badge or a button. */
+.fd-shell .fd-consequence {
+  margin-bottom: 0.75rem;
+  border-left: 1px solid var(--tiro-border-strong);
+  padding: 0.15rem 0 0.15rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--tiro-text-soft);
+}
+
+.fd-shell .fd-pending {
+  border-left: 1px solid var(--tiro-accent);
+  padding: 0.35rem 0 0.35rem 0.85rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- Date fields: keyboard focus ----------
+   Chromium's calendar-picker stop sits inside the field, and the field
+   then matches neither :focus nor :focus-visible, so it lost its ring.
+   :focus-within holds the ring for every stop inside the field. */
+.fd-shell input[type="date"].tiro-input:focus-within,
+.fd-shell input[type="datetime-local"].tiro-input:focus-within {
+  outline: 2px solid var(--tiro-accent);
+  outline-offset: 1px;
 }

@@ -133,7 +133,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
                 ))}
               </dl>
               {item.body ? (
-                <div className="tiro-register-paper mt-4 p-4">
+                <div className="fd-out mt-4">
                   <div className="fd-pre !text-sm">{item.body}</div>
                 </div>
               ) : null}
