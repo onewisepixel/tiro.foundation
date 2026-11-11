@@ -1,6 +1,14 @@
 # PR 4.5: working forms, semantic review
 
-**Status: proposed. Not accepted. No implementation has been made.**
+**Status: accepted, in the Phase 4.5 implementation brief, with these decisions:**
+1. **Outgoing-text frame:** A, ruled correspondence, on Outreach, Content, the case reply, Approvals and Digest. The doubled rules are removed, and the Digest `<pre>` is exempt from the 42rem measure. On Approvals and Digest, only the frame changes.
+2. **Disclosures:** ruled, with 44px summary rows. The erase enclosure keeps its danger edge; the by-hand attestation panels are outlined.
+3. **Forms:** the spacing rhythm and the case-kind choice cards, with selection and keyboard focus independently visible.
+4. **Consequences and pending states:** `fd-consequence` and `fd-pending`, with all text and conditions kept.
+5. **"Redact summary":** the default button form; tone and behaviour unchanged.
+6. **Date-picker focus:** corrected, and verified in Chromium and Firefox.
+
+No protected change (decision 8) was authorized or made. The implementation and its verification are recorded in [README.md](README.md). The rest of this document is the review as it was presented.
 
 **Branch:** `phase-4/working-forms-4-5`, from `main` at `f1d9168` (Phase 4.4 merged).
 
