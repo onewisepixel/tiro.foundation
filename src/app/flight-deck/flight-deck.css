@@ -836,3 +836,116 @@ html:has(.fd-shell) {
   outline: 2px solid var(--tiro-accent);
   outline-offset: 1px;
 }
+
+/* ======================================================================
+   Consequential and authorization screens (Milestone 3.0 Phase 4, PR 4.6)
+
+   Approvals, Health, Recovery and the local-demo sign-in, as accepted in
+   docs/design/phase-4/pr-4-6/semantic-review.md (P1-P8, P10-P12; not P9,
+   Gates). Kinds of statement are told apart by form: a permission withheld,
+   a safety state, a warning on a decision, a consequence, and the decision's
+   own controls. Words, tones, glyphs, order, conditions and bindings are
+   unchanged. Every value reuses an existing token or form.
+   ====================================================================== */
+
+/* ---------- A decision's control band (P2) ----------
+   The controls sit under a hairline inside the decision's enclosure, so
+   what the decision means (warnings, fingerprint, consequence) is read
+   before them and is not mistaken for one of them. */
+.fd-shell .fd-decide {
+  margin-top: 1rem;
+  border-top: 1px solid var(--tiro-border);
+  padding-top: 1rem;
+}
+
+/* ---------- A warning that bears on a decision (P3) ----------
+   The existing accent text and ▲, with the danger button's 3px edge at the
+   margin, so it is read before the controls. */
+.fd-shell .fd-warning {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  border-left: 3px solid var(--tiro-accent);
+  padding: 0.15rem 0 0.15rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--tiro-accent);
+}
+
+/* ---------- A control withheld (P4) ----------
+   The reason, in the place of the control: muted, at a faint hairline.
+   Never the accent or contested colour, so it is not read as an error,
+   and no box, so it is not read as a control. */
+.fd-shell .fd-withheld {
+  border-left: 1px solid var(--tiro-border);
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--tiro-text-muted);
+}
+
+/* ---------- A safety state that governs the page (P5) ----------
+   Outbound activity and the recovery status, at body size: the state, not
+   a footnote. */
+.fd-shell .fd-state {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+/* ---------- The recovery status as one statement (P6) ----------
+   The badge becomes a block at the margin, in sentence case and body type,
+   instead of a wrapped uppercase monospace tag. Its tone (and so its edge
+   and colour), glyph and words are unchanged. */
+.fd-shell .fd-lock > .fd-badge {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.6rem 0.85rem 0.6rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.55;
+}
+
+.fd-shell .fd-lock > .fd-badge[data-tone="done"] {
+  padding-inline: 0;
+}
+
+/* ---------- A destructive decision outside a disclosure (P7) ----------
+   The local seed reset: the erase enclosure's contested form. (The lift
+   to confirm after a recovery uses the existing .fd-attest.) */
+.fd-shell .fd-enclose-danger {
+  border: 1px solid var(--tiro-contested);
+  border-left-width: 3px;
+  padding: 1rem;
+}
+
+/* ---------- Local-demo identities (P10) ----------
+   Ruled rows, not panels: choosing a test identity is not a decision and
+   not an account. The description, then the button, at every width. */
+.fd-shell .fd-identity {
+  border-top: 1px solid var(--tiro-border);
+  padding: 1rem 0;
+}
+
+.fd-shell .fd-identity:last-child {
+  border-bottom: 1px solid var(--tiro-border);
+}
+
+/* ---------- Key-value lines (P12) ----------
+   Solid hairlines, not the public site's dashed evidence line, and muted
+   keys, so the accent is kept for state and warnings. Console-wide: every
+   .tiro-kv under the console shell (also the PR 4.4 and 4.5 screens).
+   The first row keeps no rule, as before. */
+.fd-shell .tiro-kv {
+  border-top: 1px solid var(--tiro-border);
+}
+
+.fd-shell .tiro-kv:first-of-type {
+  border-top: 0;
+}
+
+.fd-shell .tiro-kv .k {
+  color: var(--tiro-text-muted);
+}

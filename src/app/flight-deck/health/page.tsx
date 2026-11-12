@@ -92,7 +92,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
           </div>
           <div className="tiro-kv">
             <dt className="k">Status</dt>
-            <dd className="v">
+            <dd className="v fd-state">
               {recovery?.ok ? (
                 <Badge tone="done" glyph="✓">
                   Verified: contact allowed
@@ -112,7 +112,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
           </form>
         ) : null}
         {pendingLifts.length ? (
-          <div className="mt-4">
+          <div className="mt-4 fd-attest">
             <p className="text-sm">Lifted opt-outs back in force after a recovery (a founder must confirm each lift again, only if the person asked):</p>
             {pendingLifts.map((id) => (
               <div key={id} className="fd-row flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -132,14 +132,14 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
 
       <Section title="Outbound activity">
         {d.settings.allOutboundPaused ? (
-          <p role="status" className="mb-3 text-sm">
+          <p role="status" className="fd-state mb-3">
             <Badge tone="blocked" glyph="‖">
               Paused
             </Badge>{" "}
             since {when(d.settings.pausedAt)} by {displayNameFor(d.settings.pausedBy)}. Nothing is dispatched or attested while paused.
           </p>
         ) : (
-          <p className="mb-3 text-sm">
+          <p className="fd-state mb-3">
             <Badge tone="done" glyph="●">
               Running
             </Badge>{" "}
@@ -155,7 +155,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                 <SubmitButton tone="primary">Resume outbound activity</SubmitButton>
               </>
             ) : (
-              <p className="text-xs text-[var(--tiro-text-muted)]">Only the founder can resume.</p>
+              <p className="fd-withheld">Only the founder can resume.</p>
             )
           ) : (
             <>
@@ -309,7 +309,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                 <form action={liftSuppressionAction}>
                   <Return to={here} />
                   <input type="hidden" name="id" value={s.id} />
-                  <button className="tiro-link">Lift (only if they asked)</button>
+                  <button className="fd-button">Lift (only if they asked)</button>
                 </form>
               ) : null}
             </div>
@@ -349,7 +349,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
 
       {can(actor, "settings") && rt.resetToSeed ? (
         <Section title="Local demo data">
-          <form action={resetSeedAction} className="flex flex-wrap items-end gap-3">
+          <form action={resetSeedAction} className="fd-enclose-danger flex flex-wrap items-end gap-3">
             <Return to={here} />
             <Field label="Type RESET to replace the local store with fresh synthetic fixtures" htmlFor="confirm">
               <input id="confirm" name="confirm" autoComplete="off" className="tiro-input" />

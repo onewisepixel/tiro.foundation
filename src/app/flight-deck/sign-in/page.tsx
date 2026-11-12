@@ -38,9 +38,9 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
         identity provider with multi-factor authentication; until one is configured, this page and everything behind it do not exist outside local development.
       </PageTitle>
       <Notice params={params} />
-      <ul className="space-y-3">
+      <ul>
         {DEMO_IDENTITIES.map((identity) => (
-          <li key={identity.id} className="fd-panel flex flex-wrap items-center justify-between gap-4">
+          <li key={identity.id} className="fd-identity flex flex-col items-start gap-3">
             <div>
               <p className="font-semibold">{identity.displayName}</p>
               <p className="mt-1 text-sm text-[var(--tiro-text-muted)]">{ROLE_TEXT[identity.role]}</p>
