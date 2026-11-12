@@ -1,8 +1,9 @@
 # PR 4.6: consequential and authorization screens, verification record
 
-- **Branch:** `phase-4/authority-4-6`, from `main` at `d535e68` (Phase 4.5 merged).
-- **Semantic review:** `bd8658d`, founder-approved for local presentation implementation. See [semantic-review.md](semantic-review.md).
-- **Implementation:** the commit that adds this record.
+- **Branch:** `phase-4/authority-4-6`, rebased onto `main` at `e4fda32` (PR #32, the boundary self-test re-anchor; post-merge CI passed). First built on `d535e68`.
+- **Semantic review:** `09199fe` (was `bd8658d` before the rebase), founder-approved for local presentation implementation. See [semantic-review.md](semantic-review.md).
+- **Implementation:** `0dfb30c` (was `f8dfa9d`; the original head is kept on the local branch `preserve/phase-4-6-f8dfa9d`). The rebase replayed both commits unchanged (`git range-diff`: identical patches).
+- **Final verification:** the commit that adds § Final verification on `e4fda32`.
 
 Presentation only. The changed files are:
 - `src/app/flight-deck/flight-deck.css`: a new, console-scoped section at the end;
@@ -77,12 +78,12 @@ The scripts are in `C:\tiro\dev\evidence\phase-4-6\scripts\`.
 
 ## Results
 
-Run locally on Windows on this branch. These are local results; GitHub CI has not run for this branch.
+The implementation run: local, on Windows, on this branch when it was based on `d535e68`. GitHub CI has not run for this branch. The final run on `e4fda32` is in § Final verification on `e4fda32`.
 
 | Check | Result |
 | --- | --- |
 | Boundary checker, merge base `d535e68` | PASS, enforce mode. Recovery and sign-in noted for founder review |
-| Boundary self-tests | **122/124.** The 2 failures are caused by this change; see below |
+| Boundary self-tests | 122/124 on `d535e68`: two cases anchored on classes this PR changes (see below). **124/124 on `e4fda32`** |
 | Census self-tests | 8/8 |
 | Census against `docs/design/phase-4/baseline/census.json` | **Identical**, on the file store and on PostgreSQL, for all four roles |
 | Flight Deck E2E (`E2E_OUT` outside the repository) | 53/53 on the file store; 53/53 on PostgreSQL |
@@ -109,18 +110,46 @@ The lowest text ratio of each kind that changed (dark / light). Everything else 
 
 Every text ratio is at least 4.5:1.
 
-## Boundary self-tests: two cases need re-anchoring
+## Boundary self-tests: two cases re-anchored (PR #32)
 
-`scripts/test/flight-deck-boundary.test.mjs` plants changes in the live Approvals page. Two of its cases find their place by the **exact current `className`** of an element this PR restyles:
+`scripts/test/flight-deck-boundary.test.mjs` plants changes in the live Approvals page. Two of its cases found their place by the **exact `className`** of an element this PR restyles:
 - "consequence text moved after the decision buttons": the item consequence (P1);
 - "paragraph unwrapped": "Your role can see this queue but cannot decide." (P4).
 
-With the approved classes, both report "mutation anchor not found", so the result is 122/124. The checker itself is unaffected: it passes, and the other 122 cases pass.
+With the approved classes, both reported "mutation anchor not found" (122/124 on `d535e68`). The checker itself was unaffected.
 
-- **Founder direction:** implement P1 and P4 as approved. Re-anchor the two cases separately, by the element's position rather than its classes, as PR #27 did for the header-offset case.
-- **Why it can't be done here:** `scripts/**` is protected, and the checker reads exceptions from the merge base.
-- **Consequence:** the re-anchor must merge into `main` before PR 4.6, or the PR's CI self-test job fails.
-- **Status:** not prepared. It needs separate authorization.
+- **Founder direction:** implement P1 and P4 as approved. Re-anchor the two cases separately, as PR #27 did for the header-offset case.
+- **Done:** PR #32 (`dadb3a9`, merged as `e4fda32`). It changes only the test file: each case now finds its element by what it renders, through `uniqueMatch()`, which asserts exactly one match. The mutations, categories, checker and exceptions are unchanged.
+  - On `d535e68` the new anchors select exactly the previous strings.
+  - Both cases are still rejected for the same reasons: element structure, and visible text.
+- **Result:** 124/124 on this branch.
+
+## Final verification on `e4fda32`
+
+Post-merge CI for `e4fda32` passed, observed through the read-only GitHub tool: `build-lint-test` and `flight-deck-boundary` each succeeded once, on the push to `main`. The Vercel status on that commit reports "failure". It is not a required check, and this PR does not touch deployment.
+
+This branch was then rebased onto `e4fda32`. Its tree differs from the pre-rebase head `f8dfa9d` only by PR #32's test file. Run locally on Windows; GitHub CI has not run for this branch.
+
+| Check | Result |
+| --- | --- |
+| Boundary checker, `--base origin/main`, enforce mode | PASS: 27 files, 23 presentation and 4 mixed, no protected path. Recovery and sign-in noted for founder review |
+| Boundary self-tests | **124/124** |
+| Census self-tests | 8/8 |
+| Census against the baseline | **Identical**, on the file store and on PostgreSQL (run 2; see below) |
+| Flight Deck E2E | 53/53 on the file store; 53/53 on PostgreSQL (both runs) |
+| Build, `verify:disclosure`, lint | Pass. Lint has 0 errors and the same 2 backend warnings |
+| `test:flight-deck-pg` | 28/28 |
+| `npm test` | 555 pass; the same 4 known Windows failures |
+| The four mixed pages with every `className` attribute removed | Byte-identical to `main`. The only changed line without a `className` is Sign-in's `<ul>`, which lost its attribute |
+| Gates, P9, R1–R12 | No diff in `gates/page.tsx`, and it uses none of the new classes. No protected path in the diff. R1 ("Verified: contact allowed"), R3 ("Paused until recovery is verified") and R6 (`TONE_LABEL`) are still in place verbatim |
+| Committed captures | The 20 JPEGs are byte-identical to `f8dfa9d`. The page source they show is unchanged by the rebase |
+
+**Census, run 1 (file store only): one screen differed, and it did not reproduce.**
+- In the first run, the relationship print view (`relationships/<id>/print`) answered 404 for founder, operator and reviewer: `notFound()` in the page, after the relationship page had answered 200 for the same id.
+- Every other screen matched, the PostgreSQL census was identical, and E2E passed on both stores.
+- Run 2, on the same code, was identical on both stores, and the print view answered 200 for every role.
+- This PR does not change the print view: its only P12 effect there is the key-value style, which the census does not read. The page's data path, a store transaction in `src/lib/flightDeck/`, is protected and unchanged.
+- The cause was not established. Run 1's census, E2E and server logs are kept outside the repository (`C:\tiro\dev\evidence\phase-4-6\final\run1\`).
 
 ## Deviations
 
@@ -152,6 +181,7 @@ Each run deleted the local store, protective log, ledger and local database unde
 ## Release order
 
 1. **Done:** semantic review approved; implementation and local verification (above).
-2. **Pending:** founder and Veris review of this implementation.
-3. **Pending:** the boundary self-test re-anchor (separate authorization), merged before this PR.
-4. **Pending:** GitHub publication and release review, with Linux CI. Phase 4.6 is not released.
+2. **Done:** the boundary self-test re-anchor, PR #32, merged as `e4fda32`; post-merge CI passed.
+3. **Done:** rebase onto `e4fda32` and final local verification.
+4. **Pending:** Veris review of this implementation.
+5. **Pending:** GitHub publication and release review, with Linux CI. Phase 4.6 is not released.
