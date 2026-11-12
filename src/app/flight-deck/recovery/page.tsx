@@ -35,7 +35,7 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
       </PageTitle>
       <Notice params={params} />
       <Section title="Status">
-        <p className="mb-4 text-sm">
+        <p className="fd-lock mb-4">
           {reason ? (
             <Badge tone="blocked" glyph="■">
               Paused: {REASON[reason] ?? reason}
@@ -50,15 +50,15 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
           <form action={reconcileAction}>
             <Return to="/flight-deck/recovery" />
             <SubmitButton tone="primary">Verify and replay now</SubmitButton>
-            <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">When it succeeds, everyone is signed out, you included, and signs in again.</p>
+            <p className="fd-consequence mt-3">When it succeeds, everyone is signed out, you included, and signs in again.</p>
           </form>
         ) : null}
         {!actor ? (
-          <Link href="/flight-deck/sign-in" className="tiro-link text-sm">
+          <Link href="/flight-deck/sign-in" className="fd-button">
             Sign in
           </Link>
         ) : !reason ? (
-          <Link href="/flight-deck" className="tiro-link text-sm">
+          <Link href="/flight-deck" className="fd-button">
             Go to the console
           </Link>
         ) : null}

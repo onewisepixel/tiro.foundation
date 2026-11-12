@@ -107,7 +107,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
       </PageTitle>
       <Notice params={params} />
       {!can(actor, "approve") ? (
-        <p className="mb-6 text-sm text-[var(--tiro-text-muted)]">Your role can see this queue but cannot decide.</p>
+        <p className="fd-withheld mb-6">Your role can see this queue but cannot decide.</p>
       ) : null}
       <Section title={`Awaiting a decision (${items.length})`}>
         {items.length === 0 ? <Empty>Nothing awaiting approval.</Empty> : null}
@@ -138,15 +138,15 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
                 </div>
               ) : null}
               {item.warnings.map((w) => (
-                <p key={w} className="mt-3 flex gap-2 text-sm text-[var(--tiro-accent)]">
+                <p key={w} className="fd-warning">
                   <span aria-hidden="true">▲</span>
                   {w}
                 </p>
               ))}
               <p className="fd-hash mt-3">Fingerprint {item.hash}</p>
-              <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">{item.consequence}</p>
+              <p className="fd-consequence mt-2">{item.consequence}</p>
               {can(actor, "approve") ? (
-                <form action={decideAction} className="mt-4 flex flex-wrap items-end gap-3">
+                <form action={decideAction} className="fd-decide flex flex-wrap items-end gap-3">
                   <Return to="/flight-deck/approvals" />
                   <input type="hidden" name="type" value={item.type} />
                   <input type="hidden" name="id" value={item.id} />
@@ -176,7 +176,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
           ))}
         </div>
       </Section>
-      <p className="text-xs text-[var(--tiro-text-muted)]">Approval never sends or publishes. Dispatch is a separate step, and every gate is checked again then.</p>
+      <p className="fd-consequence">Approval never sends or publishes. Dispatch is a separate step, and every gate is checked again then.</p>
     </>
   );
 }
