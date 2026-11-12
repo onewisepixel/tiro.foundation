@@ -42,6 +42,17 @@ function mutate(src, from, to, nth = 0) {
   return src.slice(0, at) + to + src.slice(at + from.length);
 }
 
+// Finds the one source text an element is located by, from its content
+// (what it says or renders) rather than its presentation classes, which a
+// Phase 4 PR may legitimately change. Asserts exactly one match, so a case
+// can never pass on an anchor that is missing or ambiguous; the text found
+// then goes through mutate(), which asserts the same again.
+function uniqueMatch(src, re) {
+  const found = [...src.matchAll(re)];
+  assert.equal(found.length, 1, `semantic anchor must match exactly once (found ${found.length}): ${re}`);
+  return found[0][0];
+}
+
 const matrix = [];
 after(() => {
   if (process.env.BOUNDARY_MATRIX_OUT) fs.writeFileSync(process.env.BOUNDARY_MATRIX_OUT, JSON.stringify(matrix, null, 2));
@@ -101,7 +112,8 @@ rejects("data read changed (needs-review -> draft)", "approvals", (s) => mutate(
 rejects("operational import added", "approvals", (s) => `import { exportProspect } from "@/lib/flightDeck/prospects";\n${s}`, "operational import");
 rejects("navigation target changed", "now", (s) => mutate(s, `href="/flight-deck/approvals"`, `href="/flight-deck/health"`), "navigation target");
 rejects("consequence text moved after the decision buttons", "approvals", (s) => {
-  const line = `              <p className="mt-2 text-xs text-[var(--tiro-text-muted)]">{item.consequence}</p>\n`;
+  // The whole line holding the paragraph that renders the item's consequence.
+  const line = uniqueMatch(s, /^[ \t]*<p\b[^>]*>\{item\.consequence\}<\/p>\n/gm);
   const out = mutate(s, line, "");
   return mutate(out, `              ) : null}\n            </article>`, `              ) : null}\n${line}            </article>`);
 });
@@ -121,7 +133,7 @@ permits("approved style-only import (console stylesheet in the shell)", "layout"
 permits("harmless presentation wrapper", "approvals", (s) => mutate(s, `      <Notice params={params} />`, `      <div className="fd-notices">\n        <Notice params={params} />\n      </div>`));
 permits("wrapper inside a shared component", "ui", (s) => mutate(s, `<h1 className="font-[family-name:var(--font-display)] text-3xl leading-tight md:text-4xl">{title}</h1>`, `<div className="fd-title-rule"><h1 className="fd-title">{title}</h1></div>`));
 rejects("paragraph replaced by a division (p -> div, same attributes)", "ui", (s) => mutate(mutate(s, `<p role="alert" className=`, `<div role="alert" className=`), `      </p>\n    );\n  }\n  if (notice) {`, `      </div>\n    );\n  }\n  if (notice) {`), "element structure (landmarks, headings, controls, order)");
-rejects("paragraph unwrapped (a styled p removed around its text)", "approvals", (s) => mutate(s, `<p className="mb-6 text-sm text-[var(--tiro-text-muted)]">Your role can see this queue but cannot decide.</p>`, `<>Your role can see this queue but cannot decide.</>`));
+rejects("paragraph unwrapped (a styled p removed around its text)", "approvals", (s) => mutate(s, uniqueMatch(s, /<p\b[^>]*>Your role can see this queue but cannot decide\.<\/p>/g), `<>Your role can see this queue but cannot decide.</>`));
 permits("generic wrapper swap with the same attributes (div -> span)", "approvals", (s) => mutate(s, `<div key={k} className="tiro-kv">\n                    <dt className="k">{k}</dt>\n                    <dd className="v">{v}</dd>\n                  </div>`, `<span key={k} className="tiro-kv">\n                    <dt className="k">{k}</dt>\n                    <dd className="v">{v}</dd>\n                  </span>`));
 permits("inline style removed", "now", (s) => mutate(s, ` style={{ borderColor: a.severity === "action" ? "var(--tiro-contested)" : "var(--tiro-accent)" }}`, ``));
 const ANCHOR = `      <PageTitle eyebrow="Health"`;
