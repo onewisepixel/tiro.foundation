@@ -157,6 +157,25 @@ async function clickLink(label) {
   await evaluate(`(() => { const a = [...document.querySelectorAll("a")].find((x) => x.innerText.toLowerCase().includes(${js(label)}.toLowerCase())); if (!a) throw new Error("no link " + ${js(label)}); a.click(); })()`);
 }
 
+// The local demo's disposable protective log (decision 60, R2 regression).
+// Only this checkout's git-ignored .flight-deck/protective-file or
+// protective-pg is ever moved, and only when the running demo is shown to
+// be using it. It is always put back, including when a check fails.
+const LOCAL_DEMO_DIR = path.resolve(import.meta.dirname, "../../.flight-deck");
+let logAside = null;
+function restoreLog() {
+  if (logAside && fs.existsSync(logAside.to) && !fs.existsSync(logAside.from)) {
+    fs.renameSync(logAside.to, logAside.from);
+  }
+  logAside = null;
+}
+// The page's notice and recovery status, as rendered.
+const noticeState = () =>
+  evaluate(`(() => { const ns = [...document.querySelectorAll(".fd-notice")]; const n = ns[0]; const lock = document.querySelector(".fd-lock .fd-badge");
+    return { count: ns.length, role: n?.getAttribute("role") ?? null, error: n?.classList.contains("fd-notice-error") ?? false, ok: n?.classList.contains("fd-notice-ok") ?? false,
+      glyph: n?.querySelector("[aria-hidden=true]")?.textContent.trim() ?? null, srPrefix: n?.querySelector(".sr-only")?.textContent ?? null, text: n?.textContent ?? "",
+      lockTone: lock?.dataset.tone ?? null, lockText: lock?.textContent ?? "", canVerify: [...document.querySelectorAll("button")].some((b) => b.innerText.trim().toLowerCase().startsWith("verify and replay now")) }; })()`);
+
 const started = Date.now();
 let prospectPath = "/flight-deck/relationships";
 try {
@@ -345,6 +364,51 @@ try {
   await go("/flight-deck/health");
   await shot("health-recovery-desktop");
 
+  // ---------- A failed recovery is an error, not a confirmation (decision 60) ----------
+  // The demo's own disposable log is moved aside, so verification cannot
+  // complete; then it is put back and verification succeeds.
+  const logLabel = await evaluate(`[...document.querySelectorAll("dt")].find((d) => d.textContent.trim() === "Log")?.nextElementSibling?.textContent.trim() ?? ""`);
+  const logName = /^local files \(\.flight-deck\/(protective-(?:file|pg))\)$/.exec(logLabel)?.[1] ?? null;
+  const logDir = logName ? path.join(LOCAL_DEMO_DIR, logName) : null;
+  const headNow = Number(/Database includes events up to\s*#(\d+)/.exec(await text())?.[1] ?? 0);
+  const headFile = logDir ? path.join(logDir, "events", `${String(headNow).padStart(12, "0")}.json`) : null;
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(BASE).hostname);
+  const localDemo = has(await text(), "Local demo · synthetic data only · nothing leaves this machine");
+  const ownLog = Boolean(loopback && localDemo && logDir && headNow >= 1 && fs.existsSync(headFile));
+  check("the running demo uses this checkout's disposable local protective log", ownLog, `${logLabel}; head #${headNow}`);
+  if (ownLog) {
+    try {
+      logAside = { from: logDir, to: `${logDir}.e2e-aside` };
+      fs.renameSync(logAside.from, logAside.to);
+      await go("/flight-deck/recovery");
+      await clickButton("Verify and replay now");
+      await waitFor(`location.search.includes("notice=recovery-incomplete")`);
+      const failed = await noticeState();
+      check(
+        "a failed recovery is shown and announced as an error (role=alert, ✕, \"Error:\")",
+        failed.count === 1 && failed.role === "alert" && failed.error && !failed.ok && failed.glyph === "✕" && failed.srPrefix === "Error: " && has(failed.text, "Recovery did not complete"),
+        JSON.stringify({ role: failed.role, glyph: failed.glyph, sr: failed.srPrefix }),
+      );
+      check("after a failed recovery the lock is still shown, and a founder can verify again", failed.lockTone === "blocked" && failed.canVerify && !has(failed.lockText, "Verified"), failed.lockText.trim());
+      await shot("recovery-failed-desktop");
+      await axe("Recovery after a failed verification");
+    } finally {
+      restoreLog();
+    }
+    check("the disposable log is back in place", fs.existsSync(headFile));
+    await go("/flight-deck/recovery");
+    await clickButton("Verify and replay now");
+    await waitFor(`location.search.includes("notice=recovery-verified")`);
+    const verified = await noticeState();
+    check(
+      "with the log restored, a founder's verification succeeds and keeps its confirmation (role=status, ✓)",
+      verified.count === 1 && verified.role === "status" && verified.ok && !verified.error && verified.glyph === "✓" && verified.srPrefix === null && verified.lockTone === "done" && has(verified.lockText, "Verified: the database matches the protective log"),
+      JSON.stringify({ role: verified.role, glyph: verified.glyph, lock: verified.lockTone }),
+    );
+    await shot("recovery-reverified-desktop");
+    await axe("Recovery after a successful verification");
+  }
+
   // ---------- Adversarial, in the browser ----------
   // Edit after approval revokes it.
   await go("/flight-deck/outreach");
@@ -434,6 +498,11 @@ try {
 } catch (e) {
   check("run completed", false, e.message);
 } finally {
+  try {
+    restoreLog();
+  } catch (e) {
+    check("the disposable log is back in place", false, e.message);
+  }
   ws.close();
   chrome.kill();
   await sleep(500);

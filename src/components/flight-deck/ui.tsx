@@ -1,6 +1,6 @@
 // Small, server-renderable building blocks for the Flight Deck instrument.
 // Every state is shown as a word with a glyph; tone (colour) only repeats it.
-import { ERROR_TEXT, NOTICE_TEXT } from "@/lib/flightDeck/messages";
+import { ERROR_TEXT, NOTICE_FAILURE, NOTICE_TEXT } from "@/lib/flightDeck/messages";
 import type { Stage } from "@/lib/flightDeck/types";
 import { STAGE_CAVEATS, STAGE_LABELS } from "@/lib/flightDeck/workflow";
 
@@ -80,7 +80,10 @@ export function StageBadge({ stage, withCaveat = false }: { stage: Stage; withCa
 export function Notice({ params }: { params: Record<string, string | string[] | undefined> }) {
   const notice = typeof params.notice === "string" ? params.notice : null;
   const error = typeof params.error === "string" ? params.error : null;
-  if (error) {
+  // One alert form: an error (which takes precedence), or a notice that
+  // reports a failure (decision 60).
+  const failure = error ? (ERROR_TEXT[error] ?? ERROR_TEXT.error) : notice && NOTICE_FAILURE.has(notice) ? NOTICE_TEXT[notice] : null;
+  if (failure) {
     return (
       <p role="alert" className="fd-notice fd-notice-error">
         <span aria-hidden="true" className="text-[var(--tiro-contested)]">
@@ -88,7 +91,7 @@ export function Notice({ params }: { params: Record<string, string | string[] | 
         </span>
         <span>
           <span className="sr-only">Error: </span>
-          {ERROR_TEXT[error] ?? ERROR_TEXT.error}
+          {failure}
         </span>
       </p>
     );

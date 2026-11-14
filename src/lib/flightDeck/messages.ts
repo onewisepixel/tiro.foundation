@@ -98,3 +98,8 @@ export const NOTICE_TEXT: Record<string, string> = {
   "gate-approved": "Approval recorded, signed, and written to the protective log.",
   "deactivate-not-durable": "Signed out everywhere now. The deactivation itself could NOT be recorded in the protective log, so it was not applied: retry when Health shows the log is reachable.",
 };
+
+// Notice codes that report a failure (decision 60): the requested outcome
+// did not happen. Notice shows and announces them through its error branch,
+// never as a confirmation. Their text and redirects are unchanged.
+export const NOTICE_FAILURE: ReadonlySet<string> = new Set(["recovery-incomplete", "deactivate-not-durable"]);
