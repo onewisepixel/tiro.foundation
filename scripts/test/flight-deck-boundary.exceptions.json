@@ -6,6 +6,19 @@
       "decision": 58,
       "reason": "PR 4.1 (boundary and baseline): adds the checker, census and capture tooling, the E2E output override, the CI job that runs them, and the recorded baseline",
       "paths": [".github/workflows/ci.yml", "scripts/flight-deck/e2e.mjs", "scripts/test/flight-deck-*", "docs/design/phase-4/baseline/**"]
+    },
+    {
+      "branch": "phase-4/r2-failure-notices",
+      "decision": 60,
+      "reason": "R2: classify incomplete recovery and non-durable operator deactivation as failure notices using the existing alert branch; preserve all action and authorization behavior",
+      "paths": [
+        "src/lib/flightDeck/messages.ts",
+        "src/lib/flightDeck/flightDeck.test.ts",
+        "scripts/flight-deck/e2e.mjs"
+      ],
+      "structural": [
+        "src/components/flight-deck/ui.tsx"
+      ]
     }
   ]
 }
