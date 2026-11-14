@@ -163,10 +163,28 @@ async function clickLink(label) {
 // be using it. It is always put back, including when a check fails.
 const LOCAL_DEMO_DIR = path.resolve(import.meta.dirname, "../../.flight-deck");
 let logAside = null;
+// Fails safely: logAside (the two paths) is kept until the log is verified
+// back in place, or until it is clear the move never happened. Anything
+// else throws and leaves both directories exactly as they are.
 function restoreLog() {
-  if (logAside && fs.existsSync(logAside.to) && !fs.existsSync(logAside.from)) {
-    fs.renameSync(logAside.to, logAside.from);
+  if (!logAside) {
+    return;
   }
+  const { from, to } = logAside;
+  const original = fs.existsSync(from);
+  const backup = fs.existsSync(to);
+  if (backup && !original) {
+    fs.renameSync(to, from);
+    if (!fs.existsSync(from) || fs.existsSync(to)) {
+      throw new Error(`the disposable log was not restored: ${to} -> ${from}`);
+    }
+  } else if (backup && original) {
+    throw new Error(`both ${from} and ${to} exist; neither was changed. Restore the log by hand`);
+  } else if (!backup && !original) {
+    throw new Error(`the disposable log is missing: neither ${from} nor ${to} exists`);
+  }
+  // Restored and verified, or the original is in place and nothing was
+  // moved (the initial move failed).
   logAside = null;
 }
 // The page's notice and recovery status, as rendered.
