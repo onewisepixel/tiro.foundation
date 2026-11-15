@@ -20,6 +20,10 @@ import { buildSeedState } from "./seed";
 import { COLLECTIONS, LocalFileOperationsStore, MemoryOperationsStore, StoreError, type OpsTx } from "./store";
 import { buildBriefing, digestText } from "./briefing";
 import { ValidationError } from "./schema";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Notice } from "../../components/flight-deck/ui";
+import { ERROR_TEXT, NOTICE_FAILURE, NOTICE_TEXT } from "./messages";
 
 const [FOUNDER, OPERATOR, REVIEWER] = DEMO_IDENTITIES;
 
@@ -699,4 +703,63 @@ test("12: the operations domain imports nothing from backend/ or the archive dat
       assert.doesNotMatch(spec, /backend|infra|@\/data|publicMemoryApi|livingTrace|recordKind/, `${f} imports ${spec}`);
     }
   }
+});
+
+// ---------- Failure notices (decision 60, R2) ----------
+
+const renderNotice = (params: Record<string, string>) => renderToStaticMarkup(createElement(Notice, { params }));
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#x27;");
+const FAILURE_CODES = ["deactivate-not-durable", "recovery-incomplete"];
+
+test("R2: exactly two notice codes are failures, and both have notice text", () => {
+  assert.deepEqual([...NOTICE_FAILURE].sort(), FAILURE_CODES);
+  for (const code of FAILURE_CODES) {
+    assert.equal(typeof NOTICE_TEXT[code], "string", code);
+  }
+});
+
+test("R2: no other notice is classified as a failure", () => {
+  for (const code of Object.keys(NOTICE_TEXT).filter((c) => !FAILURE_CODES.includes(c))) {
+    assert.equal(NOTICE_FAILURE.has(code), false, code);
+  }
+  assert.equal(NOTICE_FAILURE.has("recovery-verified"), false);
+});
+
+test("R2: both failure notices render through the one error-alert branch", () => {
+  // The same markup as an error, with only the message differing.
+  const errorForm = renderNotice({ error: "error" }).replace(escapeHtml(ERROR_TEXT.error), "§");
+  assert.match(errorForm, /^<p role="alert" class="fd-notice fd-notice-error"><span aria-hidden="true" class="text-\[var\(--tiro-contested\)\]">✕<\/span><span><span class="sr-only">Error: <\/span>§<\/span><\/p>$/);
+  for (const code of FAILURE_CODES) {
+    const html = renderNotice({ notice: code });
+    assert.ok(html.includes(escapeHtml(NOTICE_TEXT[code])), code);
+    assert.equal(html.replace(escapeHtml(NOTICE_TEXT[code]), "§"), errorForm, code);
+    assert.doesNotMatch(html, /role="status"|✓|fd-notice-ok/, code);
+  }
+});
+
+test("R2: a successful recovery keeps its confirmation form (role=status, ✓)", () => {
+  assert.equal(
+    renderNotice({ notice: "recovery-verified" }),
+    `<p role="status" class="fd-notice fd-notice-ok"><span aria-hidden="true" class="text-[var(--tiro-mineral)]">✓</span>${escapeHtml(NOTICE_TEXT["recovery-verified"])}</p>`,
+  );
+  // Every other notice, and an unknown one, keeps the same form.
+  for (const code of Object.keys(NOTICE_TEXT).filter((c) => !FAILURE_CODES.includes(c))) {
+    assert.match(renderNotice({ notice: code }), /^<p role="status" class="fd-notice fd-notice-ok"><span aria-hidden="true" class="text-\[var\(--tiro-mineral\)\]">✓<\/span>/, code);
+  }
+  assert.ok(renderNotice({ notice: "no-such-notice" }).includes(escapeHtml(NOTICE_TEXT.saved)));
+});
+
+test("R2: existing errors are unchanged, and an error takes precedence over any notice", () => {
+  assert.equal(
+    renderNotice({ error: "protective-log-unavailable" }),
+    `<p role="alert" class="fd-notice fd-notice-error"><span aria-hidden="true" class="text-[var(--tiro-contested)]">✕</span><span><span class="sr-only">Error: </span>${escapeHtml(ERROR_TEXT["protective-log-unavailable"])}</span></p>`,
+  );
+  assert.ok(renderNotice({ error: "no-such-error" }).includes(escapeHtml(ERROR_TEXT.error)));
+  for (const notice of ["recovery-incomplete", "recovery-verified", "saved"]) {
+    const html = renderNotice({ error: "access-denied", notice });
+    assert.ok(html.startsWith(`<p role="alert"`), notice);
+    assert.ok(html.includes(escapeHtml(ERROR_TEXT["access-denied"])), notice);
+    assert.ok(!html.includes(escapeHtml(NOTICE_TEXT[notice])), notice);
+  }
+  assert.equal(renderNotice({}), "");
 });
